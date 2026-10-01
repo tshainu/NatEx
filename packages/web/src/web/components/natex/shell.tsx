@@ -86,7 +86,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <div className="border-t border-ink-600 px-4 py-3">
           <p className="font-mono text-[10px] leading-relaxed text-text-lo/70">
-            Milestones 1–2 shipped · M3 last mile in verification
+            Milestones 1–3 shipped · M4 finance backend live, portal in build
           </p>
         </div>
       </aside>

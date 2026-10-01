@@ -177,16 +177,19 @@ export const EXPOSED_MILESTONE = 3;
 
 /**
  * What is actually shipped end-to-end, clients included. Lower than
- * EXPOSED_MILESTONE whenever a milestone's backend is proven but its UI is not:
- * M3 is at 2 here. Proven so far: §7 offline sync end-to-end (engine
- * `scripts/smoke-sync.ts`, 500-op soak `scripts/soak-sync.ts`, ops conflict
- * review `scripts/probe-sync-conflicts.ts`) and the rider delivery app
- * (`scripts/ui-rider.ts`, `scripts/probe-pod-photo.ts`, Expo web only — not yet
- * on a physical phone). Still missing before M3 ships: the ops runsheet and NDR
- * pages, the merchant portal with bulk booking, and §6 transition unit tests.
- * This is the honest number to show a human.
+ * EXPOSED_MILESTONE whenever a milestone's backend is proven but its UI is not.
+ * M3 shipped 2026-10-01, every client proven against the live API and DB:
+ * delivery engine (`scripts/smoke-m3.ts`), §7 offline sync (`smoke-sync.ts`,
+ * `soak-sync.ts`, `probe-sync-conflicts.ts`), rider app (`ui-rider.ts`,
+ * `ui-rider-queue.ts`, `probe-pod-photo.ts`; Expo web only, not yet on a
+ * physical phone), ops runsheets + NDR (`probe-ops-delivery.ts`,
+ * `ui-ops-delivery.ts`), merchant portal + bulk booking
+ * (`probe-merchant-portal.ts`, `probe-bulk-booking.ts`, `ui-merchant.ts`) and
+ * §6 transition unit tests (`state-machine.test.ts`, `transition.db.test.ts`).
+ * M4 stays out until its finance screens exist. This is the honest number to
+ * show a human.
  */
-export const SHIPPED_MILESTONE = 2;
+export const SHIPPED_MILESTONE = 3;
 
 /** @deprecated Ambiguous. Read EXPOSED_MILESTONE or SHIPPED_MILESTONE. */
 export const CURRENT_MILESTONE = EXPOSED_MILESTONE;

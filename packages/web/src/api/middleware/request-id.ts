@@ -44,13 +44,17 @@ export const withRequestId = base.middleware(async ({ context, next, path }) => 
     // at their status; anything else is a bug and gets a stack trace, because a
     // bare 500 with no server-side trace is undebuggable.
     const e = err as { code?: string; data?: { status?: number }; message?: string };
-    const expected = typeof e.code === "string" && typeof e.data?.status === "number";
+    // A framework validation rejection is a client error, not a bug: log it at
+    // 400 and without a stack trace, then rewrite it below.
+    const rawValidation = isRawValidationError(e as { code?: string; data?: { issues?: unknown } });
+    const expected =
+      rawValidation || (typeof e.code === "string" && typeof e.data?.status === "number");
     console.log(
       JSON.stringify({
         requestId,
         route,
         durationMs: Date.now() - started,
-        status: e.data?.status ?? 500,
+        status: rawValidation ? 400 : (e.data?.status ?? 500),
         error: e.code ?? "INTERNAL_SERVER_ERROR",
         message: e.message,
         at: new Date().toISOString(),
@@ -60,7 +64,7 @@ export const withRequestId = base.middleware(async ({ context, next, path }) => 
     // Give framework-raised validation failures the problem document §11
     // mandates, so a client reads field errors the same way it reads every
     // other error instead of special-casing oRPC's envelope.
-    if (isRawValidationError(e as { code?: string; data?: { issues?: unknown } })) {
+    if (rawValidation) {
       errors.validation((e as { data: { issues: unknown[] } }).data.issues);
     }
     throw err;

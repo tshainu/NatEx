@@ -8,10 +8,11 @@ import { DataTable, MonoCell, type Column } from "@/components/natex/data-table"
 import { StatusPill } from "@/components/natex/status-pill";
 
 /**
- * Finance overview. Milestone 1 builds no ledger — the COD ledger, remittance
- * batches and invoicing are Milestone 4 (§4). What finance can see today is
- * real and nothing more: which merchants carry COD, and the COD amounts
- * declared on parcels already in custody.
+ * Finance overview, interim. The M4 ledger, settlements, invoices and disputes
+ * are built behind the API (scripts/smoke-m4.ts, probe-cod-wiring.ts,
+ * probe-disputes.ts) but their screens are not yet. Until the finance
+ * dashboard replaces this page it shows only what it can read directly:
+ * which merchants carry COD, and COD declared on the newest parcels.
  *
  * Finance is a global-scope role (api/shared/auth.ts), so these figures span
  * every branch.
@@ -88,8 +89,8 @@ export default function FinanceOverview() {
   return (
     <Page
       title="Finance overview"
-      description="Cash-on-delivery exposure as declared at booking. Collection, reconciliation and remittance are not built yet."
-      actions={<Badge variant="milestone">Ledger arrives in Milestone 4</Badge>}
+      description="Cash-on-delivery exposure as declared at booking. The ledger, reconciliation and settlement screens are next."
+      actions={<Badge variant="milestone">Ledger screens in build · M4</Badge>}
     >
       {error ? <ErrorNote>{error}</ErrorNote> : null}
 
@@ -112,28 +113,26 @@ export default function FinanceOverview() {
       </div>
 
       <Card
-        title="What Milestone 1 does and does not account for"
+        title="What this page does and does not show"
         className="max-w-3xl"
       >
         <div className="flex flex-col gap-3 text-[13px] leading-relaxed text-muted-foreground">
           <p>
             <span className="font-medium text-foreground">Recorded today.</span> A COD amount
             is captured on the parcel at booking and travels with it through the state machine.
-            Every custody change is written to the append-only parcel event log, which is what
-            the Milestone 4 ledger will be built from.
+            Every custody change is written to the append-only parcel event log.
           </p>
           <p>
-            <span className="font-medium text-foreground">Not recorded yet.</span> No money
-            moves through this system in Milestone 1 — there is no collection record, no rider
-            cash position, no remittance batch, no UTR, no merchant invoice and no settlement
-            status. The figures above are the sum of what was{" "}
-            <span className="italic">declared</span> on a sample of parcels, and will not
-            reconcile against anything.
+            <span className="font-medium text-foreground">Recorded, not shown here.</span>{" "}
+            Collections, rider cash, deposits, settlements, UTRs, invoices and disputes are
+            posted to the double-entry COD ledger, but their screens are not built yet. The
+            figures above are the sum of what was <span className="italic">declared</span> on
+            a sample of parcels, not what was collected, and will not match the ledger.
           </p>
           <p>
-            <span className="font-medium text-foreground">Why a sample.</span> Aggregation is a
-            reporting endpoint scoped to Milestone 4. Rather than invent one, this page sums the
-            page of parcels it can legitimately read (100 rows) and says so.
+            <span className="font-medium text-foreground">Why a sample.</span> This interim
+            page sums the page of parcels it can read (100 rows) and says so; the finance
+            dashboard will read the ledger&apos;s own totals instead.
           </p>
         </div>
       </Card>

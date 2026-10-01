@@ -186,7 +186,7 @@ function Routes() {
         />
       </Portal>
 
-      {/* Finance — overview only; the ledger is Milestone 4 */}
+      {/* Finance — overview only on the web; the M4 ledger API is built, its screens are next */}
       <Portal path="/finance">
         <FinanceOverview />
       </Portal>
@@ -194,24 +194,24 @@ function Routes() {
         <MilestoneStub
           title="COD ledger"
           milestone={4}
-          what="The cash-on-delivery ledger arrives in Milestone 4."
-          detail="Milestone 1 records the COD amount declared on a parcel, nothing more. Collection against a rider, the rider's cash position, hub cash-in and the double-entry ledger that ties them together are Milestone 4."
+          what="The COD ledger is live on the API; this screen is next."
+          detail="Rider collection, cash in hand, branch deposits, bank banking and the double-entry ledger that ties them together are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — until it ships this page shows nothing rather than placeholder figures."
         />
       </Portal>
       <Portal path="/finance/remittances">
         <MilestoneStub
           title="Remittances"
           milestone={4}
-          what="Merchant remittance batches arrive in Milestone 4."
-          detail="Remittance batching, bank transfer files, UTR capture and settlement status need the COD ledger underneath them. None of it exists in Milestone 1 and none of it is stubbed with placeholder data."
+          what="Settlements are live on the API; this screen is next."
+          detail="Settlement batches with maker–checker approval, holds, payout files and UTR capture are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — nothing here is stubbed with placeholder data."
         />
       </Portal>
       <Portal path="/finance/invoices">
         <MilestoneStub
           title="Invoices"
           milestone={4}
-          what="Merchant invoicing arrives in Milestone 4."
-          detail="Invoicing depends on rate cards (Milestone 5) for freight charges and on the COD ledger (Milestone 4) for deductions. Milestone 1 prices nothing."
+          what="Invoicing is live on the API; this screen is next."
+          detail="Invoices, credit notes, payments and AR ageing are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — nothing here is stubbed with placeholder data."
         />
       </Portal>
 

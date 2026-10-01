@@ -86,11 +86,11 @@ export default function FieldHome() {
         </Card>
       ) : (
         <Card title="Transport" className="max-w-2xl">
-          <p className="text-[14px] font-semibold">Bagging and line-haul trips arrive in Milestone 2.</p>
+          <p className="text-[14px] font-semibold">Bagging and line-haul trips run in the mobile app.</p>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Milestone 1 ends at the origin hub: parcels are booked, collected from merchants and
-            received into the hub. Bag sealing, trip dispatch and arrival scanning are the next
-            milestone, and the endpoints behind them do not exist yet.
+            Bag scanning and sealing, trip loading, departure with a vehicle seal and inbound
+            receipt at the destination hub all need the handheld&apos;s scanner, so they live in the
+            NatEx app&apos;s transport tabs. Sign in there with this phone number.
           </p>
         </Card>
       )}

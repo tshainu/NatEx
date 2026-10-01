@@ -93,7 +93,7 @@ function clientFor(token?: string, idemKey?: string): AppRouterClient {
 const anon = clientFor();
 
 async function login(phone: string) {
-  await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.requestOtp"));
+  await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.%Otp"));
   const challenge = await anon.identity.requestOtp({ phone });
   if (!challenge.devCode) throw new Error(`no dev OTP for ${phone}`);
   return anon.identity.verifyOtp({ challengeId: challenge.challengeId, code: challenge.devCode, deviceId: null });

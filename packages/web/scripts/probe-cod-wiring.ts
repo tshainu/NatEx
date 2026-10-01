@@ -26,6 +26,7 @@ import { and, eq, inArray, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, KDY_HUB, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
+import { retireRun } from "./lib/retire";
 
 const API = process.env.PROBE_API ?? "http://localhost:4200";
 const DEVICE = "cod-wiring-probe-device";
@@ -102,11 +103,7 @@ for (const r of await clientFor(transport.accessToken).delivery.runsheetList({
   riderId: rider.user.id,
   status: ["draft", "dispatched"],
 })) {
-  await clientFor(ops.accessToken, key(`retire-${r.id}`)).delivery.runsheetClose({
-    runsheetId: r.id,
-    force: true,
-    notes: `retired by COD wiring probe ${RUN}`,
-  });
+  await retireRun(clientFor(ops.accessToken, key(`retire-${r.id}`)), r, `retired by COD wiring probe ${RUN}`);
 }
 const cleared = await bankRiderCash({
   clientFor,

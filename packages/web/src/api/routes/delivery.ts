@@ -202,6 +202,27 @@ export const runsheetDispatch = transportProc
  * a reason code that does NOT burn a consignee's attempt, because it was NatEx
  * that ran out of day. Ops only: a rider may not close their own cash position.
  */
+/**
+ * Abandon a draft that never left the hub — no parcel has moved, so the
+ * builder (transport) may do it. The reason is mandatory and lands in the
+ * audit log; a dispatched run is refused (close it instead).
+ */
+export const runsheetCancel = transportProc
+  .input(z.object({ runsheetId: z.string().min(1), reason: z.string().trim().min(5).max(400) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "delivery.runsheetCancel",
+        entity: "delivery_runsheet",
+        entityId: () => input.runsheetId,
+        action: "runsheet.cancelled",
+      },
+      () => deliveryService.cancelRunsheet(input, context.principal),
+    ),
+  );
+
 export const runsheetClose = opsProc
   .input(
     z.object({
@@ -398,6 +419,7 @@ export const delivery = {
   runsheetRemove,
   runsheetOptimise,
   runsheetDispatch,
+  runsheetCancel,
   runsheetClose,
   otpRequest,
   otpVerify,

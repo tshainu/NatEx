@@ -1478,6 +1478,60 @@ export async function recordFailure(
   };
 }
 
+// ---------------------------------------------------------- cancel a draft
+
+/**
+ * Abandon a run that never left the hub.
+ *
+ * A draft moves no parcel (dispatch is the only step that transitions stops to
+ * OutForDelivery), so cancelling one is a bookkeeping act: every pending stop
+ * is marked removed — never deleted, it is still part of the custody story —
+ * and the run becomes `cancelled`, which frees the rider for a new run that
+ * day (the one-live-run rule counts draft and dispatched only). Without this a
+ * dispatch that failed halfway left the rider locked out until midnight.
+ *
+ * A dispatched run is refused: parcels are on the van, and the only way off it
+ * is an outcome per stop or a forced close.
+ */
+export async function cancelRunsheet(
+  input: { runsheetId: string; reason: string },
+  actor: Principal,
+): Promise<{ runsheet: RunsheetRow; released: string[] }> {
+  const sheet = await getRunsheet(input.runsheetId);
+  if (!sheet) errors.notFound(`Runsheet ${input.runsheetId}`);
+  assertRunsheetVisible(sheet!, actor);
+  if (sheet!.status !== "draft") {
+    errors.conflict(
+      `Runsheet ${sheet!.code} is ${sheet!.status}; only a draft can be cancelled.${
+        sheet!.status === "dispatched" ? " Record an outcome for each stop, or close the run." : ""
+      }`,
+      { currentStatus: sheet!.status },
+    );
+  }
+
+  const pending = await db
+    .select({ id: runsheetItem.id, awb: runsheetItem.awb })
+    .from(runsheetItem)
+    .where(and(eq(runsheetItem.runsheetId, sheet!.id), eq(runsheetItem.state, "pending")));
+  if (pending.length > 0) {
+    await db
+      .update(runsheetItem)
+      .set({ state: "removed" })
+      .where(and(eq(runsheetItem.runsheetId, sheet!.id), eq(runsheetItem.state, "pending")));
+  }
+
+  const [updated] = await db
+    .update(runsheet)
+    .set({ status: "cancelled", closedAt: new Date() })
+    .where(and(eq(runsheet.id, sheet!.id), eq(runsheet.status, "draft")))
+    .returning();
+  if (!updated) {
+    errors.conflict(`Runsheet ${sheet!.code} changed while it was being cancelled.`, {});
+  }
+
+  return { runsheet: updated!, released: pending.map((p) => p.awb) };
+}
+
 // ------------------------------------------------------------ close the run
 
 export interface CloseRunsheetResult {

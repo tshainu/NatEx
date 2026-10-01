@@ -7,8 +7,8 @@ Source of truth: `/home/user/Attachments/pasted-1_0jWrxs.txt` (PROJECT.md). Sect
 - M1 — Core & Collection: **verified** (smoke 38/38 green, routing NaN bug fixed and re-verified 2026-09-30).
   - Carried-over gaps, tracked, not dropped: no unit tests, no README. (Rider tab: built and proven 2026-10-01, see M3.)
 - M2 — Transport & Custody: **verified** (ops web + Expo rider/transport tabs driven end to end in a browser 2026-09-30; see Mobile verification log below).
-- M3 — Delivery & Merchant: **in progress** (started 2026-09-30). Backend + rider app proven; ops runsheets/NDR pages, merchant portal, bulk booking and §6 unit tests remain.
-- M4 — Money: not started
+- M3 — Delivery & Merchant: **verified** 2026-10-01 (`SHIPPED_MILESTONE = 3`). Full regression on the final code listed under "M3 closing regression" below. Caveat: the rider app has only run in Expo web, never on a physical phone.
+- M4 — Money: **backend built and verified** (ledger, COD wiring, settlements, invoices, disputes, nightly invariant — `smoke-m4` 75/75, `probe-cod-wiring` 35/35, `probe-disputes` 55/55, `probe-nightly` 6/6). Finance portal UI not started; `/finance/cod`, `/finance/remittances`, `/finance/invoices` are honest stubs.
 - M5 — Hardening: not started
 
 ## M2 plan (§10)
@@ -63,13 +63,13 @@ Backend
       all eight tables live (`delivery_runsheet`, `delivery_runsheet_item`,
       `delivery_attempt`, `delivery_pod`, `delivery_otp`, `delivery_ndr`,
       `delivery_rto`, `delivery_reason_code`), every one written and read back by
-      `scripts/smoke-m3.ts` (87/87)
+      `scripts/smoke-m3.ts` (94/94)
 - [x] schema `notifications.ts`: template registry + per-message delivery log
       `notify_template` (versioned on admin edit, proven) + `notify_message`
 - [x] schema `sync.ts`: client operation journal, conflict register, per-device cursor
 - [x] `modules/delivery/service.ts`: runsheet build + route order, dispatch, POD delivery,
       failure with reason code, auto-RTO at 3 attempts (§6), NDR queue, RTO flow
-      proven live by `scripts/smoke-m3.ts` (87/87), which walks a whole Kandy day
+      proven live by `scripts/smoke-m3.ts` (94/94), which walks a whole Kandy day
       and asserts each guardrail by trying to break it: the §6 role table (rider
       cannot load or dispatch their own van, nor close their own cash), one live
       run per rider per day, a dispatched run refusing new stops, a run with open
@@ -95,21 +95,42 @@ Backend
       scoping and role boundaries. `double_cod` is the one policy not yet
       covered: it needs the delivery->COD wiring that is still open in M4.
 - [x] routes `delivery.ts`, `notifications.ts`, `ndr.ts` — every proc exercised by
-      `scripts/smoke-m3.ts` (87/87) including the role gates (merchant refused 403
+      `scripts/smoke-m3.ts` (94/94) including the role gates (merchant refused 403
       on deliverable stock, runsheet list and delivery OTP) and admin global scope
-- [ ] merchant booking + bulk upload routes — `parcels.create` is `authedProc` and
-      merchant-callable, but there is no bulk/CSV booking endpoint yet
+- [x] merchant booking + bulk upload routes — `parcels.create` (merchant-callable,
+      §5 scoped) and `parcels.bulkCreate` (`modules/parcels/bulk.ts`, row limit
+      `BULK_ROW_LIMIT`, `dryRun` preview, one Idempotency-Key per chunk).
+      `scripts/probe-bulk-booking.ts` 37/37; client-side CSV parsing covered by
+      `src/web/lib/bulk-csv.test.ts` (21 tests).
+- [x] `delivery.runsheetCancel` (added 2026-10-01): a dispatch that failed mid-way
+      left a draft run that locked the rider out for the day, and `cancelled` was
+      unreachable. Draft only (dispatched -> 409), pending stops marked `removed`,
+      no parcel moves, reason 5–400 chars, audited as `runsheet.cancelled`. Ops
+      page has a "Cancel the draft" section behind a ConfirmDialog plus a
+      "Cancelled" filter. Proven by `smoke-m3` §12b and the cancel step in
+      `ui-ops-delivery` (24/24). Test scripts retire stale runs through it
+      (`scripts/lib/retire.ts`).
 - [x] routes `sync.ts`: push, pull, conflict queue (list/get/claim/resolve), fleet, journal
 - [x] open M3 statuses in the state machine (CURRENT_MILESTONE 2 -> 3)
       `EXPOSED_MILESTONE = 3` in `modules/parcels/state-machine.ts`; every M3
       status (OutForDelivery, Delivered, DeliveryAttempted, RTOInitiated,
       RTOInTransit, RTODelivered) driven live in `scripts/smoke-m3.ts`.
-      `SHIPPED_MILESTONE` stays 2 on purpose — rider app now proven, but ops runsheet/NDR
-      pages, merchant portal + bulk booking and §6 unit tests are still outstanding.
+      `SHIPPED_MILESTONE` bumped 2 -> 3 on 2026-10-01 once the ops pages, merchant
+      portal, bulk booking and §6 unit tests below were all proven.
 
 Web
-- [ ] merchant portal: dashboard, booking, bulk upload, pickups, shipments, tracking
-- [ ] ops: runsheets, NDR queue
+- [x] merchant portal: dashboard, booking, bulk upload, pickups, shipments, tracking, NDR
+      `pages/merchant/{dashboard,book,book-csv,pickups,parcels,tracking,ndr,account}.tsx`.
+      `scripts/probe-merchant-portal.ts` 51/51 (every field each page reads, §5
+      cross-merchant 403/404). `scripts/ui-merchant.ts` 36/36 in a real browser:
+      dashboard tiles equal the API counts, decimal-precision field errors, lost
+      response + retry books ONE parcel on the same key, 152-row CSV with
+      client- and server-side rejects and NOTHING booked on dry run, keyboard tab
+      strip, and no console errors across merchant/ops/admin screens.
+- [x] ops: runsheets, NDR queue
+      `pages/ops/runsheets.tsx`, `pages/ops/ndr.tsx`, `components/natex/ndr-panels.tsx`.
+      `scripts/probe-ops-delivery.ts` 45/45, `scripts/ui-ops-delivery.ts` 24/24
+      (build, add stops, dispatch, force-close, cancel-draft, NDR instruct/close, RTO start -> dispatch -> hand-back, keyboard + CSV export, no console errors).
 - [x] ops: sync conflict review — `pages/ops/sync-conflicts.tsx` + `queries/sync.ts`,
       queue + policy tally + fleet health + side-by-side client-claim/server-state
       drawer with claim/resolve. Proven live by `scripts/probe-sync-conflicts.ts`
@@ -185,7 +206,11 @@ and so far exercised only through the web file-picker path.
   Plain `bun run dev` once bound to `[::1]` only and the preview tunnel 502'd.
 
 Tests
-- [ ] Bun unit tests: every legal + illegal transition (§6) — carried over from M2
+- [x] Bun unit tests: every legal + illegal transition (§6) — carried over from M2
+      `modules/parcels/state-machine.test.ts` (pure table) and
+      `modules/parcels/transition.db.test.ts` (against the DB). `bun run test`
+      count recorded under "M3 closing regression". Idempotency replay is proven
+      by `scripts/smoke.ts` (71/71) and `ui-merchant`, not by a unit test.
 - [x] sync soak: 500 sequential ops, clock skew, force-quit mid-queue (§7)
       `scripts/soak-sync.ts` — 34/34 in 866s: outbox built entirely offline, 500
       ops applied exactly once, 3 force-quit chunk replays all answered
@@ -199,3 +224,30 @@ Tests
   stale dead-lettered rows written by a worker running pre-handler code, not a
   missing handler. Requeued the 10 `failed` rows; all drained clean. Verified by
   counting `shared_outbox` by state before and after.
+
+### M3 closing regression (2026-10-01, final code)
+
+Each script run against the live dev server + Turso DB. Failures caused by
+Turso `socket hang up` (a 500 in the server log with `ECONNRESET` as the cause)
+were rerun; everything else was fixed before counting.
+
+- `smoke-m3` 94/94, `smoke-m4` 75/75, `smoke-sync` 67/67, `smoke` 71/71
+- `ui-rider` 51/51, `ui-rider-queue` 31/31, `probe-pod-photo` 25/25
+- `ui-ops-delivery` 24/24, `probe-ops-delivery` 45/45
+- `ui-merchant` 36/36, `probe-merchant-portal` 51/51, `probe-bulk-booking` 37/37
+- `probe-cod-wiring` 35/35, `probe-disputes` 55/55, `probe-sync-conflicts` 47/47, `probe-nightly` 6/6
+- `bun run test` 1353 pass / 0 fail (3464 expects); `ui-check` 31/31 routes; `bun run lint` 0 errors; typecheck web, scripts and mobile all clean
+
+Fixed while closing:
+- Merchant "Parcel booked" card had lost its live-region role in an a11y lint
+  pass (a bare `aria-live` div). Now an `<output>` around the announcement text
+  only; caught by `ui-merchant` failing twice in a row on the same check.
+- Framework input-validation rejections were logged as `status:500` with an
+  `[unhandled]` stack. Now logged as 400 with no stack; the response is still the
+  RFC 7807 `validation-failed` problem. Checked by sending a malformed
+  `identity.requestOtp` and reading the server log.
+- Stale copy on live screens corrected: login and sidebar milestone lines, the
+  web field page (said bagging "arrives in Milestone 2"), the POD-policy hint
+  ("enforced from Milestone 3"), the finance overview (said "no money moves
+  through this system") and the three finance stubs (said the ledger did not exist).
+

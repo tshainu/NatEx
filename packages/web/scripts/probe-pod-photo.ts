@@ -27,6 +27,7 @@ import { chromium } from "playwright-core";
 import { desc, eq, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
+import { retireRun } from "./lib/retire";
 
 const API = process.env.UI_RIDER_API ?? "http://localhost:4200";
 const APP = process.env.UI_RIDER_APP ?? "http://localhost:4300";
@@ -155,11 +156,7 @@ for (const r of await clientFor(transport.accessToken).delivery.runsheetList({
   riderId: rider.user.id,
   status: ["draft", "dispatched"],
 })) {
-  await clientFor(ops.accessToken, key(`retire-${r.id}`)).delivery.runsheetClose({
-    runsheetId: r.id,
-    force: true,
-    notes: "retired by photo POD probe before a fresh run",
-  });
+  await retireRun(clientFor(ops.accessToken, key(`retire-${r.id}`)), r, "retired by photo POD probe before a fresh run");
 }
 const [apiAwb, otherAwb, uiAwb] = await stage(3, "pod");
 const sheet = await clientFor(transport.accessToken, key("create")).delivery.runsheetCreate({ riderId: rider.user.id });
@@ -179,7 +176,7 @@ check(
   "slot is keyed under this parcel's AWB",
   slot.storageRef,
 );
-check(/^https:\/\//.test(slot.uploadUrl) && /X-Amz-Signature=/.test(slot.uploadUrl), "upload URL is a presigned HTTPS PUT");
+check(slot.uploadUrl.startsWith("https://") && /X-Amz-Signature=/.test(slot.uploadUrl), "upload URL is a presigned HTTPS PUT");
 check(slot.expiresInSeconds > 0 && slot.expiresInSeconds <= 900, "slot expires", `${slot.expiresInSeconds}s`);
 
 const put = await fetch(slot.uploadUrl, { method: "PUT", body: jpegBytes, headers: { "Content-Type": "image/jpeg" } });

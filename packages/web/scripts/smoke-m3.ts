@@ -3,6 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
+import { retireRun } from "./lib/retire";
 
 /**
  * End-to-end exercise of the Milestone 3 API against a running dev server
@@ -285,15 +286,11 @@ const stale = await clientFor(ops.accessToken).delivery.runsheetList({
   status: ["draft", "dispatched"],
 });
 for (const openRun of stale) {
-  const retired = await clientFor(ops.accessToken, key(`retire-${openRun.id}`)).delivery.runsheetClose({
-    runsheetId: openRun.id,
-    force: true,
-    notes: "stale run left open by an earlier smoke pass, retired before re-testing",
-  });
+  const retired = await retireRun(clientFor(ops.accessToken, key(`retire-${openRun.id}`)), openRun, "stale run left open by an earlier smoke pass, retired before re-testing");
   check(
-    retired.runsheet.status === "closed",
-    "a half-finished run is retired through the audited close, not deleted",
-    `${openRun.code} → closed, ${retired.unattempted.length} stop(s) swept back`,
+    retired.status === (openRun.status === "draft" ? "cancelled" : "closed"),
+    "a half-finished run is retired through the audited close/cancel, not deleted",
+    `${openRun.code} ${openRun.status} → ${retired.status}, ${retired.swept} stop(s) swept back`,
   );
 }
 
@@ -411,6 +408,12 @@ await expectFail("a dispatched run cannot take new stops", 409, () =>
 );
 await expectFail("a run with open stops cannot be closed", 409, () =>
   clientFor(ops.accessToken, key("early-close")).delivery.runsheetClose({ runsheetId: sheet.id }),
+);
+await expectFail("a dispatched run cannot be cancelled — parcels are on the van", 409, () =>
+  clientFor(ops.accessToken, key("cancel-dispatched")).delivery.runsheetCancel({
+    runsheetId: sheet.id,
+    reason: "trying to cancel a run already on the road",
+  }),
 );
 
 const mine = await riderC.delivery.myRunsheet({});
@@ -664,6 +667,63 @@ check(
   "running out of day does not burn the consignee's attempt",
   `${failParcel.awb}: ${afterForce?.parcel.deliveryAttempts}/3 attempts used, status ${afterForce?.parcel.status}`,
 );
+
+// ── 12b. A draft that never left the hub is cancelled, freeing the rider ─────
+console.log("\n12b. Cancel a draft run");
+const spare = (await trC.delivery.deliverable({})).ready.find((p) => p.awb !== failParcel.awb);
+const run3 = await clientFor(kandyTransport.accessToken, key("create-3")).delivery.runsheetCreate({
+  riderId: kandyRider.user.id,
+});
+const spareBefore = spare ? (await opsC.parcels.get({ awbOrId: spare.awb }))?.parcel.status : undefined;
+if (spare) {
+  await clientFor(kandyTransport.accessToken, key("add-3")).delivery.runsheetAdd({
+    runsheetId: run3.id,
+    awbs: [spare.awb],
+  });
+}
+await expectFail("a rider cannot cancel a run", 403, () =>
+  clientFor(kandyRider.accessToken, key("cancel-rider")).delivery.runsheetCancel({
+    runsheetId: run3.id,
+    reason: "rider trying to drop the day",
+  }),
+);
+await expectFail("a cancellation needs a reason", 400, () =>
+  clientFor(kandyTransport.accessToken, key("cancel-thin")).delivery.runsheetCancel({
+    runsheetId: run3.id,
+    reason: "no",
+  }),
+);
+const cancelled = await clientFor(kandyTransport.accessToken, key("cancel-3")).delivery.runsheetCancel({
+  runsheetId: run3.id,
+  reason: "Van broke down at the hub before dispatch.",
+});
+check(
+  cancelled.runsheet.status === "cancelled" && cancelled.released.length === (spare ? 1 : 0),
+  "a draft run is cancelled and its stops released",
+  `${run3.code} → ${cancelled.runsheet.status}, released ${cancelled.released.join(", ") || "none"}`,
+);
+if (spare) {
+  const spareRow = await opsC.parcels.get({ awbOrId: spare.awb });
+  check(
+    spareRow?.parcel.status === spareBefore && spareRow?.parcel.status !== "OutForDelivery",
+    "cancelling a draft moves no parcel",
+    `${spare.awb}: ${spareBefore} before, ${spareRow?.parcel.status} after`,
+  );
+}
+await expectFail("a cancelled run cannot be cancelled twice", 409, () =>
+  clientFor(kandyTransport.accessToken, key("cancel-again")).delivery.runsheetCancel({
+    runsheetId: run3.id,
+    reason: "second cancellation attempt",
+  }),
+);
+const run4 = await clientFor(kandyTransport.accessToken, key("create-4")).delivery.runsheetCreate({
+  riderId: kandyRider.user.id,
+});
+check(run4.status === "draft", "the rider is free for a new run the same day", run4.code);
+await clientFor(kandyTransport.accessToken, key("cancel-4")).delivery.runsheetCancel({
+  runsheetId: run4.id,
+  reason: "smoke test tidy-up of an empty draft",
+});
 
 // ── 13. The return leg (§6 RTO transitions) ───────────────────────────────────
 console.log("\n13. Return leg, signed back in");

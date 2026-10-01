@@ -26,6 +26,7 @@ import { readFileSync } from "node:fs";
 import { and, eq, inArray, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
+import { retireRun } from "./lib/retire";
 
 const BASE = process.env.UI_CHECK_BASE ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
@@ -84,11 +85,7 @@ const ops = clientFor(kdyOps.accessToken);
 // ── Fixtures, through the real API ────────────────────────────────────────────
 // Retire the Kandy rider's live run (one per rider per day) the audited way.
 for (const open of await ops.delivery.runsheetList({ riderId: kdyRider.user.id, status: ["draft", "dispatched"] })) {
-  await clientFor(kdyOps.accessToken, key("retire")).delivery.runsheetClose({
-    runsheetId: open.id,
-    force: true,
-    notes: "left open by an earlier pass, retired before the UI proof",
-  });
+  await retireRun(clientFor(kdyOps.accessToken, key("retire")), open, "left open by an earlier pass, retired before the UI proof");
 }
 // NDR fixtures are chosen BEFORE the runsheet part: dispatching a run pulls its
 // stops OutForDelivery, so the two sets must never overlap.
@@ -265,6 +262,32 @@ await step("force-close behind its confirm: DB closed, stops written off", async
   const [row] = await db.select().from(runsheet).where(eq(runsheet.id, sheetId));
   if (row!.status !== "closed") throw new Error(`status ${row!.status}`);
   return sheetCode;
+});
+await page.keyboard.press("Escape");
+
+let draftId = "";
+await step("a second draft the same day is cancelled from the drawer: reason gate, confirm, DB cancelled", async () => {
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "New runsheet" }).click();
+  const d = dialog("Open a runsheet");
+  await d.getByLabel("Rider").selectOption(kdyRider.user.id);
+  await d.getByRole("button", { name: "Open as draft" }).click();
+  await page.getByRole("button", { name: /Fill from ready stock/ }).waitFor();
+  const [row] = await db
+    .select()
+    .from(runsheet)
+    .where(and(eq(runsheet.riderId, kdyRider.user.id), eq(runsheet.status, "draft")));
+  if (!row) throw new Error("no draft row in the DB");
+  draftId = row.id;
+  const cancelBtn = page.getByRole("button", { name: "Cancel the draft" });
+  if (await cancelBtn.isEnabled()) throw new Error("enabled with no reason");
+  await page.getByLabel("Reason for cancelling the draft").fill("UI proof: van failed its morning check.");
+  await cancelBtn.click();
+  await dialog("Cancel this draft run?").getByRole("button", { name: "Cancel the draft" }).click();
+  await page.getByText(/^Cancelled\./).waitFor({ timeout: 30_000 });
+  const [after] = await db.select().from(runsheet).where(eq(runsheet.id, draftId));
+  if (after!.status !== "cancelled") throw new Error(`status ${after!.status}`);
+  return `${row.code} → cancelled`;
 });
 await page.keyboard.press("Escape");
 

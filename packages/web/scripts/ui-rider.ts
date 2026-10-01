@@ -34,6 +34,7 @@ import { and, desc, eq, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
+import { retireRun } from "./lib/retire";
 
 const API = process.env.UI_RIDER_API ?? "http://localhost:4200";
 const APP = process.env.UI_RIDER_APP ?? "http://localhost:4300";
@@ -115,11 +116,7 @@ const open = await clientFor(transport.accessToken).delivery.runsheetList({
   status: ["draft", "dispatched"],
 });
 for (const r of open) {
-  await clientFor(ops.accessToken, key(`retire-${r.id}`)).delivery.runsheetClose({
-    runsheetId: r.id,
-    force: true,
-    notes: "retired by ui-rider check before a fresh run",
-  });
+  await retireRun(clientFor(ops.accessToken, key(`retire-${r.id}`)), r, "retired by ui-rider check before a fresh run");
 }
 const [sigCod, sigFail, sigConflict] = await stage("mch_ceylon_threads", 3, "sig", 0).then(async (plain) => {
   const cod = await stage("mch_ceylon_threads", 1, "sigcod", 185_050);

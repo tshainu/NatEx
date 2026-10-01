@@ -198,17 +198,20 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
     <div className="mt-5 max-w-4xl space-y-5">
       {booked ? (
         <Card className="border-status-good/40 bg-status-good/8">
-          <div className="flex items-start gap-3" aria-live="polite" aria-atomic="true">
+          <div className="flex items-start gap-3">
             <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-status-good" aria-hidden />
             <div>
-              <p className="text-[14px] font-semibold">Parcel booked</p>
-              <p className="mt-1 font-mono text-[16px] font-medium" data-testid="booked-awb">
-                {booked.awb}
-              </p>
-              <p className="mt-1 text-[13px] text-muted-foreground">
-                {booked.cod > 0 ? `COD to collect: ${money(booked.cod)}. ` : "Prepaid. "}
-                Add it to a pickup request so a rider collects it.
-              </p>
+              {/* <output> is an implicit polite live region (role "status"). */}
+              <output className="block" aria-atomic="true">
+                <span className="block text-[14px] font-semibold">Parcel booked</span>
+                <span className="mt-1 block font-mono text-[16px] font-medium" data-testid="booked-awb">
+                  {booked.awb}
+                </span>
+                <span className="mt-1 block text-[13px] text-muted-foreground">
+                  {booked.cod > 0 ? `COD to collect: ${money(booked.cod)}. ` : "Prepaid. "}
+                  Add it to a pickup request so a rider collects it.
+                </span>
+              </output>
               <div className="mt-3 flex gap-2">
                 <Button asChild size="sm" variant="outline">
                   <Link href="/merchant/pickups">Request pickup</Link>

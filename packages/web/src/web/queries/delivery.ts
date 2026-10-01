@@ -139,6 +139,14 @@ export function useRunsheetDispatch(handlers: Handlers<DeliveryOut<"runsheetDisp
   );
 }
 
+export function useRunsheetCancel(handlers: Handlers<DeliveryOut<"runsheetCancel">>) {
+  return useDeliveryMutation(
+    orpc.delivery.runsheetCancel.mutationOptions(),
+    handlers,
+    "The draft could not be cancelled.",
+  );
+}
+
 export function useRunsheetClose(handlers: Handlers<DeliveryOut<"runsheetClose">>) {
   return useDeliveryMutation(
     orpc.delivery.runsheetClose.mutationOptions(),

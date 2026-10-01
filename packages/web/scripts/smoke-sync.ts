@@ -4,6 +4,7 @@ import type { AppRouterClient } from "../src/api";
 import { ulid } from "../src/api/shared/ulid";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
+import { retireRun } from "./lib/retire";
 
 /**
  * End-to-end exercise of the PROJECT.md §7 offline sync engine against a
@@ -176,11 +177,7 @@ const leftovers = await opsC.delivery.runsheetList({
   status: ["draft", "dispatched"],
 });
 for (const sheet of leftovers) {
-  await clientFor(kandyOps.accessToken, key(`close-${sheet.id}`)).delivery.runsheetClose({
-    runsheetId: sheet.id,
-    force: true,
-    notes: "closed by the sync smoke test before re-staging",
-  });
+  await retireRun(clientFor(kandyOps.accessToken, key(`close-${sheet.id}`)), sheet, "closed by the sync smoke test before re-staging");
 }
 if (leftovers.length > 0) ok("cleared runsheets left open by an earlier run", leftovers.map((s) => s.code).join(", "));
 

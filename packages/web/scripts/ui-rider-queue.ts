@@ -27,6 +27,7 @@ import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { and, eq, inArray, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
+import { retireRun } from "./lib/retire";
 
 const API = process.env.UI_RIDER_API ?? "http://localhost:4200";
 const APP = process.env.UI_RIDER_APP ?? "http://localhost:4300";
@@ -101,11 +102,7 @@ for (const r of await clientFor(transport.accessToken).delivery.runsheetList({
   riderId: rider.user.id,
   status: ["draft", "dispatched"],
 })) {
-  await clientFor(ops.accessToken, key(`retire-${r.id}`)).delivery.runsheetClose({
-    runsheetId: r.id,
-    force: true,
-    notes: "retired by rider queue check before a fresh run",
-  });
+  await retireRun(clientFor(ops.accessToken, key(`retire-${r.id}`)), r, "retired by rider queue check before a fresh run");
 }
 const sheet = await clientFor(transport.accessToken, key("create")).delivery.runsheetCreate({ riderId: rider.user.id });
 await clientFor(transport.accessToken, key("add")).delivery.runsheetAdd({ runsheetId: sheet.id, awbs });

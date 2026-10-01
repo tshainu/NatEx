@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Plus, RotateCcw, Route, Search, Send, Trash2, Lock } from "lucide-react";
+import { Ban, Plus, RotateCcw, Route, Search, Send, Trash2, Lock } from "lucide-react";
 import { client } from "@/lib/api";
 import { amount, colomboToday, date, dateTime, humanise, money } from "@/lib/format";
 import { centsToRupees } from "@/lib/csv";
@@ -22,6 +22,7 @@ import {
   useRiders,
   useRunsheet,
   useRunsheetAdd,
+  useRunsheetCancel,
   useRunsheetClose,
   useRunsheetCreate,
   useRunsheetDispatch,
@@ -231,6 +232,7 @@ export default function OpsRunsheets() {
                 <option value="draft">Draft</option>
                 <option value="dispatched">On the road</option>
                 <option value="closed">Closed</option>
+                <option value="cancelled">Cancelled</option>
                 <option value="all">All</option>
               </Select>
             </Field>
@@ -347,11 +349,12 @@ function RunsheetDrawer({
 
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState<string | null>(null);
-  const [confirm, setConfirm] = React.useState<null | "dispatch" | "close" | { remove: string }>(null);
+  const [confirm, setConfirm] = React.useState<null | "dispatch" | "close" | "cancel" | { remove: string }>(null);
   const [awbText, setAwbText] = React.useState("");
   const [addLines, setAddLines] = React.useState<DeliveryOut<"runsheetAdd">["lines"]>([]);
   const [force, setForce] = React.useState(false);
   const [closeNotes, setCloseNotes] = React.useState("");
+  const [cancelReason, setCancelReason] = React.useState("");
 
   React.useEffect(() => {
     setError(null);
@@ -361,6 +364,7 @@ function RunsheetDrawer({
     setAddLines([]);
     setForce(false);
     setCloseNotes("");
+    setCancelReason("");
   }, [runsheetId]);
 
   const isDraft = sheet?.status === "draft";
@@ -422,6 +426,21 @@ function RunsheetDrawer({
       setError(null);
       setDone(
         `Closed. ${r.unattempted.length ? `${r.unattempted.length} stop(s) written off as ran out of time (no attempt burned). ` : ""}Cash variance ${money(r.cash.varianceCents)}.`,
+      );
+    },
+    onError: (m) => {
+      setConfirm(null);
+      fail(m);
+    },
+  });
+
+  const cancel = useRunsheetCancel({
+    onSuccess: (r) => {
+      setConfirm(null);
+      setError(null);
+      setCancelReason("");
+      setDone(
+        `Cancelled. ${r.released.length} stop(s) went back to ready stock; ${r.runsheet.riderName} is free for a new run today.`,
       );
     },
     onError: (m) => {
@@ -571,6 +590,28 @@ function RunsheetDrawer({
                   Dispatch
                 </Button>
               </div>
+              <div className="space-y-2 border-t pt-3">
+                <Field
+                  label="Cancel this draft"
+                  hint="Nothing has left the hub, so no parcel moves. The reason is recorded in the audit log — at least 5 characters."
+                >
+                  <Input
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Van failed its morning check"
+                    aria-label="Reason for cancelling the draft"
+                  />
+                </Field>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={cancelReason.trim().length < 5}
+                  onClick={() => setConfirm("cancel")}
+                >
+                  <Ban aria-hidden />
+                  Cancel the draft
+                </Button>
+              </div>
             </section>
           ) : null}
 
@@ -625,6 +666,16 @@ function RunsheetDrawer({
             pending={dispatch.isPending}
             body={`Every stop moves to Out for delivery under ${sheet.riderName}, who becomes accountable for ${money(sheet.codExpectedCents)} COD. Stops can no longer be added.`}
             onConfirm={() => dispatch.mutate({ runsheetId: sheet.id })}
+          />
+          <ConfirmDialog
+            open={confirm === "cancel"}
+            onOpenChange={(o) => !o && setConfirm(null)}
+            title="Cancel this draft run?"
+            objectName={sheet.code}
+            confirmLabel="Cancel the draft"
+            pending={cancel.isPending}
+            body={`${liveStops.length} stop(s) go back to the hub's ready stock and ${sheet.riderName} can be given a new run today. A cancelled run is never reopened.`}
+            onConfirm={() => cancel.mutate({ runsheetId: sheet.id, reason: cancelReason.trim() })}
           />
           <ConfirmDialog
             open={confirm === "close"}

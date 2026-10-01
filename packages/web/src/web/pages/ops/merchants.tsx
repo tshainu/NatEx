@@ -489,7 +489,7 @@ function CreateMerchantDialog({
               <option value="no">Disabled</option>
             </Select>
           </Field>
-          <Field label="POD policy" hint="Enforced from Milestone 3; stored now.">
+          <Field label="POD policy" hint="Enforced at delivery: the rider cannot confirm without this proof.">
             <Select
               value={form.podPolicy}
               onChange={(e) =>

@@ -86,12 +86,12 @@ export default function Login() {
           </h1>
           <p className="mt-3 max-w-md text-[14px] leading-relaxed text-text-lo">
             Parcel booking with the full state machine, pickup collection,
-            serviceability routing, and hub-to-hub custody — bagging, sealed linehaul
-            trips and variance detection. Sign in with your registered phone number — a
-            six-digit code is sent by SMS.
+            hub-to-hub custody, last-mile runsheets with proof of delivery, NDR and
+            returns, and a merchant portal with bulk booking. Sign in with your
+            registered phone number — a six-digit code is sent by SMS.
           </p>
           <Badge variant="dark" className="mt-6 w-fit">
-            Milestones 1–2 · Core, Collection &amp; Custody
+            Milestones 1–3 · Collection, Custody &amp; Delivery
           </Badge>
 
           <div className="mt-8 max-w-md rounded-lg border border-ink-600 bg-ink-800 p-4">

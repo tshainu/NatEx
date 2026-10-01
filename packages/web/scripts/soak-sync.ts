@@ -97,7 +97,7 @@ async function login(phone: string, deviceId?: string) {
 
 /** Runs promises with a bounded concurrency, so staging does not open 100 sockets. */
 async function pooled<T, R>(items: T[], size: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
+  const out: R[] = Array.from({ length: items.length });
   let next = 0;
   await Promise.all(
     Array.from({ length: size }, async () => {
