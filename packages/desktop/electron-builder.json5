@@ -1,0 +1,43 @@
+// @see - https://www.electron.build/configuration/configuration
+{
+  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: "YourAppID",
+  asar: true,
+  productName: "YourAppName",
+  directories: {
+    output: "release/${version}",
+  },
+  files: ["dist", "dist-electron"],
+  // PLACEHOLDER — packaged-build deep links (and desktop managed sign-in) DO NOT WORK until this
+  // scheme is replaced with the app's real `runable-<applicationId>` (the value main.ts derives at
+  // runtime from APPLICATION_ID). Dev builds register the protocol at runtime and ignore this.
+  protocols: [
+    {
+      name: "App deep links",
+      schemes: ["runable-app"],
+    },
+  ],
+  mac: {
+    target: ["dmg"],
+    artifactName: "${productName}-Mac-${version}-Installer.${ext}",
+  },
+  win: {
+    target: [
+      {
+        target: "nsis",
+        arch: ["x64"],
+      },
+    ],
+    artifactName: "${productName}-Windows-${version}-Setup.${ext}",
+  },
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    deleteAppDataOnUninstall: false,
+  },
+  linux: {
+    target: ["AppImage"],
+    artifactName: "${productName}-Linux-${version}.${ext}",
+  },
+}

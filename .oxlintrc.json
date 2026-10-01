@@ -1,0 +1,12 @@
+{
+  "extends": ["./node_modules/@runablehq/runkit/oxlintrc.json"],
+  "ignorePatterns": ["dist/**", "dist-electron/**", ".expo/**", "packages/web/public/runable.js"],
+  "overrides": [
+    {
+      "files": ["packages/mobile/**"],
+      "rules": {
+        "jsx-a11y/no-autofocus": "off"
+      }
+    }
+  ]
+}
