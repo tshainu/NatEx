@@ -93,6 +93,11 @@ export const riderCash = staffProc
  * What a rider is still carrying. The rider app's own screen, so a rider may
  * read it for themselves and nobody else; staff may read any.
  */
+/** All riders' cash positions, largest first — finance is global scope (§5). */
+export const riderCashBoard = staffProc
+  .input(z.object({}))
+  .handler(() => service.riderCashBoard());
+
 export const myUndeposited = staffProc
   .input(z.object({ riderId: z.string().optional() }))
   .handler(({ input, context }) => {
@@ -129,6 +134,29 @@ export const deposits = staffProc
     }),
   )
   .handler(({ input }) => service.listDeposits(input));
+
+/** The deposit register, paged server-side (§11). */
+export const depositPage = staffProc
+  .input(
+    z.object({
+      branchId: z.string().optional(),
+      riderId: z.string().optional(),
+      status: z.array(depositStatus).optional(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(25),
+    }),
+  )
+  .handler(async ({ input }) => ({
+    ...(await service.depositPage({
+      branchId: input.branchId,
+      riderId: input.riderId,
+      status: input.status,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+    })),
+    page: input.page,
+    pageSize: input.pageSize,
+  }));
 
 /**
  * §8 checkpoint 2 — the rider declares what they are handing over.
@@ -366,6 +394,31 @@ export const listAlerts = staffProc
     }),
   );
 
+/** The alert worklist, paged server-side (§11). */
+export const alertPage = staffProc
+  .input(
+    z.object({
+      status: z.array(alertStatus).optional(),
+      kind: alertKind.optional(),
+      audience: z.enum(["ops", "finance"]).optional(),
+      actionRequiredOnly: z.boolean().default(false),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(25),
+    }),
+  )
+  .handler(async ({ input }) => ({
+    ...(await alerts.alertPage({
+      status: input.status,
+      kind: input.kind,
+      audience: input.audience,
+      actionRequiredOnly: input.actionRequiredOnly,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+    })),
+    page: input.page,
+    pageSize: input.pageSize,
+  }));
+
 export const alertCounts = staffProc
   .input(z.object({}))
   .handler(() => alerts.alertCounts());
@@ -418,10 +471,12 @@ export const cod = {
   entries,
   reconciliation,
   riderCash,
+  riderCashBoard,
   myUndeposited,
   stale,
   cashCeiling,
   deposits,
+  depositPage,
   declareDeposit,
   verifyDeposit,
   bankDeposit,
@@ -431,6 +486,7 @@ export const cod = {
   listConfig,
   setConfig,
   listAlerts,
+  alertPage,
   alertCounts,
   getAlert,
   acknowledgeAlert,

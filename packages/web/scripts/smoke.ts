@@ -18,6 +18,8 @@ const BASE = process.env.SMOKE_BASE ?? "http://localhost:4200";
 // logins per run would lock the next run out. Drain the buckets first — the
 // limiter itself is asserted at the end of the script instead.
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 await db.delete(rateLimit);
 

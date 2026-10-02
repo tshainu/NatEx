@@ -30,6 +30,8 @@ import { retireRun } from "./lib/retire";
 
 const BASE = process.env.UI_CHECK_BASE ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { ndr, rto, runsheet } = await import("../src/api/database/schema/delivery");
 const { parcel } = await import("../src/api/database/schema/parcels");
@@ -73,6 +75,11 @@ async function step(label: string, fn: () => Promise<string | void>) {
     check(true, label, detail ?? "");
   } catch (error) {
     check(false, label, (error as Error).message.split("\n")[0]!.slice(0, 240));
+    // Leave evidence: what was on screen and which dialogs were open.
+    const shot = `/tmp/ui-ops-fail-${failures.length}.png`;
+    await page?.screenshot({ path: shot, fullPage: true }).catch(() => {});
+    const open = await page?.getByRole("dialog").evaluateAll((ds) => ds.map((d) => d.getAttribute("aria-labelledby") && document.getElementById(d.getAttribute("aria-labelledby")!)?.textContent)).catch(() => []);
+    console.log(`        screenshot ${shot}; open dialogs: ${JSON.stringify(open)}`);
   }
 }
 
@@ -263,6 +270,10 @@ await step("force-close behind its confirm: DB closed, stops written off", async
   if (row!.status !== "closed") throw new Error(`status ${row!.status}`);
   return sheetCode;
 });
+// The confirm animates out after the run closes; an Escape pressed while it is
+// still the top layer goes to it, not to the drawer. Wait for it to be gone,
+// then Escape must close the drawer (the next step asserts the detach).
+await dialog("Force-close this run?").waitFor({ state: "detached" });
 await page.keyboard.press("Escape");
 
 let draftId = "";

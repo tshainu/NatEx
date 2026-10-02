@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useSearch } from "wouter";
 import { cn } from "@/lib/utils";
 
 /**
@@ -8,12 +9,14 @@ import { cn } from "@/lib/utils";
  * `id="panel-<id>"` / `aria-labelledby="tab-<id>"`.
  */
 export function useTabParam<T extends string>(param: string, ids: readonly T[], fallback: T) {
-  const [tab, setTab] = React.useState<T>(() => {
-    const v = new URLSearchParams(window.location.search).get(param);
-    return (ids as readonly string[]).includes(v ?? "") ? (v as T) : fallback;
-  });
+  // Derived from the location, not copied into state on mount: an in-app link
+  // to another tab of the page you are on (e.g. a payout error's "Add bank
+  // details" → ?tab=bank) changes only the query string, and must switch tabs.
+  // wouter patches history.replaceState, so `select` below re-renders too.
+  const search = useSearch();
+  const v = new URLSearchParams(search).get(param);
+  const tab = (ids as readonly string[]).includes(v ?? "") ? (v as T) : fallback;
   const select = (next: T) => {
-    setTab(next);
     const url = new URL(window.location.href);
     url.searchParams.set(param, next);
     window.history.replaceState(null, "", url);

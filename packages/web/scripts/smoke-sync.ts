@@ -29,6 +29,8 @@ import { retireRun } from "./lib/retire";
 const BASE = process.env.SMOKE_BASE ?? "http://localhost:4200";
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { like } = await import("drizzle-orm");
 await db.delete(rateLimit);

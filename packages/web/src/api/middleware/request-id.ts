@@ -1,6 +1,10 @@
 import { base } from "../__core/app";
 import { errors } from "../shared/errors";
 import { ulid } from "../shared/ulid";
+import { isTransientDbError, requestWrote, runInRequestScope } from "../shared/request-scope";
+
+/** Re-runs allowed for a read-only request that hit a dropped database socket. */
+const READ_RETRIES = 2;
 
 /**
  * oRPC's own input-validation rejection: a BAD_REQUEST carrying `data.issues`
@@ -29,7 +33,21 @@ export const withRequestId = base.middleware(async ({ context, next, path }) => 
   const route = path.join(".");
 
   try {
-    const result = await next({ context: { requestId, route } });
+    const result = await runInRequestScope(async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await next({ context: { requestId, route } });
+        } catch (err) {
+          // A dropped database socket on a request that wrote nothing is
+          // re-run (twice at most); anything that wrote is never replayed.
+          if (attempt >= READ_RETRIES || requestWrote() || !isTransientDbError(err)) throw err;
+          console.log(
+            JSON.stringify({ requestId, route, retry: attempt + 1, reason: "transient-db", at: new Date().toISOString() }),
+          );
+          await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
+        }
+      }
+    });
     console.log(
       JSON.stringify({
         requestId,

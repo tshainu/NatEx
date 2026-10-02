@@ -451,7 +451,9 @@ describe("milestone exposure", () => {
   });
 
   test("the API exposes exactly the statuses of milestones ≤ EXPOSED_MILESTONE", () => {
-    expect(EXPOSED_MILESTONE).toBe(3);
+    // M4 (money) and M5 (hardening) own no parcel statuses: exposing M4 must
+    // not have unlocked anything beyond M3's set.
+    expect(EXPOSED_MILESTONE).toBe(4);
     const expected = EXPECTED_STATUSES.filter((s) => milestoneFor(s) <= EXPOSED_MILESTONE);
     expect([...ENABLED_STATUSES].sort()).toEqual(expected.sort());
     for (const s of EXPECTED_STATUSES) expect(isEnabled(s)).toBe(milestoneFor(s) <= 3);

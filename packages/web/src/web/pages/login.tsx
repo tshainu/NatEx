@@ -87,11 +87,12 @@ export default function Login() {
           <p className="mt-3 max-w-md text-[14px] leading-relaxed text-text-lo">
             Parcel booking with the full state machine, pickup collection,
             hub-to-hub custody, last-mile runsheets with proof of delivery, NDR and
-            returns, and a merchant portal with bulk booking. Sign in with your
+            returns, a merchant portal with bulk booking, and the finance desk —
+            COD ledger, settlements, invoicing, disputes and payouts. Sign in with your
             registered phone number — a six-digit code is sent by SMS.
           </p>
           <Badge variant="dark" className="mt-6 w-fit">
-            Milestones 1–3 · Collection, Custody &amp; Delivery
+            Milestones 1–4 · Collection, Custody, Delivery &amp; Money
           </Badge>
 
           <div className="mt-8 max-w-md rounded-lg border border-ink-600 bg-ink-800 p-4">

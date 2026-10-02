@@ -7,11 +7,13 @@ import { enqueue } from "../../shared/outbox";
 import { writeAudit } from "../../shared/audit";
 import { prefixedId } from "../../shared/ulid";
 import { colomboToday } from "../../shared/time";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import type { Principal } from "../../shared/auth";
 import { getParcelByAwb } from "../parcels/service";
 import { getMerchant } from "../merchants/service";
 import { CONFIG_KEYS, configValue } from "./config";
 import { clearHold, raiseHold } from "./holds";
+import { closeDisputeAlerts } from "./alerts";
 import { getInvoice, issueCreditNote } from "./invoicing";
 
 /**
@@ -68,8 +70,7 @@ export const TYPE_LABEL: Record<DisputeType, string> = {
 };
 
 function mintDisputeCode(prefix: "DSP" | "CLM"): string {
-  const compact = colomboToday().replaceAll("-", "").slice(2);
-  return `${prefix}${compact}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return mintDocumentCode(prefix, colomboToday());
 }
 
 async function load(id: string): Promise<DisputeRow> {
@@ -188,9 +189,9 @@ export async function openDispute(input: OpenDisputeInput, actor: Principal): Pr
 
   const slaDays = await configValue(CONFIG_KEYS.DISPUTE_SLA_DAYS);
   const id = prefixedId("dsp");
-  const code = mintDisputeCode(CLAIM_TYPES.includes(input.type) ? "CLM" : "DSP");
+  const prefix = CLAIM_TYPES.includes(input.type) ? "CLM" : "DSP";
   const now = new Date();
-  await db.insert(codDispute).values({
+  const { code } = await insertWithFreshCode("cod_dispute", () => mintDisputeCode(prefix), (code) => db.insert(codDispute).values({
     id,
     code,
     merchantId,
@@ -210,7 +211,7 @@ export async function openDispute(input: OpenDisputeInput, actor: Principal): Pr
     openedByRole: actor.role,
     createdAt: now,
     updatedAt: now,
-  });
+  }));
 
   // A case about a parcel's money holds that parcel's line out of the next
   // payout until it closes. Billing disputes are about what the merchant owes
@@ -390,6 +391,7 @@ export async function resolveDispute(input: ResolveDisputeInput, actor: Principa
     .where(eq(codDispute.id, row.id));
 
   if (row.holdId) await releaseHold(row.holdId, `${row.code} ${status}: ${resolution}`, actor);
+  await closeDisputeAlerts(row.id, `${row.code} ${status}: ${resolution}`, actor);
 
   await writeAudit({
     entity: "cod_dispute",
@@ -420,6 +422,7 @@ export async function withdrawDispute(
     .set({ status: "withdrawn", resolution: `Withdrawn: ${reason}`, resolvedById: actor.userId, resolvedByName: actor.name, resolvedAt: now, updatedAt: now })
     .where(eq(codDispute.id, row.id));
   if (row.holdId) await releaseHold(row.holdId, `${row.code} withdrawn: ${reason}`, actor);
+  await closeDisputeAlerts(row.id, `${row.code} withdrawn: ${reason}`, actor);
   await writeAudit({
     entity: "cod_dispute",
     entityId: row.id,

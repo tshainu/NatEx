@@ -71,6 +71,7 @@ import { errors, fail, isUniqueViolationOn, problem } from "../../shared/errors"
 import { formatLkr } from "../../shared/money";
 import { writeAudit } from "../../shared/audit";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { addDays, colomboToday, formatLkDate } from "../../shared/time";
 import type { Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
@@ -154,13 +155,11 @@ export interface InvoicePreview {
 }
 
 function mintInvoiceCode(periodEnd: string): string {
-  const compact = periodEnd.replaceAll("-", "").slice(2);
-  return `INV${compact}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return mintDocumentCode("INV", periodEnd);
 }
 
 function mintCreditNoteCode(day: string): string {
-  const compact = day.replaceAll("-", "").slice(2);
-  return `CRN${compact}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return mintDocumentCode("CRN", day);
 }
 
 // ───────────────────────────────────────────────────────────── pure arithmetic
@@ -541,9 +540,7 @@ export async function createInvoice(input: {
   }
 
   const id = prefixedId("inv");
-  const code = mintInvoiceCode(preview.period.periodEnd);
-
-  await db.insert(codInvoice).values({
+  const { code } = await insertWithFreshCode("cod_invoice", () => mintInvoiceCode(preview.period.periodEnd), (code) => db.insert(codInvoice).values({
     id,
     code,
     merchantId: input.merchantId,
@@ -561,7 +558,7 @@ export async function createInvoice(input: {
     recoveredCents: preview.recoveredCents,
     status: "draft",
     createdByName: input.actor.name ?? input.actor.userId!,
-  });
+  }));
 
   for (const line of preview.lines) {
     try {
@@ -921,8 +918,7 @@ export async function issueCreditNote(input: {
   }
 
   const id = prefixedId("crn");
-  const code = mintCreditNoteCode(colomboToday());
-  await db.insert(codCreditNote).values({
+  const { code } = await insertWithFreshCode("cod_credit_note", () => mintCreditNoteCode(colomboToday()), (code) => db.insert(codCreditNote).values({
     id,
     code,
     invoiceId: input.invoiceId,
@@ -932,7 +928,7 @@ export async function issueCreditNote(input: {
     disputeId: input.disputeId ?? null,
     issuedById: input.actor.userId!,
     issuedByName: input.actor.name ?? input.actor.userId!,
-  });
+  }));
 
   const creditedCents = invoice!.creditedCents + input.amountCents;
   const status = settledStatus({ ...invoice!, creditedCents });
@@ -1032,26 +1028,60 @@ export async function voidInvoice(input: {
   return row!;
 }
 
-export async function listInvoices(filter?: {
+export interface InvoiceFilter {
   merchantId?: string;
   status?: InvoiceStatus[];
   overdueOnly?: boolean;
   asOf?: string;
+  /** Matches the invoice code or the merchant name, case-insensitively. */
+  q?: string;
+  /** Restrict to invoices a merchant may see: issued onwards, never a draft or a void. */
+  merchantView?: boolean;
   limit?: number;
-}): Promise<InvoiceRow[]> {
+  offset?: number;
+}
+
+/** Statuses a merchant sees. A draft is still being prepared; a void never stood. */
+export const MERCHANT_VISIBLE_INVOICES: InvoiceStatus[] = ["issued", "part_paid", "paid"];
+
+function invoiceWhere(filter?: InvoiceFilter) {
   const conditions = [];
   if (filter?.merchantId) conditions.push(eq(codInvoice.merchantId, filter.merchantId));
   if (filter?.status?.length) conditions.push(inArray(codInvoice.status, filter.status));
+  if (filter?.merchantView) conditions.push(inArray(codInvoice.status, MERCHANT_VISIBLE_INVOICES));
   if (filter?.overdueOnly) {
     conditions.push(inArray(codInvoice.status, ["issued", "part_paid"]));
     conditions.push(sql`${codInvoice.dueDate} < ${filter.asOf ?? colomboToday()}`);
   }
+  const q = filter?.q?.trim().toLowerCase();
+  if (q) {
+    const pattern = `%${q}%`;
+    conditions.push(
+      sql`(lower(${codInvoice.code}) like ${pattern} or lower(${codInvoice.merchantName}) like ${pattern})`,
+    );
+  }
+  return conditions.length ? and(...conditions) : undefined;
+}
+
+export async function listInvoices(filter?: InvoiceFilter): Promise<InvoiceRow[]> {
   return db
     .select()
     .from(codInvoice)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(invoiceWhere(filter))
     .orderBy(desc(codInvoice.createdAt))
-    .limit(Math.min(filter?.limit ?? 100, 500));
+    .limit(Math.min(filter?.limit ?? 100, 500))
+    .offset(filter?.offset ?? 0);
+}
+
+/** One page plus the filtered total — server-side paging for the invoice register (§11). */
+export async function invoicePage(
+  filter: InvoiceFilter,
+): Promise<{ rows: InvoiceRow[]; total: number }> {
+  const [rows, [count]] = await Promise.all([
+    listInvoices(filter),
+    db.select({ n: sql<number>`count(*)` }).from(codInvoice).where(invoiceWhere(filter)),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
 }
 
 // ──────────────────────────────────────────────────────────── AR ageing (§15 q5)
@@ -1158,7 +1188,11 @@ export async function arAgeing(input?: {
 }
 
 /** One merchant's receivable position, with the invoices behind it. */
-export async function merchantAr(merchantId: string, asOf?: string): Promise<{
+export async function merchantAr(
+  merchantId: string,
+  asOf?: string,
+  opts?: { merchantView?: boolean },
+): Promise<{
   merchantId: string;
   outstandingCents: number;
   buckets: Record<AgeingBucket, number>;
@@ -1170,7 +1204,12 @@ export async function merchantAr(merchantId: string, asOf?: string): Promise<{
   const invoices = await db
     .select()
     .from(codInvoice)
-    .where(and(eq(codInvoice.merchantId, merchantId), ne(codInvoice.status, "void")))
+    .where(
+      and(
+        eq(codInvoice.merchantId, merchantId),
+        opts?.merchantView ? inArray(codInvoice.status, MERCHANT_VISIBLE_INVOICES) : ne(codInvoice.status, "void"),
+      ),
+    )
     .orderBy(desc(codInvoice.createdAt));
   const creditNotes = await db
     .select()

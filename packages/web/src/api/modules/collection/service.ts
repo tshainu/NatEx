@@ -2,6 +2,7 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../../database";
 import { manifest, manifestItem } from "../../database/schema/collection";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
@@ -36,9 +37,7 @@ export type ManifestItemRow = typeof manifestItem.$inferSelect;
 export { colomboToday };
 
 function nextManifestCode(pickupDate: string): string {
-  const compact = pickupDate.replaceAll("-", "").slice(2);
-  const suffix = Math.floor(Math.random() * 9000 + 1000).toString();
-  return `MF${compact}-${suffix}`;
+  return mintDocumentCode("MF", pickupDate);
 }
 
 function assertManifestVisible(row: ManifestRow, scope: Principal): void {
@@ -231,9 +230,9 @@ export async function createManifest(
   }
 
   const id = prefixedId("mfs");
-  await db.insert(manifest).values({
+  await insertWithFreshCode("collection_manifest", () => nextManifestCode(input.pickupDate), (code) => db.insert(manifest).values({
     id,
-    code: nextManifestCode(input.pickupDate),
+    code,
     merchantId: input.merchantId,
     branchId: merchant!.branchId,
     riderId: input.riderId,
@@ -241,7 +240,7 @@ export async function createManifest(
     status: "assigned",
     expectedCount: resolved.length,
     scannedCount: 0,
-  });
+  }));
 
   if (resolved.length) {
     await db.insert(manifestItem).values(

@@ -59,6 +59,9 @@ function requireMerchant(principal: Principal, requested?: string): string {
   return scoped!;
 }
 
+/** True when the caller is a merchant, so reads drop finance's working state. */
+const merchantView = (principal: Principal): boolean => principal.role === "merchant";
+
 /** Ownership check for a row already read by id. */
 function assertOwned(principal: Principal, ownerMerchantId: string): void {
   if (principal.role !== "merchant") return;
@@ -183,8 +186,36 @@ export const settlements = readProc
     settlement.listSettlements({
       ...input,
       merchantId: scopeMerchant(context.principal, input.merchantId),
+      merchantView: merchantView(context.principal),
     }),
   );
+
+/**
+ * The settlement register, one server page at a time (§11). Same scoping as
+ * `settlements`; a merchant naming another merchant is a 403.
+ */
+export const settlementPage = readProc
+  .input(
+    z.object({
+      merchantId: z.string().optional(),
+      status: z.array(settlementStatus).optional(),
+      q: z.string().trim().max(80).optional(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(25),
+    }),
+  )
+  .handler(async ({ input, context }) => ({
+    ...(await settlement.settlementPage({
+      merchantId: scopeMerchant(context.principal, input.merchantId),
+      merchantView: merchantView(context.principal),
+      status: input.status,
+      q: input.q,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+    })),
+    page: input.page,
+    pageSize: input.pageSize,
+  }));
 
 /** One run with its lines. Read first, then ownership-checked — see the header. */
 export const settlementById = readProc
@@ -192,6 +223,11 @@ export const settlementById = readProc
   .handler(async ({ input, context }) => {
     const found = await settlement.getSettlement(input.settlementId);
     assertOwned(context.principal, found.settlement.merchantId);
+    // A merchant's own draft is not a secret, but it is not yet a payout: answer
+    // exactly as if it did not exist, the same as the lists do.
+    if (merchantView(context.principal) && !settlement.merchantMaySee(found.settlement)) {
+      errors.notFound("Settlement");
+    }
     return found;
   });
 
@@ -351,7 +387,9 @@ export const exportPayoutCsv = financeProc
 export const statement = readProc
   .input(z.object({ merchantId: z.string().optional() }))
   .handler(({ input, context }) =>
-    settlement.merchantStatement(requireMerchant(context.principal, input.merchantId)),
+    settlement.merchantStatement(requireMerchant(context.principal, input.merchantId), {
+      merchantView: merchantView(context.principal),
+    }),
   );
 
 // ─────────────────────────────────────────────────────── settlement holds
@@ -369,6 +407,31 @@ export const listHolds = readProc
   .handler(({ input, context }) =>
     holds.listHolds({ ...input, merchantId: scopeMerchant(context.principal, input.merchantId) }),
   );
+
+/** The hold register, paged server-side (§11). Scoped like `listHolds`. */
+export const holdPage = readProc
+  .input(
+    z.object({
+      merchantId: z.string().optional(),
+      status: z.array(z.enum(["open", "cleared"])).optional(),
+      scope: holdScope.optional(),
+      reason: z.array(holdReason).optional(),
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(25),
+    }),
+  )
+  .handler(async ({ input, context }) => ({
+    ...(await holds.holdPage({
+      merchantId: scopeMerchant(context.principal, input.merchantId),
+      status: input.status,
+      scope: input.scope,
+      reason: input.reason,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+    })),
+    page: input.page,
+    pageSize: input.pageSize,
+  }));
 
 /**
  * Is this merchant clear to be paid? `heldParcelIds` is a Set in the service
@@ -456,14 +519,46 @@ export const invoices = readProc
     invoicing.listInvoices({
       ...input,
       merchantId: scopeMerchant(context.principal, input.merchantId),
+      merchantView: merchantView(context.principal),
     }),
   );
+
+/** The invoice register, paged server-side (§11). Scoped like `invoices`. */
+export const invoicePage = readProc
+  .input(
+    z.object({
+      merchantId: z.string().optional(),
+      status: z.array(invoiceStatus).optional(),
+      overdueOnly: z.boolean().optional(),
+      q: z.string().trim().max(80).optional(),
+      asOf,
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(200).default(25),
+    }),
+  )
+  .handler(async ({ input, context }) => ({
+    ...(await invoicing.invoicePage({
+      merchantId: scopeMerchant(context.principal, input.merchantId),
+      merchantView: merchantView(context.principal),
+      status: input.status,
+      overdueOnly: input.overdueOnly,
+      q: input.q,
+      asOf: input.asOf,
+      limit: input.pageSize,
+      offset: (input.page - 1) * input.pageSize,
+    })),
+    page: input.page,
+    pageSize: input.pageSize,
+  }));
 
 export const invoiceById = readProc
   .input(z.object({ invoiceId: z.string().min(1) }))
   .handler(async ({ input, context }) => {
     const found = await invoicing.getInvoice(input.invoiceId);
     assertOwned(context.principal, found.invoice.merchantId);
+    if (merchantView(context.principal) && !invoicing.MERCHANT_VISIBLE_INVOICES.includes(found.invoice.status as invoicing.InvoiceStatus)) {
+      errors.notFound("Invoice");
+    }
     return found;
   });
 
@@ -589,7 +684,9 @@ export const arAgeing = staffProc
 export const merchantAr = readProc
   .input(z.object({ merchantId: z.string().optional(), asOf }))
   .handler(({ input, context }) =>
-    invoicing.merchantAr(requireMerchant(context.principal, input.merchantId), input.asOf),
+    invoicing.merchantAr(requireMerchant(context.principal, input.merchantId), input.asOf, {
+      merchantView: merchantView(context.principal),
+    }),
   );
 
 /** Router namespace — composed into the root router in api/index.ts. */
@@ -601,6 +698,7 @@ export const finance = {
   settlementPreview,
   payable,
   settlements,
+  settlementPage,
   settlementById,
   createSettlement,
   proposeSettlement,
@@ -612,10 +710,12 @@ export const finance = {
   exportPayoutCsv,
   statement,
   listHolds,
+  holdPage,
   holdState,
   raiseHold,
   clearHold,
   invoices,
+  invoicePage,
   invoiceById,
   invoicePreview,
   createInvoice,

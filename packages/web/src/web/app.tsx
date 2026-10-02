@@ -28,6 +28,12 @@ import AdminUsers from "./pages/admin/users";
 import AdminBranches from "./pages/admin/branches";
 import AdminZones from "./pages/admin/zones";
 import FinanceOverview from "./pages/finance/overview";
+import FinanceCod from "./pages/finance/cod-page";
+import FinanceRemittances from "./pages/finance/remittances-page";
+import FinanceInvoices from "./pages/finance/invoices-page";
+import FinanceDisputes from "./pages/finance/disputes-page";
+import MerchantDisputes from "./pages/merchant/disputes";
+import MerchantStatement from "./pages/merchant/statement";
 import MerchantAccount from "./pages/merchant/account";
 import MerchantParcels from "./pages/merchant/parcels";
 import MerchantDashboard from "./pages/merchant/dashboard";
@@ -186,33 +192,24 @@ function Routes() {
         />
       </Portal>
 
-      {/* Finance — overview only on the web; the M4 ledger API is built, its screens are next */}
+      {/* Finance — Milestone 4: COD ledger, remittances, invoices, disputes */}
       <Portal path="/finance">
         <FinanceOverview />
       </Portal>
       <Portal path="/finance/cod">
-        <MilestoneStub
-          title="COD ledger"
-          milestone={4}
-          what="The COD ledger is live on the API; this screen is next."
-          detail="Rider collection, cash in hand, branch deposits, bank banking and the double-entry ledger that ties them together are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — until it ships this page shows nothing rather than placeholder figures."
-        />
+        <FinanceCod />
+      </Portal>
+      <Portal path="/finance/alerts">
+        <Redirect to="/finance/cod?tab=alerts" replace />
       </Portal>
       <Portal path="/finance/remittances">
-        <MilestoneStub
-          title="Remittances"
-          milestone={4}
-          what="Settlements are live on the API; this screen is next."
-          detail="Settlement batches with maker–checker approval, holds, payout files and UTR capture are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — nothing here is stubbed with placeholder data."
-        />
+        <FinanceRemittances />
       </Portal>
       <Portal path="/finance/invoices">
-        <MilestoneStub
-          title="Invoices"
-          milestone={4}
-          what="Invoicing is live on the API; this screen is next."
-          detail="Invoices, credit notes, payments and AR ageing are built and verified behind the API. The browser screen for them is the next piece of Milestone 4 — nothing here is stubbed with placeholder data."
-        />
+        <FinanceInvoices />
+      </Portal>
+      <Portal path="/finance/disputes">
+        <FinanceDisputes />
       </Portal>
 
       {/* Merchant portal — Milestone 3: dashboard, booking, bulk CSV, pickups, tracking, NDR */}
@@ -233,6 +230,12 @@ function Routes() {
       </Portal>
       <Portal path="/merchant/ndr">
         <MerchantNdr />
+      </Portal>
+      <Portal path="/merchant/disputes">
+        <MerchantDisputes />
+      </Portal>
+      <Portal path="/merchant/statement">
+        <MerchantStatement />
       </Portal>
       <Portal path="/merchant/account">
         <MerchantAccount />

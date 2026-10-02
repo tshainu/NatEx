@@ -8,7 +8,7 @@ Source of truth: `/home/user/Attachments/pasted-1_0jWrxs.txt` (PROJECT.md). Sect
   - Carried-over gaps, tracked, not dropped: no unit tests, no README. (Rider tab: built and proven 2026-10-01, see M3.)
 - M2 — Transport & Custody: **verified** (ops web + Expo rider/transport tabs driven end to end in a browser 2026-09-30; see Mobile verification log below).
 - M3 — Delivery & Merchant: **verified** 2026-10-01 (`SHIPPED_MILESTONE = 3`). Full regression on the final code listed under "M3 closing regression" below. Caveat: the rider app has only run in Expo web, never on a physical phone.
-- M4 — Money: **backend built and verified** (ledger, COD wiring, settlements, invoices, disputes, nightly invariant — `smoke-m4` 75/75, `probe-cod-wiring` 35/35, `probe-disputes` 55/55, `probe-nightly` 6/6). Finance portal UI not started; `/finance/cod`, `/finance/remittances`, `/finance/invoices` are honest stubs.
+- M4 — Money: **verified** 2026-10-02 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 4`; M4 owns no parcel statuses). Backend plus the finance portal and the merchant statement. Regression on the final code is under "M4 closing regression" below.
 - M5 — Hardening: not started
 
 ## M2 plan (§10)
@@ -251,3 +251,91 @@ Fixed while closing:
   ("enforced from Milestone 3"), the finance overview (said "no money moves
   through this system") and the three finance stubs (said the ledger did not exist).
 
+## M4 — Money (§8, §10 M4)
+
+Built
+- [x] Finance portal: `/finance` dashboard, `/finance/cod` (ledger browser, four-way
+      reconciliation, rider cash/deposits), `/finance/remittances` (settlement runs
+      with maker–checker, holds, payout file, bank details), `/finance/invoices`
+      (VAT/SSCL invoices, credit notes, AR ageing), `/finance/disputes` (dispute
+      queue + claim register), controls (manual invariant run, alerts).
+      Proven by `ui-finance.ts` and `probe-finance-pages.ts`.
+- [x] Merchant: `/merchant/disputes` and `/merchant/statement` (payable, payouts,
+      invoices, outstanding, credit notes, masked bank account). `ui-merchant.ts`.
+- [x] Bank details (`finance.setPayoutDetails`): finance-only; the payout file
+      refuses a merchant with none (409 `payout-details-missing`) and links to the
+      form with the merchant preselected; re-pointing an account needs a reason and
+      a destructive confirm.
+- [x] Demo seed `scripts/seed-m4.ts` (merchant `mch_m4_demo`, idempotent — run twice).
+
+Hardening found while building M4
+- Merchant visibility (§5): a merchant could fetch draft/proposed/rejected
+  settlement runs and draft/void invoices directly; the page filter was cosmetic.
+  Now enforced in SQL (`merchantView` in `settlement.ts`/`invoicing.ts`,
+  applied in every merchant-reachable finance route; hidden by-id → 404).
+  `probe-merchant-visibility.ts` 25/25.
+- Audit redaction: `mutate()` audits the whole handler result, so
+  `cod.payout_details_set` and `cod.payout_csv_exported` rows held the full bank
+  account (the CSV body and the `rows[].account` field). `shared/redact.ts` now
+  masks account numbers to the last 4, drops tokens/OTP codes and replaces CSV
+  bodies with their size, in `writeAudit` for every row. `redact.test.ts` 7/7;
+  `ui-finance` asserts no audit row from its run holds the full number.
+  KNOWN: ~31 audit rows written before the fix (test fixtures from earlier
+  runs) still hold full numbers. The log is append-only; not edited.
+- Document codes: DSP/CLM/STL/DEP/INV/CRN/RS/PR/MF codes ended in 4 random digits
+  (9 000 per prefix per day) and collided on the UNIQUE index — `disputes.open`
+  returned a 500 in a `ui-finance` run. `shared/codes.ts`: 6 Crockford base32
+  characters from the CSPRNG plus `insertWithFreshCode`, which re-mints on a
+  UNIQUE violation of that table's `code`. `codes.test.ts` 6/6 against a real
+  in-memory SQLite. (An earlier `ui-ops-delivery` 500 on a second same-day
+  runsheet was likely the same RS collision; its log was lost to a restart, so
+  that is not proven.)
+- Transient Turso resets (`ECONNRESET` / socket hang up): `withRequestId` retries a
+  request at most twice, only if it never reached a write path
+  (`shared/request-scope.ts`; `mutate`/`publicMutate` call `markWrite()`).
+  `request-id.test.ts` 7/7; server log showed `retry:1 reason:"transient-db"` → 200.
+  The scope loads AsyncLocalStorage via `process.getBuiltinModule` so mobile and
+  desktop, which type-check the API through `AppRouter`, need no Node types.
+- Sign-in 500 on a socket reset: `publicMutate` marked the request as written
+  before touching the rate-limit bucket, so an `ECONNRESET` on the bucket insert
+  made `identity.requestOtp` a 500 (seen live in a `ui-ops-delivery` run). It
+  now marks the write only once the handler starts; a reset on the bucket alone
+  is retried (worst case: one extra token spent — stricter, never looser).
+  `public-mutate.test.ts` 2/2, and it fails against the old ordering.
+- Bag scan rejection reason on a socket reset was the raw SQL statement (seen
+  in a `soak-sync` staging step; the write had not committed — the parcel was
+  still `AtOriginHub`, so rescanning is correct). It now reads "Connection to the
+  database dropped — scan this parcel again." and the detail goes to the log.
+- Scripts: `scripts/lib/db-retry.ts` `hardenScriptReads(db)` retries plain SELECTs on a
+  transient error (never writes) and `cleanupWithRetry` for idempotent fixture
+  sweeps; `db-retry.test.ts` 5/5. Wired into 22 scripts.
+- `useTabParam` (`components/natex/tab-strip.tsx`) copied `?tab=` into state on mount,
+  so an in-app link to another tab changed the URL but not the tab. Now derived
+  from the URL.
+- `probe-disputes` picked the first issued invoice even with no credit room left,
+  then re-invoiced the current period (409 `invoice-exists`). It now filters for
+  room in SQL and otherwise invoices an earlier un-invoiced period.
+
+Count notes
+- `smoke-m3` is 93 on a clean DB, 94 when a stale Kandy run is open (the check
+  inside `for (const openRun of stale)` only runs then). Both are green.
+- `probe-ops-delivery` 45 or 46 for the same reason (fixture-dependent `if` branches).
+- `smoke-sync` 66 or 67: "cleared runsheets left open by an earlier run" only
+  counts when there were leftovers.
+
+### M4 closing regression (2026-10-02, final code)
+
+Live dev server + Turso DB.
+- `bun run test` 1380 pass / 0 fail — 1353 + request-id 7 + db-retry 5 + redact 7 + codes 6 + public-mutate 2
+- `smoke` 71/71, `smoke-m3` 94/94, `smoke-m4` 75/75, `smoke-sync` 66/66
+- `probe-finance-pages` 41/41, `probe-cod-wiring` 35/35, `probe-disputes` 56/56 (twice),
+  `probe-merchant-visibility` 25/25, `probe-merchant-portal` 51/51,
+  `probe-bulk-booking` 37/37, `probe-ops-delivery` 46/46, `probe-sync-conflicts` 47/47,
+  `probe-pod-photo` 25/25
+- `ui-finance` 42/42, `ui-merchant` 46/46, `ui-check` 49/49 routes, `ui-ops-delivery` 24/24,
+  `ui-rider` 51/51, `ui-rider-queue` 31/31
+- `soak-sync` 34/34 (895 s); `probe-bulk-booking` 37/37 and `smoke` 71/71 rerun after the bag-scan change
+- typecheck web, scripts, mobile, desktop clean; `bun run lint` 0 errors
+- Not rerun this milestone: `probe-nightly` (needs a server started with
+  `NIGHTLY_INVARIANT_HOUR=0 NIGHTLY_TICK_MS=15000`; last 6/6 at the M3 close,
+  before the M4 alert edits in `alerts.ts`).

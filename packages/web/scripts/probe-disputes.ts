@@ -21,7 +21,7 @@
 
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { and, eq, inArray, like, ne } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { CMB_BRANCH } from "./lib/rail";
 
@@ -30,6 +30,8 @@ const MERCHANT = "mch_ceylon_threads";
 const OTHER = "mch_lanka_gadgets";
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const cod = await import("../src/api/database/schema/cod");
 const { parcel: parcelTable } = await import("../src/api/database/schema/parcels");
@@ -274,18 +276,37 @@ check((await holdRow(loss.holdId))?.status === "cleared", "its hold is released"
 r = await refusal(f("loss-again").disputes.resolve({ disputeId: loss.id, outcome: "rejected", resolution: "deciding a closed case again" }));
 check(r.status === 409, "a decided case cannot be decided again", r.detail);
 
-// credit note: needs an issued invoice of the same merchant with room on it
+// credit note: needs an issued invoice of the same merchant with room on it.
+// Filter for room in SQL: each run credits Rs. 150, so the first issued invoice
+// eventually fills up, and falling back to "invoice the current period" then
+// collides with that same invoice (409 invoice-exists).
 const [invoice] = await db
   .select()
   .from(cod.codInvoice)
-  .where(and(eq(cod.codInvoice.merchantId, MERCHANT), inArray(cod.codInvoice.status, ["issued", "part_paid", "paid", "overdue"])));
-let invoiceId = invoice && invoice.totalCents - invoice.creditedCents >= 15_000 ? invoice.id : null;
+  .where(and(
+    eq(cod.codInvoice.merchantId, MERCHANT),
+    inArray(cod.codInvoice.status, ["issued", "part_paid", "paid", "overdue"]),
+    sql`${cod.codInvoice.totalCents} - ${cod.codInvoice.creditedCents} >= 15000`,
+  ))
+  .limit(1);
+let invoiceId = invoice?.id ?? null;
 if (!invoiceId) {
-  const created = await f("inv-create").finance.createInvoice({
-    merchantId: MERCHANT,
-    charges: [{ description: `Delivery charges — ${RUN}`, unitCents: 50_000, quantity: 2 }],
-  });
-  invoiceId = (await f("inv-issue").finance.issueInvoice({ invoiceId: created.invoice.id })).id;
+  // No room anywhere: invoice the most recent period that has no invoice yet.
+  for (let weeksBack = 0; weeksBack < 104 && !invoiceId; weeksBack++) {
+    const asOf = new Date(Date.now() - weeksBack * 7 * 86_400_000).toISOString().slice(0, 10);
+    try {
+      const created = await f(`inv-create-${weeksBack}`).finance.createInvoice({
+        merchantId: MERCHANT,
+        asOf,
+        charges: [{ description: `Delivery charges — ${RUN}`, unitCents: 50_000, quantity: 2 }],
+      });
+      invoiceId = (await f("inv-issue").finance.issueInvoice({ invoiceId: created.invoice.id })).id;
+    } catch (e) {
+      if ((e as { data?: { type?: string } }).data?.type?.endsWith("/invoice-exists")) continue;
+      throw e;
+    }
+  }
+  if (!invoiceId) throw new Error("no un-invoiced period in the last two years");
 }
 const before = (await db.select().from(cod.codInvoice).where(eq(cod.codInvoice.id, invoiceId)))[0]!;
 check(before.status !== "draft" && before.status !== "void", "an issued Ceylon Threads invoice is available", `${before.code} ${before.status}`);
@@ -339,6 +360,24 @@ for (let i = 0; i < 20 && !alert; i++) {
 }
 check(Boolean(alert), "the worker raised a dispute_opened alert", alert?.summary ?? "none within 30s");
 check(alert?.audience === "finance" && Boolean(alert?.summary.includes(loss.code)), "it is for finance and names the case code", String(alert?.summary));
+// The case is closed by now, so its doorbell alert must be too — whether the
+// worker raised it before the decision (closed with the case) or after it
+// (closed as soon as it was raised). reopen was withdrawn within a second.
+const closedCases = [loss, dmg, reopen];
+let caseAlerts: { disputeId: string | null; status: string }[] = [];
+for (let i = 0; i < 20; i++) {
+  caseAlerts = await db
+    .select({ disputeId: cod.codOpsAlert.disputeId, status: cod.codOpsAlert.status })
+    .from(cod.codOpsAlert)
+    .where(inArray(cod.codOpsAlert.disputeId, closedCases.map((c) => c.id)));
+  if (closedCases.every((c) => caseAlerts.some((x) => x.disputeId === c.id))) break;
+  await new Promise((res) => setTimeout(res, 1500));
+}
+check(
+  closedCases.every((c) => caseAlerts.some((x) => x.disputeId === c.id)) && caseAlerts.every((x) => x.status === "resolved"),
+  "closed cases leave no live dispute_opened alert (decided, withdrawn, and withdrawn before the worker ran)",
+  caseAlerts.map((x) => x.status).join(","),
+);
 
 // ── 8. register and counts ─────────────────────────────────────────────────
 console.log("\n8. Register and counts");

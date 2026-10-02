@@ -5,6 +5,7 @@ import * as idem from "./idempotency";
 import { consumeToken, clientIp, type BucketSpec } from "./rate-limit";
 import { writeAudit } from "../shared/audit";
 import { errors } from "../shared/errors";
+import { markWrite } from "../shared/request-scope";
 import type { Principal, Role } from "../shared/auth";
 
 /**
@@ -112,6 +113,8 @@ export async function mutate<T>(
   options: MutateOptions,
   run: () => Promise<T>,
 ): Promise<T> {
+  // Never transparently re-run a request that reached a write path.
+  markWrite();
   const requireIdem = options.idempotency !== false;
   const key = idem.keyFrom(context.headers);
 
@@ -164,10 +167,15 @@ export async function publicMutate<T>(
   options: { route: string; bucket: BucketSpec; ipScope?: string },
   run: () => Promise<T>,
 ): Promise<T> {
+  // The bucket write is bookkeeping, not business state: re-running it after a
+  // dropped socket costs the caller at most one extra token (stricter, never
+  // looser). So the request only counts as having written once `run()` starts —
+  // a reset on the bucket alone is retried instead of failing a sign-in.
   await consumeToken(
     `anon:${options.ipScope ?? clientIp(context.headers)}:${options.route}`,
     options.bucket,
   );
+  markWrite();
   return run();
 }
 

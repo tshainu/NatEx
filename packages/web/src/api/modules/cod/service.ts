@@ -26,6 +26,7 @@ import { formatLkr } from "../../shared/money";
 import { enqueue } from "../../shared/outbox";
 import { colomboToday } from "../../shared/time";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { writeAudit } from "../../shared/audit";
 import type { Principal } from "../../shared/auth";
 import {
@@ -63,8 +64,7 @@ async function nextSeq(): Promise<number> {
 }
 
 function mintDepositCode(date: string): string {
-  const compact = date.replaceAll("-", "").slice(2);
-  return `DEP${compact}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return mintDocumentCode("DEP", date);
 }
 
 /**
@@ -387,9 +387,9 @@ export async function declareDeposit(input: {
   const date = colomboToday();
   const id = prefixedId("dep");
 
-  await db.insert(codDeposit).values({
+  await insertWithFreshCode("cod_deposit", () => mintDepositCode(date), (code) => db.insert(codDeposit).values({
     id,
-    code: mintDepositCode(date),
+    code,
     riderId: input.riderId,
     riderName: input.riderName,
     branchId: input.branchId,
@@ -404,7 +404,7 @@ export async function declareDeposit(input: {
     note: input.note ?? null,
     createdAt: new Date(),
     createdByName: input.actor?.name ?? input.riderName,
-  });
+  }));
 
   try {
     await db.insert(codDepositItem).values(
@@ -893,6 +893,56 @@ export async function checkCashCeiling(riderId: string): Promise<{
 }
 
 /**
+ * Every rider the ledger has ever seen, with the cash they are holding now —
+ * the finance desk's "who has our money" board (§8 checkpoint 1→2).
+ *
+ * Computed from this module's own entries only (§4): the rider's name is the
+ * actor name on their latest collection, so no identity table is read.
+ */
+export async function riderCashBoard(): Promise<
+  {
+    riderId: string;
+    riderName: string | null;
+    branchId: string | null;
+    liabilityCents: number;
+    accountBalanceCents: number;
+    collectedCents: number;
+    depositedCents: number;
+    lastCollectAt: Date | null;
+    ceilingCents: number;
+    overCeiling: boolean;
+  }[]
+> {
+  const ceilingCents = await configValue(CONFIG_KEYS.RIDER_CASH_CEILING_CENTS);
+  const live = liveEntries(await db.select().from(codEntry).orderBy(asc(codEntry.seq)));
+  const byRider = new Map<string, CodEntryRow[]>();
+  for (const row of live) {
+    if (!row.riderId) continue;
+    const list = byRider.get(row.riderId) ?? [];
+    list.push(row);
+    byRider.set(row.riderId, list);
+  }
+  const out = [...byRider.entries()].map(([riderId, rows]) => {
+    const collects = rows.filter((r) => r.type === "COLLECT");
+    const last = collects[collects.length - 1] ?? null;
+    const liabilityCents = riderLiability(rows);
+    return {
+      riderId,
+      riderName: last?.actorName ?? null,
+      branchId: last?.branchId ?? rows[rows.length - 1]?.branchId ?? null,
+      liabilityCents,
+      accountBalanceCents: balances(rows)[ACCOUNTS.RIDER_CASH] ?? 0,
+      collectedCents: collects.reduce((sum, r) => sum + r.amountCents, 0),
+      depositedCents: rows.filter((r) => r.type === "DEPOSIT").reduce((sum, r) => sum + r.amountCents, 0),
+      lastCollectAt: last?.ts ?? null,
+      ceilingCents,
+      overCeiling: liabilityCents > ceilingCents,
+    };
+  });
+  return out.sort((a, b) => b.liabilityCents - a.liabilityCents);
+}
+
+/**
  * The dispatch gate. Called by the delivery module before a runsheet is
  * dispatched; throws the problem document that tells ops why, rather than
  * returning a bare boolean the caller might ignore.
@@ -1036,22 +1086,41 @@ export async function listEntries(input: {
 }
 
 /** Deposits awaiting a cashier's count, for the reconciliation screen. */
-export async function listDeposits(input: {
+export interface DepositFilter {
   branchId?: string;
   riderId?: string;
   status?: ("declared" | "verified" | "banked" | "rejected")[];
   limit?: number;
-}): Promise<CodDepositRow[]> {
+  offset?: number;
+}
+
+function depositWhere(input: DepositFilter) {
   const conditions = [];
   if (input.branchId) conditions.push(eq(codDeposit.branchId, input.branchId));
   if (input.riderId) conditions.push(eq(codDeposit.riderId, input.riderId));
   if (input.status?.length) conditions.push(inArray(codDeposit.status, input.status));
+  return conditions.length ? and(...conditions) : undefined;
+}
+
+export async function listDeposits(input: DepositFilter): Promise<CodDepositRow[]> {
   return db
     .select()
     .from(codDeposit)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(depositWhere(input))
     .orderBy(desc(codDeposit.createdAt))
-    .limit(Math.min(input.limit ?? 50, 200));
+    .limit(Math.min(input.limit ?? 50, 200))
+    .offset(input.offset ?? 0);
+}
+
+/** One page plus the filtered total (§11 server-side paging). */
+export async function depositPage(
+  input: DepositFilter,
+): Promise<{ rows: CodDepositRow[]; total: number }> {
+  const [rows, [count]] = await Promise.all([
+    listDeposits(input),
+    db.select({ n: sql<number>`count(*)` }).from(codDeposit).where(depositWhere(input)),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
 }
 
 /**

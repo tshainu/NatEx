@@ -36,6 +36,8 @@ const PHOTO_MERCHANT = "Kandy Photo Proof Store";
 const JPEG = "/tmp/pod-photo-probe.jpg";
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { merchant } = await import("../src/api/database/schema/merchants");
 const { deliveryPod } = await import("../src/api/database/schema/delivery");

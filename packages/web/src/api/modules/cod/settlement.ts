@@ -48,6 +48,7 @@ import { formatLkr } from "../../shared/money";
 import { enqueue } from "../../shared/outbox";
 import { writeAudit } from "../../shared/audit";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import {
   addDays,
   colomboToday,
@@ -146,8 +147,7 @@ export async function currentPeriod(asOf?: string): Promise<SettlementPeriod> {
 }
 
 function mintSettlementCode(periodEnd: string): string {
-  const compact = periodEnd.replaceAll("-", "").slice(2);
-  return `STL${compact}-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return mintDocumentCode("STL", periodEnd);
 }
 
 // ──────────────────────────────────────────────────── where the money goes
@@ -627,10 +627,9 @@ export async function createSettlement(input: {
   }
 
   const id = prefixedId("stl");
-  const code = mintSettlementCode(preview.period.periodEnd);
   const blocked = preview.blockingHolds.length > 0;
 
-  await db.insert(codSettlement).values({
+  const { code } = await insertWithFreshCode("cod_settlement", () => mintSettlementCode(preview.period.periodEnd), (code) => db.insert(codSettlement).values({
     id,
     code,
     merchantId: input.merchantId,
@@ -649,7 +648,7 @@ export async function createSettlement(input: {
       : null,
     createdById: input.actor.userId!,
     createdByName: input.actor.name ?? input.actor.userId!,
-  });
+  }));
 
   for (const line of preview.lines) {
     await db.insert(codSettlementLine).values({
@@ -1264,27 +1263,71 @@ function csvCell(value: string): string {
 
 // ───────────────────────────────────────────────────────────── read paths
 
-export async function listSettlements(filter?: {
+export interface SettlementFilter {
   merchantId?: string;
   status?: ("draft" | "proposed" | "approved" | "paid" | "rejected" | "on_hold")[];
+  /** Matches the run code or the merchant name, case-insensitively. */
+  q?: string;
+  /**
+   * Restrict to runs a merchant may see. Drafts, proposals, rejections and a
+   * run held before anyone approved it are the finance desk's working state —
+   * showing them would read as a promise of money (§8 maker–checker).
+   */
+  merchantView?: boolean;
   limit?: number;
-}): Promise<SettlementRow[]> {
+  offset?: number;
+}
+
+/** A run is a promise to the merchant once approved; see `merchantView`. */
+export function merchantMaySee(run: Pick<SettlementRow, "status" | "approvedAt">): boolean {
+  return run.status === "approved" || run.status === "paid" || (run.status === "on_hold" && run.approvedAt !== null);
+}
+
+function settlementWhere(filter?: SettlementFilter) {
   const conditions = [];
   if (filter?.merchantId) conditions.push(eq(codSettlement.merchantId, filter.merchantId));
   if (filter?.status?.length) conditions.push(inArray(codSettlement.status, filter.status));
+  if (filter?.merchantView) {
+    conditions.push(
+      sql`(${codSettlement.status} in ('approved', 'paid') or (${codSettlement.status} = 'on_hold' and ${codSettlement.approvedAt} is not null))`,
+    );
+  }
+  const q = filter?.q?.trim().toLowerCase();
+  if (q) {
+    const pattern = `%${q}%`;
+    conditions.push(
+      sql`(lower(${codSettlement.code}) like ${pattern} or lower(${codSettlement.merchantName}) like ${pattern})`,
+    );
+  }
+  return conditions.length ? and(...conditions) : undefined;
+}
+
+export async function listSettlements(filter?: SettlementFilter): Promise<SettlementRow[]> {
   return db
     .select()
     .from(codSettlement)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(settlementWhere(filter))
     .orderBy(desc(codSettlement.createdAt))
-    .limit(Math.min(filter?.limit ?? 50, 200));
+    .limit(Math.min(filter?.limit ?? 50, 200))
+    .offset(filter?.offset ?? 0);
+}
+
+/** One page plus the filtered total — the finance register's server-side paging (§11). */
+export async function settlementPage(
+  filter: SettlementFilter,
+): Promise<{ rows: SettlementRow[]; total: number }> {
+  const [rows, [count]] = await Promise.all([
+    listSettlements(filter),
+    db.select({ n: sql<number>`count(*)` }).from(codSettlement).where(settlementWhere(filter)),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
 }
 
 /**
  * One merchant's money in one object, for the merchant and finance portals:
  * what is owed, what is settled, what is stuck and why.
  */
-export async function merchantStatement(merchantId: string): Promise<{
+export async function merchantStatement(merchantId: string, opts?: { merchantView?: boolean }): Promise<{
   merchantId: string;
   payableCents: number;
   accountBalances: Record<string, number>;
@@ -1314,7 +1357,7 @@ export async function merchantStatement(merchantId: string): Promise<{
       [ACCOUNTS.MERCHANT_PAYABLE]: balances(live)[ACCOUNTS.MERCHANT_PAYABLE] ?? 0,
       [ACCOUNTS.FEE_INCOME]: balances(live)[ACCOUNTS.FEE_INCOME] ?? 0,
     },
-    settlements: await listSettlements({ merchantId, limit: 20 }),
+    settlements: await listSettlements({ merchantId, limit: 20, merchantView: opts?.merchantView }),
     openHolds: await db
       .select()
       .from(codHold)

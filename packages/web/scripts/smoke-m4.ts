@@ -36,6 +36,8 @@ const SEEDED_MCH = "mch_ceylon_threads";
 const BRANCH = "brn_cmb_central";
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { merchant } = await import("../src/api/database/schema/merchants");
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const cod = await import("../src/api/database/schema/cod");

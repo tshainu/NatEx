@@ -42,6 +42,20 @@ const ROUTES = [
   "/admin/branches",
   "/admin/zones",
   "/finance",
+  "/finance/cod",
+  "/finance/cod?tab=recon",
+  "/finance/cod?tab=riders",
+  "/finance/cod?tab=deposits",
+  "/finance/cod?tab=invariant",
+  "/finance/cod?tab=alerts",
+  "/finance/cod?tab=config",
+  "/finance/remittances",
+  "/finance/remittances?tab=holds",
+  "/finance/remittances?tab=bank",
+  "/finance/invoices",
+  "/finance/invoices?tab=ageing",
+  "/finance/disputes",
+  "/finance/disputes?tab=register",
 ];
 
 /** Merchant portal — merchant-only in mayVisit, so it runs under its own session. */
@@ -54,6 +68,10 @@ const MERCHANT_ROUTES = [
   "/merchant/tracking",
   "/merchant/ndr",
   "/merchant/ndr?tab=rto",
+  "/merchant/disputes",
+  "/merchant/statement",
+  "/merchant/statement?tab=settlements",
+  "/merchant/statement?tab=invoices",
   "/merchant/account",
 ];
 
@@ -69,6 +87,8 @@ const IGNORE = [
 // The OTP bucket is tight (5 per phone, refilling 1/min) and this script logs
 // in once per run, so drain it first the way scripts/smoke.ts does.
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { parcel } = await import("../src/api/database/schema/parcels");
 await db.delete(rateLimit);

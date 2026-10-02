@@ -2,10 +2,12 @@ import { db } from "../database";
 import { auditLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 import type { Principal } from "./auth";
+import { redactForAudit } from "./redact";
 
 /**
  * Append-only audit writer (PROJECT.md §4 step 6, §5).
  * There is intentionally no update or delete function in this file.
+ * Payloads are redacted before they are written — see shared/redact.ts.
  */
 export interface AuditInput {
   entity: string;
@@ -29,8 +31,8 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     branchId: input.actor?.branchId ?? null,
     deviceId: input.deviceId ?? input.actor?.deviceId ?? null,
     requestId: input.requestId ?? null,
-    beforeJson: input.before === undefined ? null : JSON.stringify(input.before),
-    afterJson: input.after === undefined ? null : JSON.stringify(input.after),
+    beforeJson: input.before === undefined ? null : JSON.stringify(redactForAudit(input.before)),
+    afterJson: input.after === undefined ? null : JSON.stringify(redactForAudit(input.after)),
     ts: new Date(),
   });
 }

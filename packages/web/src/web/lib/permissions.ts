@@ -84,9 +84,10 @@ const FINANCE: PortalConfig = {
   home: "/finance",
   nav: [
     { label: "Overview", to: "/finance" },
-    { label: "COD ledger", to: "/finance/cod", milestone: 4 },
-    { label: "Remittances", to: "/finance/remittances", milestone: 4 },
-    { label: "Invoices", to: "/finance/invoices", milestone: 4 },
+    { label: "COD ledger", to: "/finance/cod" },
+    { label: "Remittances", to: "/finance/remittances" },
+    { label: "Invoices", to: "/finance/invoices" },
+    { label: "Disputes", to: "/finance/disputes" },
   ],
 };
 
@@ -101,6 +102,8 @@ const MERCHANT: PortalConfig = {
     { label: "Shipments", to: "/merchant/parcels" },
     { label: "Tracking", to: "/merchant/tracking" },
     { label: "NDR & returns", to: "/merchant/ndr" },
+    { label: "Statement", to: "/merchant/statement" },
+    { label: "Disputes & claims", to: "/merchant/disputes" },
     { label: "Account", to: "/merchant/account" },
   ],
 };
@@ -138,7 +141,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
-      { title: "Finance", items: FINANCE.nav.slice(0, 1) },
+      { title: "Finance", items: FINANCE.nav },
     ];
   }
   if (role === "ops") {

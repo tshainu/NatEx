@@ -2,6 +2,7 @@ import { and, count, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../../database";
 import { manifest, manifestItem, pickupRequest } from "../../database/schema/collection";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { errors } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { addDays, colomboToday } from "../../shared/time";
@@ -28,9 +29,7 @@ export type PickupRequestStatus = "requested" | "scheduled" | "cancelled";
 export const PICKUP_HORIZON_DAYS = 14;
 
 function nextRequestCode(pickupDate: string): string {
-  const compact = pickupDate.replaceAll("-", "").slice(2);
-  const suffix = Math.floor(Math.random() * 9000 + 1000).toString();
-  return `PR${compact}-${suffix}`;
+  return mintDocumentCode("PR", pickupDate);
 }
 
 function parseAwbs(row: PickupRequestRow): string[] {
@@ -236,9 +235,9 @@ export async function requestPickup(input: RequestPickupInput, actor: Principal)
   }
 
   const id = prefixedId("pkr");
-  await db.insert(pickupRequest).values({
+  await insertWithFreshCode("collection_pickup_request", () => nextRequestCode(input.pickupDate), (code) => db.insert(pickupRequest).values({
     id,
-    code: nextRequestCode(input.pickupDate),
+    code,
     merchantId: input.merchantId,
     branchId: owner!.branchId,
     pickupDate: input.pickupDate,
@@ -248,7 +247,7 @@ export async function requestPickup(input: RequestPickupInput, actor: Principal)
     notes: input.notes?.trim() || null,
     status: "requested",
     requestedBy: actor.userId,
-  });
+  }));
   return getPickupRequest(id, actor);
 }
 

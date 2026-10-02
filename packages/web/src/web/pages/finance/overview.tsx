@@ -1,181 +1,203 @@
-import { useQuery } from "@tanstack/react-query";
-import { orpc, apiMessage } from "@/lib/api";
-import { dateTime, humanise, money } from "@/lib/format";
+import { Link } from "wouter";
+import { ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
+import { apiMessage } from "@/lib/api";
+import { date, dateTime, money } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Page, Card, ErrorNote } from "@/components/natex/page";
 import { MetricTile } from "@/components/natex/metric-tile";
-import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
-import { StatusPill } from "@/components/natex/status-pill";
+import { useAlertCounts, useInvariantRuns, useReconciliation, useStale } from "@/queries/cod";
+import { useArAgeing, useCurrentPeriod, useSettlementDue } from "@/queries/finance";
+import { useDisputeCounts } from "@/queries/disputes";
+import { StatusBadge } from "./shared";
 
 /**
- * Finance overview, interim. The M4 ledger, settlements, invoices and disputes
- * are built behind the API (scripts/smoke-m4.ts, probe-cod-wiring.ts,
- * probe-disputes.ts) but their screens are not yet. Until the finance
- * dashboard replaces this page it shows only what it can read directly:
- * which merchants carry COD, and COD declared on the newest parcels.
+ * Finance dashboard (§10 M4 "Finance portal: dashboard").
  *
- * Finance is a global-scope role (api/shared/auth.ts), so these figures span
- * every branch.
+ * Every figure here is read from the ledger's own totals — nothing is summed
+ * from a page of rows in the browser. The four-way strip is §8's
+ * "collected vs deposited vs banked vs settled, with variance highlighted at
+ * each stage"; each gap is money that has not yet moved to the next stage,
+ * which is not automatically an error, so the controls card says which gaps
+ * are stale.
  */
-
-interface ParcelRow {
-  id: string;
-  awb: string;
-  status: string;
-  merchantId: string;
-  codAmountCents: number;
-  consigneeName: string;
-  createdAt: string | Date;
-}
-
 export default function FinanceOverview() {
-  const merchants = useQuery(
-    orpc.merchants.list.queryOptions({ input: { page: 1, pageSize: 100 } }),
-  );
-  // One page of the newest parcels — a sample, labelled as one, never presented
-  // as a settled balance.
-  const parcels = useQuery(
-    orpc.parcels.list.queryOptions({ input: { page: 1, pageSize: 100 } }),
-  );
+  const recon = useReconciliation();
+  const alerts = useAlertCounts();
+  const stale = useStale();
+  const runs = useInvariantRuns(1);
+  const disputes = useDisputeCounts();
+  const ar = useArAgeing();
+  const due = useSettlementDue();
+  const period = useCurrentPeriod();
 
-  const rows = (parcels.data?.rows ?? []) as unknown as ParcelRow[];
-  const codRows = rows.filter((r) => r.codAmountCents > 0);
-  const sampleCod = codRows.reduce((sum, r) => sum + r.codAmountCents, 0);
-  const codMerchants = (merchants.data?.rows ?? []).filter((m) => m.codEnabled);
-  const merchantName = (id: string) =>
-    merchants.data?.rows.find((m) => m.id === id)?.name ?? "—";
-
-  const columns: Column<ParcelRow>[] = [
-    { key: "awb", header: "AWB", width: "w-[160px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
-    {
-      key: "merchant",
-      header: "Merchant",
-      cell: (r) => <span className="truncate">{merchantName(r.merchantId)}</span>,
-    },
-    {
-      key: "consignee",
-      header: "Consignee",
-      cell: (r) => <span className="truncate text-muted-foreground">{r.consigneeName}</span>,
-    },
-    {
-      key: "status",
-      header: "Custody",
-      width: "w-[150px]",
-      cell: (r) => <StatusPill status={r.status} />,
-    },
-    {
-      key: "cod",
-      header: "COD declared",
-      align: "right",
-      width: "w-[140px]",
-      className: "font-mono font-medium",
-      cell: (r) => money(r.codAmountCents),
-    },
-    {
-      key: "booked",
-      header: "Booked",
-      align: "right",
-      width: "w-[150px]",
-      className: "font-mono text-muted-foreground",
-      cell: (r) => dateTime(r.createdAt),
-    },
-  ];
-
-  const error =
-    parcels.error || merchants.error
-      ? apiMessage(parcels.error ?? merchants.error, "Finance data is unavailable.")
-      : null;
+  const r = recon.data;
+  const latest = runs.data?.[0];
+  const dueRows = due.data ?? [];
+  const dueGross = dueRows.reduce((sum, row) => sum + row.grossCents, 0);
+  const error = recon.error ?? alerts.error ?? disputes.error ?? ar.error;
 
   return (
     <Page
-      title="Finance overview"
-      description="Cash-on-delivery exposure as declared at booking. The ledger, reconciliation and settlement screens are next."
-      actions={<Badge variant="milestone">Ledger screens in build · M4</Badge>}
+      title="Finance"
+      description="Where the cash is, what is owed, and what needs a decision. Every figure is the ledger's own total, refreshed every 15 seconds."
+      actions={
+        period.data ? (
+          <Badge variant="outline">
+            Period {date(period.data.periodStart)} – {date(period.data.periodEnd)} · payout {date(period.data.payoutDate)}
+          </Badge>
+        ) : null
+      }
     >
-      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      {error ? <ErrorNote>{apiMessage(error, "Some finance figures could not be loaded.")}</ErrorNote> : null}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <MetricTile
-          label="COD parcels in sample"
-          value={codRows.length}
-          hint={`of ${rows.length} newest parcels`}
-        />
-        <MetricTile
-          label="COD declared in sample"
-          value={money(sampleCod)}
-          hint="Declared at booking, not collected"
-        />
-        <MetricTile
-          label="Merchants with COD enabled"
-          value={codMerchants.length}
-          hint={`of ${merchants.data?.total ?? 0} merchants`}
-        />
+      <section aria-labelledby="four-way" className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 id="four-way" className="text-[13px] font-semibold">
+            Four-way reconciliation
+          </h2>
+          {r ? (
+            r.ledgerSumCents === 0 ? (
+              <Badge variant="good">
+                <CheckCircle2 className="size-3" aria-hidden /> Ledger balanced · {r.liveEntryCount} live entries
+              </Badge>
+            ) : (
+              <Badge variant="bad">
+                <AlertTriangle className="size-3" aria-hidden /> Ledger out by {money(r.ledgerSumCents)}
+              </Badge>
+            )
+          ) : null}
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <MetricTile label="1 · Collected" value={r ? money(r.collectedCents) : "—"} hint="From consignees" />
+          <MetricTile
+            label="2 · Deposited"
+            value={r ? money(r.depositedCents) : "—"}
+            hint={r ? `${money(r.inRiderHandsCents)} still with riders` : undefined}
+          />
+          <MetricTile
+            label="3 · Banked"
+            value={r ? money(r.bankedCents) : "—"}
+            hint={r ? `${money(r.inBranchSafeCents)} in branch safes` : undefined}
+          />
+          <MetricTile
+            label="4 · Settled"
+            value={r ? money(r.settledCents) : "—"}
+            hint={r ? `${money(r.awaitingSettlementCents)} awaiting settlement` : undefined}
+          />
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card
+          title="Controls"
+          description="§8 controls that need a person."
+          actions={<QuickLink to="/finance/alerts" label="Alerts" />}
+        >
+          <ul className="space-y-2.5 text-[13px]">
+            <Row label="Open alerts" value={alerts.data?.open ?? "—"} tone={(alerts.data?.highOpen ?? 0) > 0 ? "bad" : undefined} hint={alerts.data ? `${alerts.data.highOpen} high severity` : undefined} />
+            <Row label="Acknowledged, not resolved" value={alerts.data?.acknowledged ?? "—"} />
+            <Row label="Stale collections (no deposit)" value={stale.data?.length ?? "—"} tone={(stale.data?.length ?? 0) > 0 ? "bad" : undefined} />
+            <Row label="Open cash variance" value={r ? money(r.openVarianceCents) : "—"} tone={r && r.openVarianceCents !== 0 ? "bad" : undefined} />
+          </ul>
+          <div className="mt-4 border-t pt-3">
+            <p className="label-xs text-muted-foreground">Balance invariant · latest run</p>
+            {latest ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px]">
+                <StatusBadge status={latest.result} />
+                <span className="font-mono text-[12px]">{dateTime(latest.ranAt)}</span>
+                <Badge variant="outline">{latest.trigger}</Badge>
+                <span className="text-muted-foreground">
+                  {latest.ridersChecked} riders · {latest.breachCount} breach{latest.breachCount === 1 ? "" : "es"}
+                </span>
+              </div>
+            ) : (
+              <p className="mt-1.5 text-[13px] text-muted-foreground">
+                {runs.isPending ? "Loading…" : "No run recorded yet."}
+              </p>
+            )}
+          </div>
+        </Card>
+
+        <Card
+          title="Settlements"
+          description="Merchants with banked COD in this period and no run yet."
+          actions={<QuickLink to="/finance/remittances" label="Remittances" />}
+        >
+          <ul className="space-y-2.5 text-[13px]">
+            <Row label="Merchants due" value={due.data ? dueRows.length : "—"} />
+            <Row label="Gross due" value={due.data ? money(dueGross) : "—"} />
+            <Row label="Parcels due" value={due.data ? dueRows.reduce((s, x) => s + x.parcelCount, 0) : "—"} />
+          </ul>
+          <p className="mt-4 border-t pt-3 text-[12px] leading-relaxed text-muted-foreground">
+            A run is a proposal until a second person approves it — the maker can never approve their own (§8).
+          </p>
+        </Card>
+
+        <Card
+          title="Disputes & claims"
+          description="Cases waiting on finance."
+          actions={<QuickLink to="/finance/disputes" label="Disputes" />}
+        >
+          <ul className="space-y-2.5 text-[13px]">
+            <Row label="Open" value={disputes.data?.open ?? "—"} />
+            <Row label="Investigating" value={disputes.data?.investigating ?? "—"} />
+            <Row label="Past SLA" value={disputes.data?.overdue ?? "—"} tone={(disputes.data?.overdue ?? 0) > 0 ? "bad" : undefined} />
+            <Row label="Claims live in register" value={disputes.data?.register.live ?? "—"} hint={disputes.data ? `${money(disputes.data.register.claimedCents)} claimed` : undefined} />
+          </ul>
+        </Card>
       </div>
 
       <Card
-        title="What this page does and does not show"
-        className="max-w-3xl"
+        title="Receivables"
+        description={`Invoiced charges outstanding, aged from due date${ar.data ? ` (credit term ${ar.data.creditTermDays} days)` : ""}.`}
+        actions={<QuickLink to="/finance/invoices?tab=ageing" label="AR ageing" />}
       >
-        <div className="flex flex-col gap-3 text-[13px] leading-relaxed text-muted-foreground">
-          <p>
-            <span className="font-medium text-foreground">Recorded today.</span> A COD amount
-            is captured on the parcel at booking and travels with it through the state machine.
-            Every custody change is written to the append-only parcel event log.
-          </p>
-          <p>
-            <span className="font-medium text-foreground">Recorded, not shown here.</span>{" "}
-            Collections, rider cash, deposits, settlements, UTRs, invoices and disputes are
-            posted to the double-entry COD ledger, but their screens are not built yet. The
-            figures above are the sum of what was <span className="italic">declared</span> on
-            a sample of parcels, not what was collected, and will not match the ledger.
-          </p>
-          <p>
-            <span className="font-medium text-foreground">Why a sample.</span> This interim
-            page sums the page of parcels it can read (100 rows) and says so; the finance
-            dashboard will read the ledger&apos;s own totals instead.
-          </p>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+          <MetricTile label="Outstanding" value={ar.data ? money(ar.data.outstandingCents) : "—"} />
+          <MetricTile label="Not yet due" value={ar.data ? money(ar.data.notYetDueCents) : "—"} />
+          {(["0-30", "31-60", "61-90", "90+"] as const).map((bucket) => (
+            <MetricTile
+              key={bucket}
+              label={`${bucket} days`}
+              value={ar.data ? money(ar.data.totals[bucket]) : "—"}
+            />
+          ))}
         </div>
       </Card>
-
-      <Card
-        title="COD-enabled merchants"
-        description="Merchants permitted to book cash-on-delivery parcels."
-        bodyClassName="p-0"
-      >
-        {codMerchants.length === 0 ? (
-          <p className="p-5 text-[13px] text-muted-foreground">
-            No merchant currently has COD enabled.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {codMerchants.map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-4 px-5 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-medium">{m.name}</p>
-                  <p className="truncate text-[12px] text-muted-foreground">
-                    {m.contactName} · <span className="font-mono">{m.contactPhone}</span>
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline">POD: {humanise(m.podPolicy)}</Badge>
-                  <Badge variant={m.status === "active" ? "good" : "warn"}>
-                    {m.status === "active" ? "Active" : "Suspended"}
-                  </Badge>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <DataTable
-        columns={columns}
-        rows={codRows}
-        rowKey={(r) => r.id}
-        loading={parcels.isLoading}
-        emptyTitle="No COD parcel in the newest 100"
-        emptyDescription="Prepaid parcels carry a zero COD amount and are excluded here."
-      />
     </Page>
+  );
+}
+
+function Row({
+  label,
+  value,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "bad";
+  hint?: string;
+}) {
+  return (
+    <li className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">
+        {label}
+        {hint ? <span className="ml-1.5 text-[11px]">· {hint}</span> : null}
+      </span>
+      <span className={`font-mono font-medium ${tone === "bad" ? "text-status-bad" : ""}`}>{value}</span>
+    </li>
+  );
+}
+
+function QuickLink({ to, label }: { to: string; label: string }) {
+  return (
+    <Link
+      href={to}
+      className="inline-flex items-center gap-1 rounded text-[12px] font-medium text-brand-ink hover:underline focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/40"
+    >
+      {label}
+      <ArrowRight className="size-3.5" aria-hidden />
+    </Link>
   );
 }

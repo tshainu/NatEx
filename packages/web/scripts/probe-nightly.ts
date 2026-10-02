@@ -21,6 +21,8 @@ import type { AppRouterClient } from "../src/api";
 
 const API = process.env.PROBE_API ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { colomboToday } = await import("../src/api/shared/time");
 const { nightlyTick, colomboHour } = await import("../src/api/jobs/nightly");

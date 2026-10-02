@@ -8,6 +8,7 @@ import {
   trip,
 } from "../../database/schema/transport";
 import { prefixedId } from "../../shared/ulid";
+import { isTransientDbError } from "../../shared/request-scope";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
@@ -524,7 +525,13 @@ export async function bulkScanIntoBag(
         actor,
       );
     } catch (err) {
-      const reason = err instanceof Error ? err.message : "Transition refused";
+      // A dropped database socket is not a refusal: say so plainly (the raw
+      // driver message is a SQL statement) and keep the detail in the log.
+      const transient = isTransientDbError(err);
+      if (transient) console.warn(`[transport] bag scan ${p.awb}: transient database error`, err);
+      const reason = transient
+        ? "Connection to the database dropped — scan this parcel again."
+        : err instanceof Error ? err.message : "Transition refused";
       await logScan({
         kind: "bag_in",
         outcome: "rejected",

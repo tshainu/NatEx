@@ -80,6 +80,7 @@ function ConfirmDialog({
   confirmLabel = "Confirm",
   pending = false,
   destructive = true,
+  confirmDisabled = false,
   onConfirm,
 }: {
   open: boolean;
@@ -90,6 +91,8 @@ function ConfirmDialog({
   confirmLabel?: string;
   pending?: boolean;
   destructive?: boolean;
+  /** Keeps the confirm button disabled until a required field is filled. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
 }) {
   return (
@@ -111,6 +114,7 @@ function ConfirmDialog({
           <Button
             variant={destructive ? "destructive" : "default"}
             pending={pending}
+            disabled={confirmDisabled}
             onClick={onConfirm}
           >
             {confirmLabel}

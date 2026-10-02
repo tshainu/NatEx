@@ -33,6 +33,8 @@ const DEVICE = "cod-wiring-probe-device";
 const MERCHANT = "mch_ceylon_threads"; // POD policy: signature
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { codEntry } = await import("../src/api/database/schema/cod");
 await db.delete(rateLimit);

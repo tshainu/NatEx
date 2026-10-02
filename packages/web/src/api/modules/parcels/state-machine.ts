@@ -173,7 +173,7 @@ export const ENABLED_BY_MILESTONE: Readonly<Record<number, readonly ParcelStatus
  * producing it is built, running and verified — regardless of which clients
  * can drive it yet.
  */
-export const EXPOSED_MILESTONE = 3;
+export const EXPOSED_MILESTONE = 4;
 
 /**
  * What is actually shipped end-to-end, clients included. Lower than
@@ -186,10 +186,15 @@ export const EXPOSED_MILESTONE = 3;
  * `ui-ops-delivery.ts`), merchant portal + bulk booking
  * (`probe-merchant-portal.ts`, `probe-bulk-booking.ts`, `ui-merchant.ts`) and
  * §6 transition unit tests (`state-machine.test.ts`, `transition.db.test.ts`).
- * M4 stays out until its finance screens exist. This is the honest number to
- * show a human.
+ * M4 shipped 2026-10-02 (it adds no parcel statuses, so ENABLED_STATUSES did
+ * not move): COD ledger, deposits, settlements with maker–checker, holds,
+ * invoicing + credit notes, disputes, bank details and the payout file
+ * (`smoke-m4.ts`, `probe-cod-wiring.ts`, `probe-disputes.ts`,
+ * `probe-finance-pages.ts`, `probe-merchant-visibility.ts`), the finance portal
+ * (`ui-finance.ts`) and the merchant statement (`ui-merchant.ts`). This is the
+ * honest number to show a human.
  */
-export const SHIPPED_MILESTONE = 3;
+export const SHIPPED_MILESTONE = 4;
 
 /** @deprecated Ambiguous. Read EXPOSED_MILESTONE or SHIPPED_MILESTONE. */
 export const CURRENT_MILESTONE = EXPOSED_MILESTONE;

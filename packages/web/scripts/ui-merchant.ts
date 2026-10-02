@@ -23,6 +23,9 @@
  *   shipments   CSV export row count = server total
  *   tracking    own AWB found; another merchant's AWB reads not found
  *   NDR         arrow-key tab switch records ?tab=rto
+ *   statement   tiles = finance.statement / merchantAr; bank account masked;
+ *               an injected draft run never renders; payout and invoice CSV
+ *               row counts = server totals, outstanding adds up per row
  *   drawer      as admin: Delivered / RTO delivered / In transit are never
  *               offered as buttons (evidence-gated, §7)
  *   layout      bleed pages (pickups, tracking, shipments) never overflow
@@ -44,6 +47,8 @@ import { TEMPLATE_HEADER } from "../src/web/lib/bulk-csv";
 
 const BASE = process.env.UI_CHECK_BASE ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
+const { cleanupWithRetry, hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit } = await import("../src/api/database/schema/shared");
 const { parcel } = await import("../src/api/database/schema/parcels");
 const { pickupRequest, manifest } = await import("../src/api/database/schema/collection");
@@ -640,6 +645,124 @@ await step("NDR tab badge = ndr.counts for this merchant", async () => {
   if (!txt.includes(String(want))) throw new Error(`tab "${txt}" vs ${want}`);
   return String(want);
 });
+
+// ═══════════════════════════════════════════════════════════════ statement (M4)
+console.log("\nUI proof — /merchant/statement");
+const { codSettlement } = await import("../src/api/database/schema/cod");
+// A draft run for THIS merchant: it must never reach the merchant's screen.
+const draftCode = `${TAG}-DRAFT`;
+await db.insert(codSettlement).values({
+  id: `stl_uim_${RUN}`,
+  code: draftCode,
+  merchantId: MERCHANT,
+  merchantName: "Ceylon Threads",
+  periodStart: "2020-03-07",
+  periodEnd: "2020-03-13",
+  payoutDate: "2020-03-18",
+  grossCents: 999_99,
+  netCents: 999_99,
+  status: "draft",
+  createdById: "ui-merchant",
+  createdByName: "ui-merchant",
+});
+try {
+  await page.goto(`${BASE}/merchant`, { waitUntil: "networkidle" });
+  await step("Statement is in the merchant nav and opens /merchant/statement", async () => {
+    await page.locator("nav").getByRole("link", { name: "Statement", exact: true }).click();
+    await page.waitForURL(/\/merchant\/statement/);
+    await page.getByRole("heading", { name: "Statement" }).first().waitFor();
+  });
+  const st = await merchant.finance.statement({});
+  const ar = await merchant.finance.merchantAr({});
+  await step("summary tiles = finance.statement / merchantAr to the cent", async () => {
+    await page.getByText("COD payable to you").first().waitFor();
+    await page.waitForLoadState("networkidle");
+    const payable = await tile(page, "COD payable to you").innerText();
+    if (!payable.includes(money(st.payableCents))) throw new Error(`payable tile "${payable}" vs ${money(st.payableCents)}`);
+    const out = await tile(page, "Invoices outstanding").innerText();
+    if (!out.includes(money(ar.outstandingCents))) throw new Error(`AR tile "${out}" vs ${money(ar.outstandingCents)}`);
+    const held = await tile(page, "Payouts held").innerText();
+    if (!held.includes(String(st.openHolds.length))) throw new Error(`held tile "${held}" vs ${st.openHolds.length}`);
+    return `payable ${money(st.payableCents)}, outstanding ${money(ar.outstandingCents)}, held ${st.openHolds.length}`;
+  });
+  await step("bank details are masked: last 4 digits only, never the full account", async () => {
+    const body = await page.locator("main").innerText();
+    if (!st.payout) {
+      if (!body.includes("No bank details on file")) throw new Error("no payout and no empty state");
+      return "no details on file — empty state shown";
+    }
+    const acct = st.payout.accountNumber;
+    if (body.includes(acct)) throw new Error("full account number on screen");
+    if (!body.includes(acct.slice(-4))) throw new Error("last 4 digits missing");
+    return `…${acct.slice(-4)}`;
+  });
+  await step("ArrowRight opens Payouts (?tab=settlements); focus follows", async () => {
+    await page.getByRole("tab", { name: "Summary" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await page.getByRole("tab", { name: "Payouts", selected: true }).waitFor();
+    if (!page.url().includes("tab=settlements")) throw new Error(page.url());
+    if ((await page.evaluate(() => document.activeElement?.id)) !== "tab-settlements") throw new Error("focus did not follow");
+  });
+  const visible = await merchant.finance.settlementPage({ status: ["approved", "on_hold", "paid"], pageSize: 200 });
+  await step("Payouts table: server total, no draft — the injected draft run is absent", async () => {
+    await page.waitForLoadState("networkidle");
+    const panel = page.getByRole("tabpanel");
+    if (visible.total > 0) await panel.locator("tbody tr").first().waitFor();
+    const text = await panel.innerText();
+    if (text.includes(draftCode)) throw new Error("draft run rendered");
+    if (/\b(Draft|Proposed|Rejected)\b/.test(text)) throw new Error("a working-state badge rendered");
+    const rows = await panel.locator("tbody tr").count();
+    const want = Math.min(25, visible.total) || 1; // empty state is one row
+    if (rows !== want) throw new Error(`${rows} rows vs ${want}`);
+    return `${visible.total} payout(s)`;
+  });
+  await step("Payouts CSV: one row per server row, none in a working state", async () => {
+    const lines = await download(page, "Export CSV");
+    const rows = parseCsv(lines.join("\n")).slice(1).map((r) => r.cells);
+    if (rows.length !== visible.total) throw new Error(`${rows.length} CSV rows vs ${visible.total}`);
+    if (rows.some((r) => !["approved", "on_hold", "paid"].includes(r[7]!))) throw new Error("bad status in CSV");
+    if (rows.some((r) => r[0] === draftCode)) throw new Error("draft in CSV");
+    return `${rows.length} rows`;
+  });
+  if (visible.rows[0]) {
+    const first = visible.rows[0];
+    await step("clicking a payout opens its drawer with net and UTR from the server", async () => {
+      await page.getByRole("tabpanel").locator("tbody tr", { hasText: first.code }).click();
+      const d = page.getByRole("dialog");
+      await d.getByText(first.code).first().waitFor();
+      const t = await d.innerText();
+      if (!t.includes(money(first.netCents))) throw new Error(`net ${money(first.netCents)} missing`);
+      if (first.utr && !t.includes(first.utr)) throw new Error("UTR missing");
+      await page.keyboard.press("Escape");
+      await d.waitFor({ state: "detached" });
+      return `${first.code} ${money(first.netCents)}`;
+    });
+  }
+  const inv = await merchant.finance.invoicePage({ status: ["issued", "part_paid", "paid"], pageSize: 200 });
+  await step("Invoices tab: CSV rows = server total; outstanding column = total − paid − credited − recovered", async () => {
+    await page.getByRole("tab", { name: "Invoices" }).click();
+    await page.getByRole("tab", { name: "Invoices", selected: true }).waitFor();
+    await page.waitForLoadState("networkidle");
+    const lines = await download(page, "Export CSV");
+    const rows = parseCsv(lines.join("\n")).slice(1).map((r) => r.cells);
+    if (rows.length !== inv.total) throw new Error(`${rows.length} CSV rows vs ${inv.total}`);
+    for (const r of rows) {
+      const [total, paid, credited, recovered, outstanding] = [4, 5, 6, 7, 8].map((i) => Math.round(Number(r[i]) * 100));
+      if (total! - paid! - credited! - recovered! !== outstanding) throw new Error(`${r[0]} outstanding does not add up`);
+      if (!["issued", "part_paid", "paid"].includes(r[9]!)) throw new Error(`${r[0]} status ${r[9]}`);
+    }
+    return `${rows.length} invoice(s)`;
+  });
+  await step("credit notes card lists merchantAr.creditNotes", async () => {
+    const t = await page.getByRole("tabpanel").innerText();
+    for (const c of ar.creditNotes) if (!t.includes(c.code)) throw new Error(`${c.code} missing`);
+    if (ar.creditNotes.length === 0 && !t.includes("No credit notes")) throw new Error("no empty state");
+    return `${ar.creditNotes.length} note(s)`;
+  });
+  await step("statement page never scrolls sideways", () => noHorizontalOverflow(page));
+} finally {
+  await cleanupWithRetry(() => db.delete(codSettlement).where(like(codSettlement.id, "stl_uim_%")));
+}
 
 // ═══════════════════════════════════════════════════════════════ drawer, as admin
 console.log("\nUI proof — parcel drawer as admin: evidence-gated moves are never buttons");

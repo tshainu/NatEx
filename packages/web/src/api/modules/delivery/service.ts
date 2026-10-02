@@ -8,6 +8,7 @@ import {
   runsheetItem,
 } from "../../database/schema/delivery";
 import { prefixedId } from "../../shared/ulid";
+import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { errors, fail, problem } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { hashSecret, isGlobalScope, verifySecret, type Principal } from "../../shared/auth";
@@ -94,9 +95,7 @@ function assertRunsheetVisible(row: RunsheetRow, scope: Principal): void {
 }
 
 function mintRunsheetCode(runDate: string): string {
-  const compact = runDate.replaceAll("-", "").slice(2);
-  const suffix = Math.floor(Math.random() * 9000 + 1000).toString();
-  return `RS${compact}-${suffix}`;
+  return mintDocumentCode("RS", runDate);
 }
 
 // ---------------------------------------------------------------- read paths
@@ -432,11 +431,11 @@ export async function createRunsheet(
     );
   }
 
-  const [row] = await db
+  const { result: [row] } = await insertWithFreshCode("delivery_runsheet", () => mintRunsheetCode(runDate), (code) => db
     .insert(runsheet)
     .values({
       id: prefixedId("rsh"),
-      code: mintRunsheetCode(runDate),
+      code,
       riderId: rider!.id,
       riderName: rider!.name,
       branchId: rider!.branchId,
@@ -445,7 +444,7 @@ export async function createRunsheet(
       status: "draft",
       createdByName: actor.name,
     })
-    .returning();
+    .returning());
 
   return row!;
 }

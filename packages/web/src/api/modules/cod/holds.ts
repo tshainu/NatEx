@@ -15,7 +15,7 @@
  * function here that deletes a hold or clears one without a note.
  */
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { codHold } from "../../database/schema/cod";
 import { errors, fail, isUniqueViolationOn, problem } from "../../shared/errors";
@@ -178,24 +178,43 @@ export async function clearHold(input: {
   return row!;
 }
 
-export async function listHolds(filter?: {
+export interface HoldFilter {
   merchantId?: string;
   parcelId?: string;
   status?: ("open" | "cleared")[];
   scope?: HoldScope;
+  reason?: HoldReason[];
   limit?: number;
-}): Promise<CodHoldRow[]> {
+  offset?: number;
+}
+
+function holdWhere(filter?: HoldFilter) {
   const conditions = [];
   if (filter?.merchantId) conditions.push(eq(codHold.merchantId, filter.merchantId));
   if (filter?.parcelId) conditions.push(eq(codHold.parcelId, filter.parcelId));
   if (filter?.status?.length) conditions.push(inArray(codHold.status, filter.status));
   if (filter?.scope) conditions.push(eq(codHold.scope, filter.scope));
+  if (filter?.reason?.length) conditions.push(inArray(codHold.reason, filter.reason));
+  return conditions.length ? and(...conditions) : undefined;
+}
+
+export async function listHolds(filter?: HoldFilter): Promise<CodHoldRow[]> {
   return db
     .select()
     .from(codHold)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(holdWhere(filter))
     .orderBy(desc(codHold.openedAt))
-    .limit(Math.min(filter?.limit ?? 100, 500));
+    .limit(Math.min(filter?.limit ?? 100, 500))
+    .offset(filter?.offset ?? 0);
+}
+
+/** One page plus the filtered total (§11 server-side paging). */
+export async function holdPage(filter: HoldFilter): Promise<{ rows: CodHoldRow[]; total: number }> {
+  const [rows, [count]] = await Promise.all([
+    listHolds(filter),
+    db.select({ n: sql<number>`count(*)` }).from(codHold).where(holdWhere(filter)),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
 }
 
 /**

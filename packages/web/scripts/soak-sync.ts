@@ -46,6 +46,8 @@ const DEVICE = `soak-${Date.now()}`; // a fresh install each run, so counts are 
 const SKEW = 30 * 60_000; // §7's ±30 minutes
 
 const { db } = await import("../src/api/database");
+const { hardenScriptReads } = await import("./lib/db-retry");
+hardenScriptReads(db);
 const { rateLimit, auditLog } = await import("../src/api/database/schema/shared");
 const { syncOperation } = await import("../src/api/database/schema/sync");
 const { and, eq, gte, sql } = await import("drizzle-orm");

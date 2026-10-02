@@ -45,9 +45,9 @@
  * must fail independently.
  */
 
-import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
-import { codOpsAlert } from "../../database/schema/cod";
+import { codDispute, codOpsAlert } from "../../database/schema/cod";
 import { errors, fail, isUniqueViolationOn, problem } from "../../shared/errors";
 import { formatLkr } from "../../shared/money";
 import { colomboToday } from "../../shared/time";
@@ -509,7 +509,7 @@ export async function recordOutboxAlert(
     /** Raised by disputes.ts openDispute(); finance works the queue. */
     case "cod.dispute_opened": {
       const p = parsePayload<DisputeOpenedPayload>(topic, payloadJson, ["disputeId"]);
-      return raiseAlert({
+      const raised = await raiseAlert({
         topic,
         kind: "dispute_opened",
         severity: "medium",
@@ -525,6 +525,16 @@ export async function recordOutboxAlert(
         awb: p.awb ?? null,
         amountCents: p.amountCents ?? null,
       });
+      // The outbox drains after the request: a case decided or withdrawn
+      // before the worker got here must not leave a live alert behind.
+      const [dispute] = await db
+        .select({ status: codDispute.status, code: codDispute.code })
+        .from(codDispute)
+        .where(eq(codDispute.id, p.disputeId));
+      if (dispute && !["open", "investigating"].includes(dispute.status)) {
+        await closeDisputeAlerts(p.disputeId, `${dispute.code} was already ${dispute.status} when this alert was raised.`, null);
+      }
+      return raised;
     }
 
     default:
@@ -543,9 +553,10 @@ export interface ListAlertsFilter {
   /** Only the rows a desk has to work. Drops the informational records. */
   actionRequiredOnly?: boolean;
   limit?: number;
+  offset?: number;
 }
 
-export async function listAlerts(filter: ListAlertsFilter = {}): Promise<CodOpsAlertRow[]> {
+function alertWhere(filter: ListAlertsFilter): SQL | undefined {
   const where: SQL[] = [];
   if (filter.status) {
     const statuses = Array.isArray(filter.status) ? filter.status : [filter.status];
@@ -556,13 +567,28 @@ export async function listAlerts(filter: ListAlertsFilter = {}): Promise<CodOpsA
   if (filter.riderId) where.push(eq(codOpsAlert.riderId, filter.riderId));
   if (filter.merchantId) where.push(eq(codOpsAlert.merchantId, filter.merchantId));
   if (filter.actionRequiredOnly) where.push(eq(codOpsAlert.actionRequired, true));
+  return where.length ? and(...where) : undefined;
+}
 
+export async function listAlerts(filter: ListAlertsFilter = {}): Promise<CodOpsAlertRow[]> {
   return db
     .select()
     .from(codOpsAlert)
-    .where(where.length ? and(...where) : undefined)
+    .where(alertWhere(filter))
     .orderBy(desc(codOpsAlert.createdAt))
-    .limit(Math.min(filter.limit ?? 100, 500));
+    .limit(Math.min(filter.limit ?? 100, 500))
+    .offset(filter.offset ?? 0);
+}
+
+/** One page plus the filtered total (§11 server-side paging). */
+export async function alertPage(
+  filter: ListAlertsFilter,
+): Promise<{ rows: CodOpsAlertRow[]; total: number }> {
+  const [rows, [count]] = await Promise.all([
+    listAlerts(filter),
+    db.select({ n: sql<number>`count(*)` }).from(codOpsAlert).where(alertWhere(filter)),
+  ]);
+  return { rows, total: Number(count?.n ?? 0) };
 }
 
 /** Counts for the ops/finance dashboard badge. Open work only. */
@@ -686,4 +712,43 @@ export async function resolveAlert(
     after: { status: "resolved", resolutionNote: note.trim() },
   });
   return getAlert(id);
+}
+
+/**
+ * Close the live alerts that point at a dispute once the case itself closes.
+ *
+ * The dispute queue is the worklist for a case; the `dispute_opened` alert is
+ * only the doorbell. Without this, every decided or withdrawn case kept an
+ * open alert and the finance alert count only ever grew.
+ */
+export async function closeDisputeAlerts(
+  disputeId: string,
+  note: string,
+  actor: Principal | null,
+): Promise<number> {
+  const live = await db
+    .select({ id: codOpsAlert.id, status: codOpsAlert.status })
+    .from(codOpsAlert)
+    .where(and(eq(codOpsAlert.disputeId, disputeId), inArray(codOpsAlert.status, ["open", "acknowledged"])));
+  for (const row of live) {
+    await db
+      .update(codOpsAlert)
+      .set({
+        status: "resolved",
+        resolvedAt: new Date(),
+        resolvedById: actor?.userId ?? null,
+        resolvedByName: actor?.name ?? null,
+        resolutionNote: note,
+      })
+      .where(eq(codOpsAlert.id, row.id));
+    await writeAudit({
+      entity: "cod_ops_alert",
+      entityId: row.id,
+      action: "cod.alert_resolved",
+      actor,
+      before: { status: row.status },
+      after: { status: "resolved", resolutionNote: note, closedWith: disputeId },
+    });
+  }
+  return live.length;
 }
