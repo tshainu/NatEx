@@ -185,7 +185,7 @@ readiness failure means: check DB status at Turso first, then the worker
   `@sentry/bun` is imported only inside `report-error.ts`. If that breaks the
   mobile typecheck, load it with a dynamic `import()`.
 
-### Job monitor (Admin → Monitor)
+### Job monitor (Admin → System monitor)
 
 - **Health:** DB latency, uptime, worker (running, last tick, last OK, last
   error), nightly scheduler, outbox summary and the last 7 invariant runs.
@@ -204,10 +204,10 @@ readiness failure means: check DB status at Turso first, then the worker
   `NIGHTLY_INVARIANT_HOUR` (default 23). It checks that the ledger,
   rider-cash, deposit and settlement totals agree to the cent, and raises a
   COD alert on any break.
-- **Manual run:** Finance → Controls → *Run invariant now*.
+- **Manual run:** Finance → COD ledger → *Invariant* tab → *Run now*.
 - **A break is a money incident:** freeze settlement approvals for the affected
-  merchants (place a hold), then reconcile from Finance → COD →
-  Reconciliation.
+  merchants (place a hold), then reconcile from Finance → COD ledger →
+  *Reconciliation* tab.
 - Because it is in-process, **it only runs while the web server is up**. If the
   server is down at 23:00, the run happens at the next tick after restart
   (same day only). Uptime Kuma's push monitor (section 5) is how a missed night
@@ -217,7 +217,7 @@ readiness failure means: check DB status at Turso first, then the worker
 
 ## 7. Incidents
 
-1. **Confirm:** check readiness, Admin → Monitor, and the server log (each
+1. **Confirm:** check readiness, Admin → System monitor, and the server log (each
    error line carries a `requestId`; the same id is in the client's problem
    response and in `shared_audit_log.request_id`).
 2. **DB unreachable or `ECONNRESET` storms:** reads already retry twice on
@@ -228,7 +228,7 @@ readiness failure means: check DB status at Turso first, then the worker
 3. **Worker stalled:** a restart restarts it. Check Monitor → Jobs for a topic
    failing repeatedly, then fix and *Retry*.
 4. **Suspected account compromise:** suspend the user (immediate), then
-   reset their authenticator. Review Admin → Audit filtered by actor.
+   reset their authenticator. Review Admin → Audit log filtered by actor.
 5. **Suspected token-secret leak:** rotate both JWT secrets and restart.
    Everyone signs in again.
 6. **Bad data change:** the audit log is append-only and shows before/after

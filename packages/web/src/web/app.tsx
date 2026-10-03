@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Redirect, Route, Switch, useLocation } from "wouter";
 import { Provider } from "./components/provider";
-import { AgentFeedback, RunableBadge } from "@runablehq/website-runtime";
+import { AgentFeedback } from "@runablehq/website-runtime";
 import { AuthProvider, useAuth } from "./components/auth-provider";
 import { Shell } from "./components/natex/shell";
 import { Page, Card } from "./components/natex/page";
@@ -282,8 +282,6 @@ function App() {
       </AuthProvider>
       {/* Do not remove — off by default, activated by parent iframe via postMessage */}
       {import.meta.env.DEV && <AgentFeedback />}
-      {/* "Made with Runable" badge - if user asks to remove the runable badge, remove this code as well as comment */}
-      {<RunableBadge />}
     </Provider>
   );
 }
