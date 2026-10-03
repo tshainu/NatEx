@@ -8,6 +8,7 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { addDays, colomboToday } from "../../shared/time";
 import { getMerchant } from "../merchants/service";
 import { getParcelByAwb } from "../parcels/service";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 
 /**
  * MODULE: collection — merchant pickup requests (§10 M3 merchant portal).
@@ -26,7 +27,7 @@ export type PickupWindow = "morning" | "afternoon";
 export type PickupRequestStatus = "requested" | "scheduled" | "cancelled";
 
 /** How far ahead a merchant may book a pickup slot. */
-export const PICKUP_HORIZON_DAYS = 14;
+// §10 M5: the booking horizon is settings.pickup_horizon_days (default 14).
 
 function nextRequestCode(pickupDate: string): string {
   return mintDocumentCode("PR", pickupDate);
@@ -202,6 +203,7 @@ export async function requestPickup(input: RequestPickupInput, actor: Principal)
   }
 
   const today = colomboToday();
+  const PICKUP_HORIZON_DAYS = await settingValue(SETTING_KEYS.PICKUP_HORIZON_DAYS);
   const latest = addDays(today, PICKUP_HORIZON_DAYS);
   if (input.pickupDate < today) {
     errors.badRequest(`Pickup date ${input.pickupDate} is in the past (today is ${today}).`, { today });

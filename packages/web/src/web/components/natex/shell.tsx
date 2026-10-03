@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Building2 } from "lucide-react";
+import { LogOut, Building2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orpc } from "@/lib/api";
 import { navFor, ROLE_LABEL } from "@/lib/permissions";
@@ -86,7 +86,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <div className="border-t border-ink-600 px-4 py-3">
           <p className="font-mono text-[10px] leading-relaxed text-text-lo/70">
-            Milestones 1–4 shipped · M5 admin &amp; hardening next
+            Milestones 1–5 shipped · pilot build
           </p>
         </div>
       </aside>
@@ -130,6 +130,13 @@ function TopBar({ onSignOut }: { onSignOut: () => void }) {
           </span>
         ) : null}
         <span className="text-[13px] text-text-hi">{user.name}</span>
+        <Link
+          href="/security"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-text-lo transition-colors hover:bg-ink-700 hover:text-text-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ShieldCheck className="size-4" aria-hidden />
+          Security
+        </Link>
         <Button variant="dark" size="sm" onClick={onSignOut}>
           <LogOut aria-hidden />
           Sign out

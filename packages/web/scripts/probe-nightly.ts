@@ -18,6 +18,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 const API = process.env.PROBE_API ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
@@ -41,7 +42,7 @@ function check(cond: boolean, label: string, detail = ""): void {
 
 await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.requestOtp"));
 const c = await client().identity.requestOtp({ phone: "+94774567890" });
-const fin = await client().identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode!, deviceId: null });
+const fin = await finishMfa(API, await client().identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode!, deviceId: null }));
 const api = client(fin.accessToken);
 const today = colomboToday();
 console.log(`\nNatEx nightly invariant probe → ${API} (Colombo ${today}, hour ${colomboHour()})\n`);

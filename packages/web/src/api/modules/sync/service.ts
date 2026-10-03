@@ -25,6 +25,7 @@ import { scanItem, scanIntoHub } from "../collection/service";
 // owning module's own service call — not a cross-module table join.
 import { getUserById } from "../identity/service";
 import { listReasonCodes } from "../delivery/reasons";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 
 /**
  * MODULE: sync — the server half of PROJECT.md §7, "the hardest problem here".
@@ -681,7 +682,7 @@ async function touchDevice(params: {
  * field condition plainly — "clock skewed ±30 minutes" — so 30 minutes is the
  * threshold, not a guess.
  */
-const CLOCK_SKEW_ALERT_SECONDS = 30 * 60;
+// §10 M5: editable as settings.clock_skew_alert_minutes (default 30).
 
 /**
  * Fleet health for the ops portal: who is behind, who is carrying a backlog,
@@ -699,6 +700,7 @@ export async function deviceFleet(scope: Principal, limit = 100) {
   if (!isGlobalScope(scope.role) && scope.role !== "ops") {
     errors.forbidden("Fleet sync health is an ops view.");
   }
+  const CLOCK_SKEW_ALERT_SECONDS = (await settingValue(SETTING_KEYS.CLOCK_SKEW_ALERT_MINUTES)) * 60;
   const rows = await db
     .select()
     .from(syncDeviceCursor)

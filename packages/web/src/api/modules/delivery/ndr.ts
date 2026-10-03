@@ -16,6 +16,7 @@ import {
 import { MAX_DELIVERY_ATTEMPTS } from "../parcels/state-machine";
 import { getMerchant } from "../merchants/service";
 import { requireReasonCode, type ReasonCodeRow } from "./reasons";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 
 /**
  * MODULE: delivery — the NDR queue and the RTO flow (PROJECT.md §10 M3).
@@ -33,7 +34,7 @@ export type NdrRow = typeof ndr.$inferSelect;
 export type RtoRow = typeof rto.$inferSelect;
 
 /** §8: configurable per merchant later; 24 hours is the default answer window. */
-const NDR_SLA_HOURS = 24;
+// §10 M5: configurable in the admin portal (settings.ndr_sla_hours, default 24).
 
 /** States in which an NDR row is still somebody's work. */
 const LIVE_NDR_STATES = ["open", "instructed", "reattempt_scheduled"] as const;
@@ -295,6 +296,7 @@ export async function openOrUpdateNdr(params: {
 }): Promise<{ ndr: NdrRow; isNew: boolean }> {
   const { parcel: p, reason, attempts, actor } = params;
   const existing = await liveNdrForParcel(p.id);
+  const NDR_SLA_HOURS = await settingValue(SETTING_KEYS.NDR_SLA_HOURS);
 
   if (existing) {
     const [updated] = await db

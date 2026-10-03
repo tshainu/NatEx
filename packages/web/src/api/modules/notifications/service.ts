@@ -208,6 +208,8 @@ export async function updateTemplate(
 ): Promise<TemplateRow> {
   const current = await getTemplate(key);
   if (!current) errors.notFound(`Template ${key}`);
+  const problems = templateProblems(key, patch, current!);
+  if (problems.length) errors.badRequest(problems[0]!, { problems });
   const [row] = await db
     .update(notifyTemplate)
     .set({
@@ -220,6 +222,81 @@ export async function updateTemplate(
     .returning();
   return row!;
 }
+
+const PLACEHOLDER = /\{\{(\w+)\}\}/g;
+
+function placeholdersIn(text: string | null | undefined): string[] {
+  return [...(text ?? "").matchAll(PLACEHOLDER)].map((m) => m[1]!);
+}
+
+/**
+ * The placeholders the sending code actually supplies for a template: exactly
+ * the ones its shipped default uses (§10 M5 template editor). An edit that
+ * introduces any other name would render as a blank to a customer, so it is
+ * refused instead.
+ */
+export function allowedPlaceholders(key: string, current?: TemplateRow | null): string[] {
+  const def = DEFAULT_TEMPLATES.find((t) => t.key === key);
+  const source = def ?? current;
+  if (!source) return [];
+  return [
+    ...new Set([
+      ...placeholdersIn(source.bodyWhatsapp),
+      ...placeholdersIn(source.bodySms),
+      ...placeholdersIn(source.bodyPush),
+      ...placeholdersIn(source.pushTitle),
+    ]),
+  ].sort();
+}
+
+/** Why a template edit is refused; [] when it is fine. */
+export function templateProblems(
+  key: string,
+  patch: Partial<Pick<TemplateRow, "bodyWhatsapp" | "bodySms" | "bodyPush" | "pushTitle" | "channelOrder" | "active">>,
+  current: TemplateRow | null,
+): string[] {
+  const out: string[] = [];
+  const allowed = new Set(allowedPlaceholders(key, current));
+  const fields = [
+    ["WhatsApp body", patch.bodyWhatsapp],
+    ["SMS body", patch.bodySms],
+    ["Push body", patch.bodyPush],
+    ["Push title", patch.pushTitle],
+  ] as const;
+  for (const [label, text] of fields) {
+    if (text === undefined || text === null) continue;
+    if (label !== "Push title" && !text.trim()) out.push(`${label} cannot be empty.`);
+    for (const name of placeholdersIn(text)) {
+      if (!allowed.has(name)) {
+        out.push(`${label}: {{${name}}} is not supplied for this message. Use one of: ${[...allowed].map((a) => `{{${a}}}`).join(", ")}.`);
+      }
+    }
+    // A brace the renderer will not substitute: "{{ awb }}", "{awb}", "{{awb}".
+    const stripped = text.replace(PLACEHOLDER, "");
+    if (/[{}]/.test(stripped)) out.push(`${label}: a placeholder is malformed — write it as {{name}}, no spaces.`);
+  }
+  if (patch.channelOrder !== undefined) {
+    const parts = patch.channelOrder.split(",").map((c) => c.trim()).filter(Boolean);
+    if (parts.length === 0) out.push("At least one channel is required.");
+    for (const c of parts) if (!(CHANNELS as readonly string[]).includes(c)) out.push(`Unknown channel "${c}". Use whatsapp, sms, push.`);
+    if (new Set(parts).size !== parts.length) out.push("A channel appears twice in the ladder.");
+  }
+  return out;
+}
+
+/** Sample values, so the editor can show what a customer would read. */
+export const SAMPLE_VARS: Vars = {
+  consigneeName: "Nimal Perera",
+  merchantName: "Ceylon Threads",
+  awb: "NX2610020001",
+  trackUrl: "natex.lk/track/NX2610020001",
+  codLine: "Please have Rs. 2,450.00 ready. ",
+  riderName: "Kasun",
+  date: "2 Oct 2026",
+  receivedBy: "Nimal Perera",
+  reason: "Consignee not available",
+  attemptNo: 1,
+};
 
 // -------------------------------------------------------------- substitution
 

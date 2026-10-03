@@ -4,7 +4,7 @@ import { Provider } from "./components/provider";
 import { AgentFeedback, RunableBadge } from "@runablehq/website-runtime";
 import { AuthProvider, useAuth } from "./components/auth-provider";
 import { Shell } from "./components/natex/shell";
-import { MilestoneStub, Page, Card } from "./components/natex/page";
+import { Page, Card } from "./components/natex/page";
 import { mayVisit, portalFor } from "./lib/permissions";
 
 import Login from "./pages/login";
@@ -27,6 +27,12 @@ import OpsNdr from "./pages/ops/ndr";
 import AdminUsers from "./pages/admin/users";
 import AdminBranches from "./pages/admin/branches";
 import AdminZones from "./pages/admin/zones";
+import AdminRateCards from "./pages/admin/rate-cards";
+import AdminSettings from "./pages/admin/settings";
+import AdminTemplates from "./pages/admin/templates";
+import AdminAudit from "./pages/admin/audit";
+import AdminMonitor from "./pages/admin/monitor";
+import SecurityPage from "./pages/security";
 import FinanceOverview from "./pages/finance/overview";
 import FinanceCod from "./pages/finance/cod-page";
 import FinanceRemittances from "./pages/finance/remittances-page";
@@ -183,13 +189,26 @@ function Routes() {
       <Portal path="/admin/zones">
         <AdminZones />
       </Portal>
+      {/* Administration — Milestone 5: pricing, configuration, audit, monitoring */}
       <Portal path="/admin/rate-cards">
-        <MilestoneStub
-          title="Rate cards"
-          milestone={5}
-          what="Pricing is not built yet."
-          detail="Rate cards, zone-to-zone slabs, fuel surcharges and volumetric weight rules are Milestone 5. No price is calculated anywhere in this build, and no parcel carries a freight charge — the rate card field on a merchant records which tariff they will be billed under once pricing exists."
-        />
+        <AdminRateCards />
+      </Portal>
+      <Portal path="/admin/settings">
+        <AdminSettings />
+      </Portal>
+      <Portal path="/admin/templates">
+        <AdminTemplates />
+      </Portal>
+      <Portal path="/admin/audit">
+        <AdminAudit />
+      </Portal>
+      <Portal path="/admin/monitor">
+        <AdminMonitor />
+      </Portal>
+
+      {/* Every signed-in role: own MFA state and sessions (§2) */}
+      <Portal path="/security">
+        <SecurityPage />
       </Portal>
 
       {/* Finance — Milestone 4: COD ledger, remittances, invoices, disputes */}

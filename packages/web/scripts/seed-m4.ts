@@ -33,6 +33,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { and, eq, inArray, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 import { resetMerchantMoney } from "./lib/money-fixture";
 
 if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed demo money with NODE_ENV=production.");
@@ -75,7 +76,7 @@ async function login(phone: string): Promise<Session> {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.%Otp"));
   const c = await anon.identity.requestOtp({ phone });
   if (!c.devCode) throw new Error(`no dev OTP for ${phone} — is this the dev server?`);
-  return anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: "seed-m4" });
+  return finishMfa(BASE, await anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: "seed-m4" }));
 }
 const say = (what: string, detail: string) => console.log(`  ${what.padEnd(12)} ${detail}`);
 const lkr = (cents: number) => `Rs. ${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;

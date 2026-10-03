@@ -1,6 +1,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 import { ulid } from "../src/api/shared/ulid";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 
@@ -90,11 +91,11 @@ async function login(phone: string, deviceId?: string) {
   await db.delete(rateLimit);
   const challenge = await anon.identity.requestOtp({ phone });
   if (!challenge.devCode) throw new Error(`no dev OTP for ${phone}`);
-  return anon.identity.verifyOtp({
+  return finishMfa(BASE, await anon.identity.verifyOtp({
     challengeId: challenge.challengeId,
     code: challenge.devCode,
     deviceId: deviceId ?? null,
-  });
+  }));
 }
 
 /** Runs promises with a bounded concurrency, so staging does not open 100 sockets. */

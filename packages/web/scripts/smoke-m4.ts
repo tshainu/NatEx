@@ -2,6 +2,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { eq, inArray, like, or } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 /**
  * End-to-end exercise of the Milestone 4 money API against a running dev server
@@ -98,7 +99,7 @@ async function login(phone: string) {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.%Otp"));
   const challenge = await anon.identity.requestOtp({ phone });
   if (!challenge.devCode) throw new Error(`no dev OTP for ${phone}`);
-  return anon.identity.verifyOtp({ challengeId: challenge.challengeId, code: challenge.devCode, deviceId: null });
+  return finishMfa(BASE, await anon.identity.verifyOtp({ challengeId: challenge.challengeId, code: challenge.devCode, deviceId: null }));
 }
 
 // ── 0. Fixtures ───────────────────────────────────────────────────────────────

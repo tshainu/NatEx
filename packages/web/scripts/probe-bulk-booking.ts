@@ -2,6 +2,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { and, eq, like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 /**
  * Live probe of `parcels.bulkCreate` (§10 M3 "bulk upload") over HTTP against
@@ -66,7 +67,7 @@ async function login(phone: string) {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.requestOtp"));
   const c = await anon.identity.requestOtp({ phone });
   if (!c.devCode) throw new Error(`no dev OTP for ${phone}`);
-  return anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: null });
+  return finishMfa(BASE, await anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: null }));
 }
 
 const MERCHANT = "mch_ceylon_threads";

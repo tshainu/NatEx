@@ -9,7 +9,7 @@ Source of truth: `/home/user/Attachments/pasted-1_0jWrxs.txt` (PROJECT.md). Sect
 - M2 — Transport & Custody: **verified** (ops web + Expo rider/transport tabs driven end to end in a browser 2026-09-30; see Mobile verification log below).
 - M3 — Delivery & Merchant: **verified** 2026-10-01 (`SHIPPED_MILESTONE = 3`). Full regression on the final code listed under "M3 closing regression" below. Caveat: the rider app has only run in Expo web, never on a physical phone.
 - M4 — Money: **verified** 2026-10-02 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 4`; M4 owns no parcel statuses). Backend plus the finance portal and the merchant statement. Regression on the final code is under "M4 closing regression" below.
-- M5 — Hardening: not started
+- M5 — Admin & Hardening: **verified** 2026-10-03 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 5`). Regression on the final code is under "M5 closing regression" below. Blocked on the client: Sentry DSN, Uptime Kuma host, §15 q3 and q10.
 
 ## M2 plan (§10)
 
@@ -280,8 +280,10 @@ Hardening found while building M4
   masks account numbers to the last 4, drops tokens/OTP codes and replaces CSV
   bodies with their size, in `writeAudit` for every row. `redact.test.ts` 7/7;
   `ui-finance` asserts no audit row from its run holds the full number.
-  KNOWN: ~31 audit rows written before the fix (test fixtures from earlier
-  runs) still hold full numbers. The log is append-only; not edited.
+  KNOWN (2026-10-02): ~31 audit rows written before the fix still held full
+  numbers. Superseded 2026-10-03: the dev DB was reseeded that morning (oldest
+  audit row 03:24), and a scan of all 321 rows found 0 unmasked account
+  numbers (see M5).
 - Document codes: DSP/CLM/STL/DEP/INV/CRN/RS/PR/MF codes ended in 4 random digits
   (9 000 per prefix per day) and collided on the UNIQUE index — `disputes.open`
   returned a 500 in a `ui-finance` run. `shared/codes.ts`: 6 Crockford base32
@@ -339,3 +341,109 @@ Live dev server + Turso DB.
 - Not rerun this milestone: `probe-nightly` (needs a server started with
   `NIGHTLY_INVARIANT_HOUR=0 NIGHTLY_TICK_MS=15000`; last 6/6 at the M3 close,
   before the M4 alert edits in `alerts.ts`).
+
+## M5 — Admin & Hardening (§10 M5)
+
+Progress (only what has been run):
+- [x] API: `smoke-m5` 115/115 (MFA, session policy, settings, users/branches/sessions,
+  rate cards + quotes, merchant onboarding, templates, audit, monitor, zones).
+  Unit: `mfa.db.test` 10, `settings/service.test` 2, `totp.test` 7, `pricing.test` 11.
+  Bug found: audit-reader stripped `_` from the action filter (fixed).
+- [x] Admin UI driven in a browser: `ui-admin` 29/29 (sign-in MFA for admin/finance,
+  enrolment + recovery code for a new ops user, security page, users, branches,
+  zones, rate cards, merchant onboarding, settings, templates, audit + CSV,
+  monitor, role guards). Bugs found and fixed: template editor lost its "Saved"
+  note on save (editor remounts on version bump; note lifted to the page);
+  `<ul>` nested in ErrorNote's `<p>` (templates + rate-card editor).
+- [x] `ui-check` 57/57 routes (8 new: 5 admin screens, 2 monitor tabs, /security).
+- [x] Backup/restore drill: `scripts/backup-drill.ts` PASSED. 57 tables, 3 541 rows,
+  354 KiB gz; backup 9.2 s, restore 2.5 s; `integrity_check` ok, `foreign_key_check` 0,
+  57/57 per-table hashes equal, tamper self-test caught the corrupted row.
+  CAVEAT: restored into a local SQLite file, not a hosted Turso DB. The real-Turso
+  recipe in RUNBOOK section 2 is marked UNVERIFIED.
+- [~] Uptime Kuma / Sentry: config + docs only (RUNBOOK section 5). `shared/report-error.ts`
+  is the single Sentry hook (console.error today); `/api/health/ready` is the Kuma
+  target. BLOCKED: no Sentry DSN, no Kuma host. Nightly push heartbeat not coded.
+- [x] Job monitor: Admin → Monitor (outbox jobs + retry, invariant runs, health);
+  readiness `{"status":"ok","db":"ok","worker":"ok","nightly":"ok"}` right after boot
+  (fixed a false "stalled" worker on boot, see below).
+- [x] Load test: `scripts/load-test.ts`, reads only, 20 s per stage, against the Vite dev
+  server + hosted Turso, 0 errors. 5 users 25.4 req/s p95 286 ms; 20 → 81.2 / 368 ms;
+  50 → 83.0 / 937 ms; 100 → 85.4 / 1 858 ms. Plateau at ~85 req/s; suspected cause is
+  the libsql client's default concurrency of 20 — NOT confirmed. Dev server, no writes.
+- [x] Security review: `scripts/security-review.ts` 100/100 live probes;
+  `route-guards.test.ts` 8 tests over all 219 procedures (5 public, 4 pending-MFA,
+  11 reviewed service-gated). Findings and fixes below.
+- [x] RUNBOOK.md (new, sections 1–9) and README.md (rewritten for M1–M5).
+- [x] Close-out regression, `SHIPPED_MILESTONE = EXPOSED_MILESTONE = 5` (see below).
+
+### M5 closing regression (2026-10-03, final code)
+
+Live dev server + Turso DB, after the milestone bump and every security edit
+(`/tmp/regress.sh`, one pass, then the reruns noted).
+- `bun run test` 1423 pass / 0 fail (incl. route-guards 8, rate-limit 4, readiness,
+  mfa.db 10, settings 2, totp 7, pricing 11)
+- `smoke` 71/71, `smoke-m3` 93/93, `smoke-m4` 75/75, `smoke-sync` 66/66,
+  `smoke-m5` 115/115, `security-review` 100/100
+- `probe-finance-pages` 41/41, `probe-cod-wiring` 35/35, `probe-merchant-visibility` 25/25,
+  `probe-merchant-portal` 51/51, `probe-bulk-booking` 37/37, `probe-ops-delivery` 44/44
+  (fixture-gated branches, see above), `probe-sync-conflicts` 47/47
+- `probe-disputes` 55/56 first pass → **probe bug, fixed** → 56/56 rerun. The check
+  "closed cases leave no live dispute_opened alert" polled only until the three
+  alerts existed. For a case withdrawn before the worker ran, the worker inserts
+  the alert open and closes it one round trip later ("already withdrawn when this
+  alert was raised"); the probe read in that gap. DB afterwards: 0 live alerts on
+  closed cases. The probe now waits for the settled state.
+- `probe-pod-photo` part A green, part B refused: the Expo server on :4300 was not
+  running (`ERR_CONNECTION_REFUSED`). Started it (tmux `mobile_4300`) → 25/25 rerun.
+- `ui-finance` 42/42, `ui-merchant` 46/46, `ui-check` 57/57 routes, `ui-ops-delivery` 24/24,
+  `ui-rider` 51/51, `ui-rider-queue` 31/31, `ui-admin` 29/29
+- `probe-nightly` 6/6 (server restarted with `NIGHTLY_INVARIANT_HOUR=0 NIGHTLY_TICK_MS=15000`,
+  then restarted normally)
+- typecheck web, scripts, mobile, desktop clean
+- `bun run lint` found 6 errors on the final tree: 5 route files did not export their
+  feature name (`audit`, `mfa`, `monitor`, `rateCards`, `settings`; module imports
+  renamed `*Service`, router keys unchanged) and one regex → `startsWith` in
+  `smoke-m5`. Fixed → 0 errors; typechecks rerun clean.
+- After the lint rename (server restarted): `bun run test` 1423/0, `smoke-m5` 115/115,
+  `security-review` 100/100, `ui-admin` 29/29.
+- Not rerun: `soak-sync` (895 s). M5's only sync change is the ops fleet-health read
+  (clock-skew threshold now from `settings.clock_skew_alert_minutes`); push, pull and
+  conflict paths are untouched and `smoke-sync`/`probe-sync-conflicts` are green. Last
+  34/34 at the M4 close.
+
+### M5 security review: findings fixed (2026-10-03)
+- **Bank-detail leak.** `finance.payoutDetails` (and 12 other money reads) were
+  `readProc`, so riders and transport could read any merchant's full bank account.
+  New `moneyReadProc` (ops, admin, finance, merchant; merchant still self-scoped);
+  13 routes moved to it, 3 `staffProc` finance routes to `deskProc`.
+- **COD desk routes** (`reconciliation`, `riderCashBoard`, `listConfig`, alerts list/
+  page/counts/get/acknowledge/resolve) moved `staffProc` → `deskProc`. Rider-facing
+  `riderCash`, `myUndeposited`, `declareDeposit` unchanged.
+- **Least privilege on admin reads:** templates, rate cards, settings,
+  `identity.listUsers` → `deskProc`.
+- **Access-token verification:** alg pinned to HS256 (alg:none / HS512 refused),
+  constant-time `crypto.subtle.verify`, numeric `exp` and string `sub` required.
+- **Idempotency keys** bound to their first user; another user's replay of the same
+  key returns 409 `idempotency-key-reused` instead of the first user's response.
+- **OTP SMS pumping:** `identity.requestOtp` now also has a per-destination bucket
+  (`publicMutate` `subject`, last 9 digits, capacity 5, refill 0.2/min), so rotating
+  IPs cannot flood one phone. `consumeToken` retry-after fixed for fractional refill.
+- **Spoofable client IP:** `clientIp` prefers `cf-connecting-ip`, then `x-real-ip`,
+  then the rightmost XFF entry (was leftmost). Production must sit behind the proxy.
+- **Fail-closed env:** `isDevelopment()` is false unless `NODE_ENV=development`;
+  `shared/auth.ts` throws outside development when JWT secrets are unset.
+- **Readiness false alarm:** `startWorker` seeds the outbox heartbeat at boot.
+- **Security headers** on API responses (`middleware/security-headers.ts`). HTML
+  headers (CSP etc.) for the SPA must be set at the edge.
+- Audit log: 0 of 321 rows hold an unmasked account number (regex over
+  `accountNumber|account_number|bankAccount|account|beneficiaryAccount|payee_account|accountNo`
+  with 6+ digits on the raw `before_json`/`after_json`; all 6 payout rows show `****NNNN`).
+  Caveat: a regex scan, not a schema-aware one.
+
+Open, not invented:
+- §15 q3 rate-card structure — engine is configurable, seeded card is PLACEHOLDER.
+- §15 q10 VAT/SSCL — arithmetic exists, seeded off.
+- Sentry DSN and Uptime Kuma host — not provided; wiring documented only.
+- Rider/transport app never run on a physical phone (Expo web in headless Chrome only).
+- Real-Turso restore not rehearsed (drill restores to local SQLite).

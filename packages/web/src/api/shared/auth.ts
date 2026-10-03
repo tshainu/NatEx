@@ -1,4 +1,5 @@
 import { prefixedId } from "./ulid";
+import { isDevelopment } from "./env";
 
 /**
  * JWT + RBAC + branch scope (PROJECT.md §2, §4).
@@ -25,8 +26,22 @@ export const ROLES: readonly Role[] = [
   "merchant",
 ] as const;
 
+/**
+ * What the sign-in behind a token proved (§2 TOTP MFA for ops/admin/finance):
+ *   none      — the role needs no second factor (or enforcement is off)
+ *   enrol     — an MFA role with no authenticator yet: the token may only enrol
+ *   challenge — an MFA role that has yet to enter its code: may only verify
+ *   verified  — phone OTP + TOTP (or a recovery code)
+ * `enrol` and `challenge` are PENDING: middleware/auth.ts refuses them on every
+ * route except the MFA routes.
+ */
+export type MfaLevel = "none" | "enrol" | "challenge" | "verified";
+export const PENDING_MFA: ReadonlySet<MfaLevel> = new Set<MfaLevel>(["enrol", "challenge"]);
+
 export interface AccessClaims {
   sub: string;
+  /** Absent on tokens minted before M5 — treated as `none`. */
+  mfa?: MfaLevel;
   role: Role;
   branchId: string;
   merchantId?: string | null;
@@ -45,13 +60,19 @@ export interface Principal {
   branchId: string;
   merchantId?: string | null;
   deviceId?: string | null;
+  /** The token's MFA level (see MfaLevel). */
+  mfa?: MfaLevel;
 }
 
 function secret(name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET"): string {
   const value = process.env[name];
   if (value && value.length > 0) return value;
-  // Dev fallback so `bun run dev` works before secrets are provisioned.
-  // Never reached in production: __server.ts refuses to boot without both.
+  // Dev fallback so `bun run dev` works before secrets are provisioned. The
+  // fallback string is public (it is in this file), so a token signed with it
+  // can be forged by anyone: outside an explicit development/test process the
+  // server refuses to sign or verify instead (M5 security review — this used to
+  // claim __server.ts refused to boot, which it never did).
+  if (!isDevelopment()) throw new Error(`${name} is not set — refusing to sign or verify tokens with a public dev key.`);
   return `dev-insecure-${name}`;
 }
 
@@ -64,6 +85,11 @@ function b64url(bytes: Uint8Array): string {
 
 function b64urlFromString(s: string): string {
   return b64url(new TextEncoder().encode(s));
+}
+
+function bytesFromB64url(s: string): Uint8Array<ArrayBuffer> {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
 }
 
 function stringFromB64url(s: string): string {
@@ -102,15 +128,27 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [header, body, sig] = parts;
-  const key = await hmacKey(secret("JWT_ACCESS_SECRET"));
-  const expected = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(`${header}.${body}`),
-  );
-  if (b64url(new Uint8Array(expected)) !== sig) return null;
   try {
+    // Pin the algorithm (M5 security review). The signature check below would
+    // already refuse `alg: none`, but an explicit pin means no future code path
+    // can be talked into another algorithm by the token's own header.
+    const head = JSON.parse(stringFromB64url(header)) as { alg?: unknown; typ?: unknown };
+    if (head.alg !== "HS256") return null;
+
+    // crypto.subtle.verify compares in constant time; a string `!==` on the
+    // recomputed signature leaks how many leading characters matched.
+    const key = await hmacKey(secret("JWT_ACCESS_SECRET"));
+    const ok = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      bytesFromB64url(sig),
+      new TextEncoder().encode(`${header}.${body}`),
+    );
+    if (!ok) return null;
+
     const claims = JSON.parse(stringFromB64url(body)) as AccessClaims;
+    // A token with no numeric expiry must not live forever.
+    if (typeof claims.exp !== "number" || typeof claims.sub !== "string") return null;
     if (claims.exp <= Math.floor(Date.now() / 1000)) return null;
     return claims;
   } catch {

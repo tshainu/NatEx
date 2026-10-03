@@ -181,6 +181,42 @@ export async function createZone(input: {
   return row!;
 }
 
+/**
+ * Edit a zone (§10 M5 admin portal). Coordinates arrive in degrees and are
+ * stored as microdegrees, like createZone. A box whose min is not below its max
+ * is refused rather than stored as a zone that contains nothing.
+ */
+export async function updateZone(
+  id: string,
+  patch: {
+    name?: string;
+    branchId?: string;
+    minLat?: number;
+    minLng?: number;
+    maxLat?: number;
+    maxLng?: number;
+    serviceable?: boolean;
+  },
+): Promise<{ before: ZoneRow; after: ZoneRow }> {
+  const [before] = await db.select().from(zone).where(eq(zone.id, id));
+  if (!before) errors.notFound("Zone");
+  const next: Partial<typeof zone.$inferInsert> = {};
+  if (patch.name !== undefined) next.name = patch.name.trim();
+  if (patch.branchId !== undefined) next.branchId = patch.branchId;
+  if (patch.minLat !== undefined) next.minLat = toE6(patch.minLat);
+  if (patch.minLng !== undefined) next.minLng = toE6(patch.minLng);
+  if (patch.maxLat !== undefined) next.maxLat = toE6(patch.maxLat);
+  if (patch.maxLng !== undefined) next.maxLng = toE6(patch.maxLng);
+  if (patch.serviceable !== undefined) next.serviceable = patch.serviceable;
+  const merged = { ...before!, ...next };
+  if (merged.minLat >= merged.maxLat || merged.minLng >= merged.maxLng) {
+    errors.badRequest("The zone's minimum latitude and longitude must be below its maximum.");
+  }
+  if (Object.keys(next).length === 0) return { before: before!, after: before! };
+  const [after] = await db.update(zone).set(next).where(eq(zone.id, id)).returning();
+  return { before: before!, after: after! };
+}
+
 export async function zoneCount(): Promise<number> {
   const [row] = await db.select({ value: count() }).from(zone);
   return row?.value ?? 0;

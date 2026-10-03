@@ -173,7 +173,7 @@ export const ENABLED_BY_MILESTONE: Readonly<Record<number, readonly ParcelStatus
  * producing it is built, running and verified — regardless of which clients
  * can drive it yet.
  */
-export const EXPOSED_MILESTONE = 4;
+export const EXPOSED_MILESTONE = 5;
 
 /**
  * What is actually shipped end-to-end, clients included. Lower than
@@ -191,10 +191,15 @@ export const EXPOSED_MILESTONE = 4;
  * invoicing + credit notes, disputes, bank details and the payout file
  * (`smoke-m4.ts`, `probe-cod-wiring.ts`, `probe-disputes.ts`,
  * `probe-finance-pages.ts`, `probe-merchant-visibility.ts`), the finance portal
- * (`ui-finance.ts`) and the merchant statement (`ui-merchant.ts`). This is the
- * honest number to show a human.
+ * (`ui-finance.ts`) and the merchant statement (`ui-merchant.ts`).
+ * M5 shipped 2026-10-03 (no parcel statuses either): admin portal, settings,
+ * template editor, audit viewer, job monitor, TOTP MFA + session policy
+ * (`smoke-m5.ts`, `ui-admin.ts`, `mfa.db.test.ts`), backup/restore drill
+ * (`backup-drill.ts`), load test (`load-test.ts`) and the security review
+ * (`security-review.ts`, `route-guards.test.ts`). This is the honest number to
+ * show a human.
  */
-export const SHIPPED_MILESTONE = 4;
+export const SHIPPED_MILESTONE = 5;
 
 /** @deprecated Ambiguous. Read EXPOSED_MILESTONE or SHIPPED_MILESTONE. */
 export const CURRENT_MILESTONE = EXPOSED_MILESTONE;

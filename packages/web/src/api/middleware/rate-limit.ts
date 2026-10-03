@@ -34,7 +34,8 @@ export async function consumeToken(bucketKey: string, spec: BucketSpec): Promise
   const tokens = Math.min(spec.capacity, existing.tokens + refill);
 
   if (tokens <= 0) {
-    const secondsPerToken = Math.ceil(60 / Math.max(1, spec.refillPerMinute));
+    // Fractional refill rates (e.g. 0.2/min = one per 5 min) report the true wait.
+    const secondsPerToken = Math.ceil(60 / Math.max(0.01, spec.refillPerMinute));
     errors.rateLimited(secondsPerToken);
   }
 
@@ -44,10 +45,25 @@ export async function consumeToken(bucketKey: string, spec: BucketSpec): Promise
     .where(eq(rateLimit.bucket, bucketKey));
 }
 
+/**
+ * The caller's IP for per-IP buckets (M5 security review).
+ *
+ * Order matters. The hosting edge (Cloudflare, seen live on the preview host)
+ * strips any client-sent X-Forwarded-For and sets `cf-connecting-ip` and
+ * `x-real-ip` itself, so those come first. X-Forwarded-For is a fallback, and
+ * its RIGHTMOST entry is used — the one the nearest proxy appended. The leftmost
+ * entry is whatever the client typed, and trusting it let anyone rotate the
+ * header to get a fresh bucket on every request.
+ *
+ * A server exposed with no proxy in front can be fed any of these headers;
+ * production must sit behind the edge (RUNBOOK.md "Security headers & proxy").
+ */
 export function clientIp(headers: Headers): string {
-  return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    headers.get("x-real-ip") ??
-    "unknown"
-  );
+  const edge = headers.get("cf-connecting-ip") ?? headers.get("x-real-ip");
+  if (edge?.trim()) return edge.trim();
+  const hops = (headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  return hops.at(-1) ?? "unknown";
 }

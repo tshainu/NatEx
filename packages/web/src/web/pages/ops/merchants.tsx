@@ -12,6 +12,12 @@ import { Drawer } from "@/components/ui/drawer";
 import { Page, KeyValue, KeyValueGrid, ErrorNote } from "@/components/natex/page";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { useAuth } from "@/components/auth-provider";
+import {
+  EditMerchantDialog,
+  OnboardMerchantDialog,
+  PortalUsersSection,
+  RateCardSection,
+} from "./merchant-admin";
 
 /**
  * Merchant register (§5 merchants). Ops and admin manage it; a merchant user
@@ -46,6 +52,7 @@ export default function Merchants({
   const { session } = useAuth();
   const role = session!.user.role;
   const canWrite = role === "ops" || role === "admin";
+  const isAdmin = role === "admin";
 
   const [search, setSearch] = React.useState("");
   const [page, setPage] = React.useState(1);
@@ -134,7 +141,7 @@ export default function Merchants({
         canWrite ? (
           <Button onClick={() => setCreating(true)}>
             <Plus aria-hidden />
-            Add merchant
+            {isAdmin ? "Onboard merchant" : "Add merchant"}
           </Button>
         ) : null
       }
@@ -177,10 +184,23 @@ export default function Merchants({
       <MerchantDrawer
         id={openId}
         canWrite={canWrite}
+        isAdmin={isAdmin}
+        branches={branches.data ?? []}
         branchName={branchName}
         onOpenChange={(open) => !open && setOpenId(null)}
       />
-      {canWrite ? (
+      {isAdmin ? (
+        <OnboardMerchantDialog
+          open={creating}
+          onOpenChange={setCreating}
+          branches={branches.data ?? []}
+          defaultBranchId={session!.user.branchId}
+          onDone={(id) => {
+            setCreating(false);
+            setOpenId(id);
+          }}
+        />
+      ) : canWrite ? (
         <CreateMerchantDialog
           open={creating}
           onOpenChange={setCreating}
@@ -201,16 +221,21 @@ export default function Merchants({
 function MerchantDrawer({
   id,
   canWrite,
+  isAdmin,
+  branches,
   branchName,
   onOpenChange,
 }: {
   id: string | null;
   canWrite: boolean;
+  isAdmin: boolean;
+  branches: { id: string; name: string }[];
   branchName: (id: string) => string;
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
 
   React.useEffect(() => setProblem(null), [id]);
@@ -251,13 +276,18 @@ function MerchantDrawer({
         subtitle={merchant ? branchName(merchant.branchId) : undefined}
         footer={
           canWrite && merchant ? (
-            <Button
-              variant={suspending ? "destructive" : "default"}
-              className="w-full"
-              onClick={() => setConfirming(true)}
-            >
-              {suspending ? "Suspend merchant" : "Reactivate merchant"}
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEditing(true)}>
+                Edit details
+              </Button>
+              <Button
+                variant={suspending ? "destructive" : "default"}
+                className="flex-1"
+                onClick={() => setConfirming(true)}
+              >
+                {suspending ? "Suspend merchant" : "Reactivate merchant"}
+              </Button>
+            </div>
           ) : null
         }
       >
@@ -296,10 +326,10 @@ function MerchantDrawer({
               <KeyValue label="Geocode" mono className="col-span-2">
                 {coords(merchant.lat, merchant.lng)}
               </KeyValue>
-              <KeyValue label="Rate card" mono className="col-span-2">
-                {merchant.rateCardId ?? "Not assigned — rate cards arrive in Milestone 5"}
-              </KeyValue>
             </KeyValueGrid>
+
+            <RateCardSection merchant={merchant} isAdmin={isAdmin} />
+            {isAdmin ? <PortalUsersSection merchantId={merchant.id} /> : null}
 
             <div>
               <p className="label-xs mb-2 text-muted-foreground">
@@ -327,6 +357,16 @@ function MerchantDrawer({
           </div>
         ) : null}
       </Drawer>
+
+      {merchant && editing ? (
+        <EditMerchantDialog
+          key={merchant.id}
+          merchant={merchant}
+          isAdmin={isAdmin}
+          branches={branches}
+          onClose={() => setEditing(false)}
+        />
+      ) : null}
 
       {merchant ? (
         <ConfirmDialog

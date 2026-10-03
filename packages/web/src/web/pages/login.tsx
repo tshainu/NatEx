@@ -3,17 +3,22 @@ import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { client, apiMessage } from "@/lib/api";
-import { deviceId, storeApiSession, type ApiSession } from "@/lib/session";
+import { deviceId, isPendingMfa, storeApiSession, type ApiSession } from "@/lib/session";
 import { portalFor, mayVisit } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/natex/page";
 import { Badge } from "@/components/ui/badge";
+import { MfaStep } from "@/components/natex/mfa-step";
 
 /**
  * Phone + OTP sign-in (§2). Two steps: request a challenge, then verify the
  * six-digit code. The browser's persistent device id is presented on verify so
  * the server can bind the session to a device and write it into the audit trail.
+ *
+ * Ops, admin and finance then pass a third step — an authenticator code, or a
+ * one-time enrolment on first sign-in (§2, M5). The pending session from the
+ * phone step is held in component state only, never in storage.
  */
 
 const DEMO_LOGINS = [
@@ -34,6 +39,7 @@ export default function Login() {
     smsState: string;
     devCode?: string | null;
   } | null>(null);
+  const [pending, setPending] = React.useState<ApiSession | null>(null);
 
   // Focus management rather than `autoFocus`: this is a two-step form, and
   // moving focus to the field the current step is about is what lets a keyboard
@@ -60,16 +66,29 @@ export default function Login() {
     mutationFn: (input: { challengeId: string; code: string }) =>
       client.identity.verifyOtp({ ...input, deviceId: deviceId() }),
     onSuccess: (session) => {
-      const stored = storeApiSession(session as ApiSession);
-      // Honour the screen the guard bounced us off, but only if this role may
-      // actually reach it — otherwise land in the role's own portal.
-      const next = new URLSearchParams(window.location.search).get("next");
-      const home = portalFor(stored.user.role).home;
-      const target =
-        next && next.startsWith("/") && mayVisit(stored.user.role, next) ? next : home;
-      navigate(target, { replace: true });
+      if (isPendingMfa(session as ApiSession)) setPending(session as ApiSession);
+      else finish(session as ApiSession);
     },
   });
+
+  function startOver() {
+    setPending(null);
+    setChallenge(null);
+    setCode("");
+    request.reset();
+    verify.reset();
+  }
+
+  function finish(session: ApiSession) {
+    const stored = storeApiSession(session);
+    // Honour the screen the guard bounced us off, but only if this role may
+    // actually reach it — otherwise land in the role's own portal.
+    const next = new URLSearchParams(window.location.search).get("next");
+    const home = portalFor(stored.user.role).home;
+    const target =
+      next && next.startsWith("/") && mayVisit(stored.user.role, next) ? next : home;
+    navigate(target, { replace: true });
+  }
 
   return (
     <div className="dark flex min-h-screen items-center bg-ink-900 text-text-hi">
@@ -88,11 +107,13 @@ export default function Login() {
             Parcel booking with the full state machine, pickup collection,
             hub-to-hub custody, last-mile runsheets with proof of delivery, NDR and
             returns, a merchant portal with bulk booking, and the finance desk —
-            COD ledger, settlements, invoicing, disputes and payouts. Sign in with your
-            registered phone number — a six-digit code is sent by SMS.
+            COD ledger, settlements, invoicing, disputes and payouts — and the admin
+            portal. Sign in with your registered phone number — a six-digit code is
+            sent by SMS. Operations, finance and admin also confirm with an
+            authenticator app.
           </p>
           <Badge variant="dark" className="mt-6 w-fit">
-            Milestones 1–4 · Collection, Custody, Delivery &amp; Money
+            Milestones 1–5 · Collection, Custody, Delivery, Money &amp; Admin
           </Badge>
 
           <div className="mt-8 max-w-md rounded-lg border border-ink-600 bg-ink-800 p-4">
@@ -108,9 +129,7 @@ export default function Login() {
                     type="button"
                     onClick={() => {
                       setPhone(account.phone);
-                      setChallenge(null);
-                      request.reset();
-                      verify.reset();
+                      startOver();
                     }}
                     className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-ink-700"
                   >
@@ -128,7 +147,9 @@ export default function Login() {
 
         <div className="flex items-center">
           <div className="w-full rounded-lg border border-ink-600 bg-ink-800 p-6">
-            {!challenge ? (
+            {pending ? (
+              <MfaStep pending={pending} onDone={finish} onCancel={startOver} />
+            ) : !challenge ? (
               <form
                 onSubmit={(event) => {
                   event.preventDefault();

@@ -42,6 +42,8 @@ import {
   reasonRto,
   resolveNdrForParcel,
 } from "./ndr";
+import { SETTING_KEYS, settingValue } from "../settings/service";
+import { isDevelopment } from "../../shared/env";
 
 /**
  * MODULE: delivery — runsheets, route order, doorstep attempts, proof of
@@ -70,7 +72,7 @@ export type PodRow = typeof deliveryPod.$inferSelect;
 const RUNSHEET_ELIGIBLE = ["AtDestHub", "DeliveryAttempted", "OnHold"] as const;
 
 /** How long a delivery OTP is valid (§9: SMS-only, resend-and-expire). */
-const OTP_TTL_MINUTES = 15;
+// §10 M5: doorstep OTP validity is settings.delivery_otp_ttl_minutes (default 15).
 /** Wrong-code attempts before the challenge locks. */
 const OTP_MAX_ATTEMPTS = 5;
 /** How long a verified OTP stays usable for the delivery it was verified for. */
@@ -860,6 +862,7 @@ export async function requestDeliveryOtp(
   const resendCount =
     live && !live.consumedAt && live.expiresAt.getTime() > Date.now() ? live.resendCount + 1 : 0;
 
+  const OTP_TTL_MINUTES = await settingValue(SETTING_KEYS.DELIVERY_OTP_TTL_MINUTES);
   const challengeId = prefixedId("dotp");
   const sms = await sendSms({
     to: phone,
@@ -879,7 +882,7 @@ export async function requestDeliveryOtp(
     expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60_000),
   });
 
-  const exposeCode = process.env.NODE_ENV !== "production" && sms.state !== "sent";
+  const exposeCode = isDevelopment() && sms.state !== "sent";
   return {
     challengeId,
     sentTo: phone,

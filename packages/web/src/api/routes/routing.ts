@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { adminProc, mutate, staffProc } from "../middleware/pipeline";
+import { getBranch } from "../modules/identity/service";
 import * as routingService from "../modules/routing/service";
+import { errors } from "../shared/errors";
 
 /**
  * routing routes — serviceability and nearest branch.
@@ -56,10 +58,37 @@ export const createZone = adminProc
     ),
   );
 
+export const updateZone = adminProc
+  .input(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(2).max(120).optional(),
+      branchId: z.string().min(1).optional(),
+      minLat: z.number().min(-90).max(90).optional(),
+      minLng: z.number().min(-180).max(180).optional(),
+      maxLat: z.number().min(-90).max(90).optional(),
+      maxLng: z.number().min(-180).max(180).optional(),
+      serviceable: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const { id, ...patch } = input;
+    if (patch.branchId && !(await getBranch(patch.branchId))) {
+      errors.badRequest(`Branch ${patch.branchId} does not exist.`);
+    }
+    return mutate(
+      context,
+      input,
+      { route: "routing.updateZone", entity: "routing_zone", entityId: () => id, action: "zone.updated" },
+      () => routingService.updateZone(id, patch),
+    );
+  });
+
 /** Router namespace — composed into the root router in api/index.ts. */
 export const routing = {
   checkServiceability,
   nearestBranch,
   listZones,
   createZone,
+  updateZone,
 };

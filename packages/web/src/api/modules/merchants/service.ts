@@ -123,6 +123,44 @@ export async function setMerchantStatus(
   return row!;
 }
 
+export interface MerchantPatch {
+  name?: string;
+  branchId?: string;
+  vatNo?: string | null;
+  address?: string;
+  contactName?: string;
+  contactPhone?: string;
+  codEnabled?: boolean;
+  podPolicy?: "signature" | "otp" | "photo";
+}
+
+/**
+ * Edit a merchant (§10 M5 merchant onboarding). Ops edits inside its own
+ * branch and cannot move a merchant to another branch; admin can.
+ */
+export async function updateMerchant(
+  id: string,
+  patch: MerchantPatch,
+  scope: Principal,
+): Promise<{ before: MerchantRow; after: MerchantRow }> {
+  const before = await getMerchantScoped(id, scope);
+  if (patch.branchId !== undefined && patch.branchId !== before.branchId && !isGlobalScope(scope.role)) {
+    errors.forbidden("Only an admin can move a merchant to another branch.");
+  }
+  const next: Partial<typeof merchant.$inferInsert> = {};
+  if (patch.name !== undefined) next.name = patch.name.trim();
+  if (patch.branchId !== undefined) next.branchId = patch.branchId;
+  if (patch.vatNo !== undefined) next.vatNo = patch.vatNo?.trim() || null;
+  if (patch.address !== undefined) next.address = patch.address.trim();
+  if (patch.contactName !== undefined) next.contactName = patch.contactName.trim();
+  if (patch.contactPhone !== undefined) next.contactPhone = patch.contactPhone.trim();
+  if (patch.codEnabled !== undefined) next.codEnabled = patch.codEnabled;
+  if (patch.podPolicy !== undefined) next.podPolicy = patch.podPolicy;
+  if (Object.keys(next).length === 0) return { before, after: before };
+  const [after] = await db.update(merchant).set(next).where(eq(merchant.id, id)).returning();
+  return { before, after: after! };
+}
+
 export async function merchantCount(): Promise<number> {
   const [row] = await db.select({ value: count() }).from(merchant);
   return row?.value ?? 0;

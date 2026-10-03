@@ -13,6 +13,8 @@ import { Dialog, ConfirmDialog } from "@/components/ui/dialog";
 import { Page, ErrorNote } from "@/components/natex/page";
 import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
 import { useAuth } from "@/components/auth-provider";
+import { useMfaFactors } from "@/queries/admin";
+import { UserDrawer } from "./user-drawer";
 
 /**
  * Staff register (§5 identity). Admin writes; ops reads. There is no password
@@ -29,6 +31,7 @@ interface UserRow {
   deviceId: string | null;
   branchId: string;
   branchName: string | null;
+  merchantId: string | null;
   createdAt: string | Date;
 }
 
@@ -42,6 +45,12 @@ export default function AdminUsers() {
   const [role, setRole] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [target, setTarget] = React.useState<UserRow | null>(null);
+  const [openId, setOpenId] = React.useState<string | null>(null);
+  const factors = useMfaFactors(isAdmin);
+  const factorFor = React.useCallback(
+    (userId: string) => factors.data?.find((f) => f.userId === userId),
+    [factors.data],
+  );
 
   const users = useQuery(orpc.identity.listUsers.queryOptions());
   const branches = useQuery({
@@ -132,6 +141,21 @@ export default function AdminUsers() {
         ),
     },
     {
+      key: "mfa",
+      header: "MFA",
+      width: "w-[110px]",
+      cell: (r) => {
+        if (!["ops", "admin", "finance"].includes(r.role)) return <span className="text-muted-foreground">n/a</span>;
+        if (!isAdmin) return <span className="text-muted-foreground">—</span>;
+        const f = factorFor(r.id);
+        return f?.enrolled ? (
+          <Badge variant={f.seeded ? "muted" : "good"}>{f.seeded ? "Dev seed" : "Enrolled"}</Badge>
+        ) : (
+          <Badge variant="warn">Not enrolled</Badge>
+        );
+      },
+    },
+    {
       key: "status",
       header: "Status",
       width: "w-[110px]",
@@ -165,7 +189,7 @@ export default function AdminUsers() {
       title="Users"
       description={
         isAdmin
-          ? "Identity is phone plus one-time code — there are no passwords to manage. A rider is bound to a single device; suspending a user revokes every active session."
+          ? "Identity is phone plus one-time code — there are no passwords to manage. A rider is bound to a single device; suspending a user revokes every active session. Open a row to edit the user, see live sessions or reset an authenticator."
           : "Read-only. Only an administrator may create users or change their status; the server refuses the write regardless of what this page shows."
       }
       actions={
@@ -183,6 +207,7 @@ export default function AdminUsers() {
         columns={columns}
         rows={rows}
         rowKey={(r) => r.id}
+        onRowClick={isAdmin ? (r) => setOpenId(r.id) : undefined}
         loading={users.isLoading}
         error={users.error ? apiMessage(users.error, "The user register is unavailable.") : null}
         emptyTitle="No user matches these filters"
@@ -227,6 +252,16 @@ export default function AdminUsers() {
           onOpenChange={setCreating}
           branches={branches.data ?? []}
           defaultBranchId={session!.user.branchId}
+        />
+      ) : null}
+
+      {isAdmin ? (
+        <UserDrawer
+          user={rows.find((r) => r.id === openId) ?? ((users.data ?? []) as unknown as UserRow[]).find((r) => r.id === openId) ?? null}
+          selfId={session!.user.id}
+          mfa={openId ? factorFor(openId) : undefined}
+          branches={branches.data ?? []}
+          onOpenChange={(open) => !open && setOpenId(null)}
         />
       ) : null}
 

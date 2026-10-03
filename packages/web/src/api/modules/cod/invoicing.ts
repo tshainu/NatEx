@@ -446,7 +446,7 @@ export async function invoicePreview(input: {
   }
   if (lines.length === 0) {
     notes.push(
-      "Nothing chargeable found for this period. Freight cannot be priced automatically while §15 q3 (rate card structure) is unanswered, so a freight charge has to be supplied by hand.",
+      "Nothing chargeable found for this period. Freight is not priced onto invoices automatically: the rate cards in the system are placeholders until §15 q3 (rate card structure) is answered, so a freight charge has to be supplied by hand.",
     );
   }
 

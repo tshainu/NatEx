@@ -41,6 +41,7 @@ import { chromium, type Browser, type Page, type Request } from "playwright-core
 import { readFileSync } from "node:fs";
 import { and, eq, like, ne, sql } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 import { humanise, money } from "../src/web/lib/format";
 import { parseCsv } from "../src/web/lib/csv";
 import { TEMPLATE_HEADER } from "../src/web/lib/bulk-csv";
@@ -72,7 +73,7 @@ async function login(phone: string): Promise<Session> {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.requestOtp"));
   const c = await anon.identity.requestOtp({ phone });
   if (!c.devCode) throw new Error(`no dev OTP for ${phone}`);
-  return anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: "ui-merchant" });
+  return finishMfa(BASE, await anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: "ui-merchant" }));
 }
 
 let pass = 0;

@@ -46,6 +46,7 @@ export default function AdminZones() {
   const isAdmin = session!.user.role === "admin";
   const [branchId, setBranchId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
+  const [editing, setEditing] = React.useState<ZoneRow | null>(null);
 
   const branches = useQuery(orpc.identity.listBranches.queryOptions());
   const zones = useQuery(
@@ -136,6 +137,7 @@ export default function AdminZones() {
         columns={columns}
         rows={(zones.data ?? []) as unknown as ZoneRow[]}
         rowKey={(r) => r.id}
+        onRowClick={isAdmin ? (r) => setEditing(r) : undefined}
         loading={zones.isLoading}
         error={zones.error ? apiMessage(zones.error, "The zone list is unavailable.") : null}
         emptyTitle="No zone is defined"
@@ -172,6 +174,9 @@ export default function AdminZones() {
       </Card>
 
       {isAdmin ? <CreateZoneDialog open={creating} onOpenChange={setCreating} /> : null}
+      {isAdmin && editing ? (
+        <EditZoneDialog key={editing.id} zone={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </Page>
   );
 }
@@ -325,6 +330,128 @@ function CreateZoneDialog({
           <ErrorNote>
             The north-east corner must be above and to the east of the south-west corner.
           </ErrorNote>
+        ) : null}
+        {problem ? <ErrorNote>{problem}</ErrorNote> : null}
+      </div>
+    </Dialog>
+  );
+}
+
+function EditZoneDialog({ zone, onClose }: { zone: ZoneRow; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const branches = useQuery(orpc.identity.listBranches.queryOptions());
+  const initial = {
+    name: zone.name,
+    branchId: zone.branchId,
+    minLat: degrees(zone.minLat),
+    minLng: degrees(zone.minLng),
+    maxLat: degrees(zone.maxLat),
+    maxLng: degrees(zone.maxLng),
+    serviceable: zone.serviceable,
+  };
+  const [form, setForm] = React.useState(initial);
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  const save = useMutation({
+    ...orpc.routing.updateZone.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
+      onClose();
+    },
+    onError: (error) => setProblem(apiMessage(error, "This zone could not be saved.")),
+  });
+
+  type Patch = {
+    id: string;
+    name?: string;
+    branchId?: string;
+    minLat?: number;
+    minLng?: number;
+    maxLat?: number;
+    maxLng?: number;
+    serviceable?: boolean;
+  };
+  const patch: Patch = { id: zone.id };
+  let invalid = form.name.trim().length < 2;
+  if (form.name.trim() !== initial.name) patch.name = form.name.trim();
+  if (form.branchId !== initial.branchId) patch.branchId = form.branchId;
+  if (form.serviceable !== initial.serviceable) patch.serviceable = form.serviceable;
+  for (const key of ["minLat", "minLng", "maxLat", "maxLng"] as const) {
+    const n = Number(form[key]);
+    if (form[key].trim() === "" || !Number.isFinite(n)) invalid = true;
+    else if (form[key] !== initial[key]) patch[key] = n;
+  }
+  const changed = Object.keys(patch).length > 1;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={`Edit zone ${zone.name}`}
+      description="Changes apply to addresses resolved from now on; parcels already routed keep their branch."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={invalid || !changed}
+            pending={save.isPending}
+            onClick={() => {
+              setProblem(null);
+              save.mutate(patch);
+            }}
+          >
+            Save zone
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <Field label="Name">
+          <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Branch">
+            <Select value={form.branchId} onChange={(e) => set("branchId", e.target.value)}>
+              {(branches.data ?? []).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Status">
+            <Select
+              value={form.serviceable ? "yes" : "no"}
+              onChange={(e) => set("serviceable", e.target.value === "yes")}
+            >
+              <option value="yes">Serviceable</option>
+              <option value="no">Not served</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Min latitude">
+            <Input value={form.minLat} onChange={(e) => set("minLat", e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+          <Field label="Min longitude">
+            <Input value={form.minLng} onChange={(e) => set("minLng", e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+          <Field label="Max latitude">
+            <Input value={form.maxLat} onChange={(e) => set("maxLat", e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+          <Field label="Max longitude">
+            <Input value={form.maxLng} onChange={(e) => set("maxLng", e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+        </div>
+        {zone.ring ? (
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
+            This zone also has a polygon ring. The ring is not edited here; the bounding box is only the
+            pre-filter, so keep it enclosing the ring.
+          </p>
         ) : null}
         {problem ? <ErrorNote>{problem}</ErrorNote> : null}
       </div>

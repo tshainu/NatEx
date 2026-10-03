@@ -181,16 +181,28 @@ export async function drainOnce(): Promise<{ claimed: number; done: number; fail
  */
 type WorkerGlobal = typeof globalThis & {
   __natexOutboxTimer?: ReturnType<typeof setInterval> | null;
+  __natexOutboxLastTick?: number;
+  __natexOutboxLastOk?: number;
+  __natexOutboxLastError?: string;
 };
 const workerGlobal = globalThis as WorkerGlobal;
 
 /** Start the interval drain. A second call replaces the previous loop. */
 export function startWorker(): void {
   if (workerGlobal.__natexOutboxTimer) clearInterval(workerGlobal.__natexOutboxTimer);
+  // Seed the heartbeat so a readiness probe hitting a just-booted process does
+  // not report "stalled" before the first poll has had a chance to fire.
+  workerGlobal.__natexOutboxLastTick ??= Date.now();
   const timer = setInterval(() => {
-    void drainOnce().catch((err: unknown) => {
-      console.error("[worker] drain pass threw:", err);
-    });
+    workerGlobal.__natexOutboxLastTick = Date.now();
+    void drainOnce()
+      .then(() => {
+        workerGlobal.__natexOutboxLastOk = Date.now();
+      })
+      .catch((err: unknown) => {
+        workerGlobal.__natexOutboxLastError = String(err).slice(0, 300);
+        console.error("[worker] drain pass threw:", err);
+      });
   }, POLL_MS);
   // Do not hold the process open on its own.
   if (typeof timer === "object" && timer && "unref" in timer) {
@@ -198,6 +210,17 @@ export function startWorker(): void {
   }
   workerGlobal.__natexOutboxTimer = timer;
   console.log(`[worker] outbox drain started (every ${POLL_MS}ms)`);
+}
+
+/** Job-monitor view of the in-process drain (§10 M5). */
+export function workerStatus() {
+  return {
+    running: Boolean(workerGlobal.__natexOutboxTimer),
+    pollMs: POLL_MS,
+    lastTickAt: workerGlobal.__natexOutboxLastTick ? new Date(workerGlobal.__natexOutboxLastTick) : null,
+    lastOkAt: workerGlobal.__natexOutboxLastOk ? new Date(workerGlobal.__natexOutboxLastOk) : null,
+    lastError: workerGlobal.__natexOutboxLastError ?? null,
+  };
 }
 
 export function stopWorker(): void {

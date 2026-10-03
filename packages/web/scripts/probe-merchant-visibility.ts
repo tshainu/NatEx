@@ -13,6 +13,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 const BASE = "http://localhost:4200";
 const MCH = "mch_ceylon_threads";
@@ -33,7 +34,7 @@ const anon = clientFor();
 async function login(phone: string) {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.%Otp"));
   const c = await anon.identity.requestOtp({ phone });
-  return anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode!, deviceId: null });
+  return finishMfa(BASE, await anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode!, deviceId: null }));
 }
 const status = async (fn: () => Promise<unknown>) => {
   try { await fn(); return 200; } catch (e) { return (e as { data?: { status?: number } }).data?.status ?? -1; }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { financeProc, mutate, readProc, staffProc } from "../middleware/pipeline";
+import { deskProc, financeProc, moneyReadProc, mutate } from "../middleware/pipeline";
 import * as settlement from "../modules/cod/settlement";
 import * as invoicing from "../modules/cod/invoicing";
 import * as holds from "../modules/cod/holds";
@@ -22,9 +22,9 @@ import { prefixedId } from "../shared/ulid";
  *     settlement.approveSettlement() by user id, not here. The route layer
  *     does not re-check it — one rule, one place, so the two cannot disagree.
  *   - network-wide aggregates (AR ageing, the settlement-due run) are
- *     staffProc: they are a desk's worklist, not a merchant's statement.
+ *     deskProc: they are a desk's worklist, not a merchant's statement.
  *   - a merchant reads its own statement, settlements, invoices, holds and AR
- *     through readProc, row-scoped as below.
+ *     through moneyReadProc (never field roles), row-scoped as below.
  *
  * ROW SCOPING — READ THIS BEFORE ADDING A ROUTE HERE.
  * §5 requires a merchant principal to reach only its own rows, and these
@@ -33,7 +33,7 @@ import { prefixedId } from "../shared/ulid";
  * `getSettlement`/`getInvoice` take a bare id with no notion of a caller. So:
  *   - list routes pin the filter with `scopeMerchant()`
  *   - by-id routes read first, then check ownership with `assertOwned()`
- *   - anything that cannot be scoped either way is staffProc/financeProc
+ *   - anything that cannot be scoped either way is deskProc/financeProc
  * A merchant naming someone else's merchantId is refused outright rather than
  * silently re-scoped: quietly answering a different question than the one asked
  * is how a caller ends up trusting a filter that does not hold.
@@ -101,7 +101,7 @@ const charge = z.object({
 // ──────────────────────────────────────────────────────── payout details
 
 /** Where a merchant's money goes. A merchant may read its own. */
-export const payoutDetails = readProc
+export const payoutDetails = moneyReadProc
   .input(z.object({ merchantId: z.string().optional() }))
   .handler(({ input, context }) =>
     settlement.getMerchantPayout(requireMerchant(context.principal, input.merchantId)),
@@ -141,12 +141,12 @@ export const setPayoutDetails = financeProc
 // ─────────────────────────────────────────────────────── settlement cycle
 
 /** The current weekly window and when its payout falls due (§8). */
-export const currentPeriod = staffProc
+export const currentPeriod = deskProc
   .input(z.object({ asOf }))
   .handler(({ input }) => settlement.currentPeriod(input.asOf));
 
 /** Every merchant with money accrued in the window — finance's run worklist. */
-export const settlementDue = staffProc
+export const settlementDue = deskProc
   .input(z.object({ asOf }))
   .handler(async ({ input }) =>
     settlement.settlementDue(input.asOf ? await settlement.currentPeriod(input.asOf) : undefined),
@@ -168,13 +168,13 @@ export const settlementPreview = financeProc
   .handler(({ input }) => settlement.settlementPreview(input));
 
 /** Live payable balance, to the cent. A merchant may read its own. */
-export const payable = readProc
+export const payable = moneyReadProc
   .input(z.object({ merchantId: z.string().optional() }))
   .handler(({ input, context }) =>
     settlement.merchantPayableCents(requireMerchant(context.principal, input.merchantId)),
   );
 
-export const settlements = readProc
+export const settlements = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -194,7 +194,7 @@ export const settlements = readProc
  * The settlement register, one server page at a time (§11). Same scoping as
  * `settlements`; a merchant naming another merchant is a 403.
  */
-export const settlementPage = readProc
+export const settlementPage = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -218,7 +218,7 @@ export const settlementPage = readProc
   }));
 
 /** One run with its lines. Read first, then ownership-checked — see the header. */
-export const settlementById = readProc
+export const settlementById = moneyReadProc
   .input(z.object({ settlementId: z.string().min(1) }))
   .handler(async ({ input, context }) => {
     const found = await settlement.getSettlement(input.settlementId);
@@ -384,7 +384,7 @@ export const exportPayoutCsv = financeProc
   );
 
 /** The merchant's own account page: balance, runs, open holds, bank details. */
-export const statement = readProc
+export const statement = moneyReadProc
   .input(z.object({ merchantId: z.string().optional() }))
   .handler(({ input, context }) =>
     settlement.merchantStatement(requireMerchant(context.principal, input.merchantId), {
@@ -394,7 +394,7 @@ export const statement = readProc
 
 // ─────────────────────────────────────────────────────── settlement holds
 
-export const listHolds = readProc
+export const listHolds = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -409,7 +409,7 @@ export const listHolds = readProc
   );
 
 /** The hold register, paged server-side (§11). Scoped like `listHolds`. */
-export const holdPage = readProc
+export const holdPage = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -438,7 +438,7 @@ export const holdPage = readProc
  * and is flattened to an array here — oRPC serialises JSON, and a Set crosses
  * the wire as `{}`.
  */
-export const holdState = readProc
+export const holdState = moneyReadProc
   .input(z.object({ merchantId: z.string().optional() }))
   .handler(async ({ input, context }) => {
     const state = await holds.merchantHoldState(requireMerchant(context.principal, input.merchantId));
@@ -505,7 +505,7 @@ export const clearHold = financeProc
 
 // ─────────────────────────────────────────────────────── invoices and AR
 
-export const invoices = readProc
+export const invoices = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -524,7 +524,7 @@ export const invoices = readProc
   );
 
 /** The invoice register, paged server-side (§11). Scoped like `invoices`. */
-export const invoicePage = readProc
+export const invoicePage = moneyReadProc
   .input(
     z.object({
       merchantId: z.string().optional(),
@@ -551,7 +551,7 @@ export const invoicePage = readProc
     pageSize: input.pageSize,
   }));
 
-export const invoiceById = readProc
+export const invoiceById = moneyReadProc
   .input(z.object({ invoiceId: z.string().min(1) }))
   .handler(async ({ input, context }) => {
     const found = await invoicing.getInvoice(input.invoiceId);
@@ -676,12 +676,12 @@ export const voidInvoice = financeProc
   );
 
 /** Network-wide AR ageing — a finance desk report, so staff only. */
-export const arAgeing = staffProc
+export const arAgeing = deskProc
   .input(z.object({ merchantId: z.string().optional(), asOf }))
   .handler(({ input }) => invoicing.arAgeing(input));
 
 /** The same numbers for one merchant, which a merchant may read for itself. */
-export const merchantAr = readProc
+export const merchantAr = moneyReadProc
   .input(z.object({ merchantId: z.string().optional(), asOf }))
   .handler(({ input, context }) =>
     invoicing.merchantAr(requireMerchant(context.principal, input.merchantId), input.asOf, {

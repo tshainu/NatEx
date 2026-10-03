@@ -1,4 +1,4 @@
-import { and, eq, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { db } from "../database";
 import { outbox } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
@@ -99,4 +99,69 @@ export async function markFailed(id: string, attempts: number, error: string): P
       availableAt: new Date(Date.now() + 5000 * 2 ** Math.min(attempts, 4)),
     })
     .where(eq(outbox.id, id));
+}
+
+// ─────────────────────────────────────────────── job monitor (§10 M5)
+
+/** Counts by topic × state, plus the oldest still-pending job. */
+export async function outboxSummary() {
+  const rows = await db
+    .select({ topic: outbox.topic, state: outbox.state, n: sql<number>`count(*)` })
+    .from(outbox)
+    .groupBy(outbox.topic, outbox.state);
+  const [oldest] = await db
+    .select({ id: outbox.id, topic: outbox.topic, createdAt: outbox.createdAt, availableAt: outbox.availableAt })
+    .from(outbox)
+    .where(inArray(outbox.state, ["pending", "processing"]))
+    .orderBy(asc(outbox.createdAt))
+    .limit(1);
+  const totals: Record<string, number> = { pending: 0, processing: 0, done: 0, failed: 0 };
+  for (const r of rows) totals[r.state] = (totals[r.state] ?? 0) + Number(r.n);
+  return {
+    totals,
+    byTopic: rows.map((r) => ({ topic: r.topic, state: r.state, count: Number(r.n) })),
+    oldestPending: oldest ?? null,
+  };
+}
+
+export async function listOutbox(q: { state?: string; topic?: string; limit: number; offset: number }) {
+  const filters: SQL[] = [];
+  if (q.state) filters.push(eq(outbox.state, q.state));
+  if (q.topic) filters.push(eq(outbox.topic, q.topic));
+  const where = filters.length ? and(...filters) : undefined;
+  const limit = Math.min(Math.max(q.limit, 1), 200);
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: outbox.id,
+        topic: outbox.topic,
+        state: outbox.state,
+        attempts: outbox.attempts,
+        lastError: outbox.lastError,
+        availableAt: outbox.availableAt,
+        processedAt: outbox.processedAt,
+        createdAt: outbox.createdAt,
+      })
+      .from(outbox)
+      .where(where)
+      .orderBy(desc(outbox.createdAt))
+      .limit(limit)
+      .offset(Math.max(q.offset, 0)),
+    db.select({ n: sql<number>`count(*)` }).from(outbox).where(where),
+  ]);
+  return { rows, total: Number(total?.n ?? 0) };
+}
+
+/**
+ * Put a dead-lettered job back in the queue. It keeps its attempt count, so a
+ * job that fails again goes straight back to `failed` (markFailed gives up at
+ * 5): a manual retry buys exactly one more attempt, never an unbounded loop.
+ */
+export async function retryFailed(id: string): Promise<{ id: string; retried: boolean }> {
+  const res = await db
+    .update(outbox)
+    .set({ state: "pending", availableAt: new Date() })
+    .where(and(eq(outbox.id, id), eq(outbox.state, "failed")))
+    .returning({ id: outbox.id });
+  return { id, retried: res.length > 0 };
 }

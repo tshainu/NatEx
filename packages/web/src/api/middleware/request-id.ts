@@ -1,4 +1,5 @@
 import { base } from "../__core/app";
+import { reportError } from "../shared/report-error";
 import { errors } from "../shared/errors";
 import { ulid } from "../shared/ulid";
 import { isTransientDbError, requestWrote, runInRequestScope } from "../shared/request-scope";
@@ -78,7 +79,7 @@ export const withRequestId = base.middleware(async ({ context, next, path }) => 
         at: new Date().toISOString(),
       }),
     );
-    if (!expected) console.error(`[unhandled] ${route} ${requestId}`, err);
+    if (!expected) reportError(err, { route, requestId });
     // Give framework-raised validation failures the problem document §11
     // mandates, so a client reads field errors the same way it reads every
     // other error instead of special-casing oRPC's envelope.

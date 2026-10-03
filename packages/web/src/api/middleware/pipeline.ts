@@ -1,6 +1,6 @@
 import { base } from "../__core/app";
 import { withRequestId } from "./request-id";
-import { withAuth, requireRole } from "./auth";
+import { withAuth, withAuthAllowingPendingMfa, requireRole } from "./auth";
 import * as idem from "./idempotency";
 import { consumeToken, clientIp, type BucketSpec } from "./rate-limit";
 import { writeAudit } from "../shared/audit";
@@ -30,6 +30,12 @@ export const publicProc = base.use(withRequestId);
 
 /** Authenticated: JWT → principal with role + branch scope. */
 export const authedProc = publicProc.use(withAuth);
+
+/**
+ * MFA routes only: admits a session that has passed phone OTP but not yet the
+ * authenticator step (§2, M5). Never use it for anything else.
+ */
+export const mfaProc = publicProc.use(withAuthAllowingPendingMfa);
 
 export const riderProc = authedProc.use(requireRole("rider"));
 export const opsProc = authedProc.use(requireRole("ops", "admin"));
@@ -64,6 +70,22 @@ export const disputeProc = authedProc.use(requireRole("merchant", "ops", "financ
 export const staffProc = authedProc.use(
   requireRole("ops", "admin", "finance", "transport", "rider"),
 );
+/**
+ * The desks: ops, finance and admin — web-portal staff, never field roles.
+ * For reads that carry other people's personal data (every staff phone, every
+ * message sent to a consignee) or commercial terms (rate cards). A rider's or
+ * transport clerk's app never needs them (M5 security review: least privilege).
+ */
+export const deskProc = authedProc.use(requireRole("ops", "admin", "finance"));
+/**
+ * Money reads a merchant may also make about itself: statements, settlements,
+ * invoices, holds, AR, payable balance and payout (bank) details. The finance
+ * routes pin a merchant principal to its own rows (routes/finance.ts
+ * scopeMerchant / assertOwned). Field roles are excluded: until the M5 security
+ * review these were readProc, which let any rider or transport clerk read any
+ * merchant's full bank account number.
+ */
+export const moneyReadProc = authedProc.use(requireRole("ops", "admin", "finance", "merchant"));
 /**
  * Staff plus merchant users. Used only on reads where the module service
  * applies PROJECT.md §5 row-level scoping — a merchant principal reaching one
@@ -164,7 +186,17 @@ export async function mutate<T>(
 /** Public (unauthenticated) mutations: OTP request, OTP verify, refresh. */
 export async function publicMutate<T>(
   context: PublicContext,
-  options: { route: string; bucket: BucketSpec; ipScope?: string },
+  options: {
+    route: string;
+    bucket: BucketSpec;
+    ipScope?: string;
+    /**
+     * A second bucket on the thing being asked about, not the asker — e.g. the
+     * phone number an OTP is sent to, so rotating IPs cannot pump SMS at one
+     * number (M5 security review).
+     */
+    subject?: { key: string; bucket: BucketSpec };
+  },
   run: () => Promise<T>,
 ): Promise<T> {
   // The bucket write is bookkeeping, not business state: re-running it after a
@@ -175,6 +207,9 @@ export async function publicMutate<T>(
     `anon:${options.ipScope ?? clientIp(context.headers)}:${options.route}`,
     options.bucket,
   );
+  if (options.subject) {
+    await consumeToken(`anon:${options.subject.key}:${options.route}`, options.subject.bucket);
+  }
   markWrite();
   return run();
 }

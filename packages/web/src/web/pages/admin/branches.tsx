@@ -33,6 +33,7 @@ export default function AdminBranches() {
   const { session } = useAuth();
   const isAdmin = session!.user.role === "admin";
   const [creating, setCreating] = React.useState(false);
+  const [editing, setEditing] = React.useState<BranchRow | null>(null);
 
   const branches = useQuery(orpc.identity.listBranches.queryOptions());
   const zones = useQuery(orpc.routing.listZones.queryOptions({ input: {} }));
@@ -90,7 +91,7 @@ export default function AdminBranches() {
   return (
     <Page
       title="Branches"
-      description="The branch network. A branch with no serviceability zone can still receive parcels, but no address will resolve to it automatically."
+      description={`The branch network. A branch with no serviceability zone can still receive parcels, but no address will resolve to it automatically.${isAdmin ? " Open a row to edit it; the code is permanent." : ""}`}
       actions={
         isAdmin ? (
           <Button onClick={() => setCreating(true)}>
@@ -105,6 +106,7 @@ export default function AdminBranches() {
         columns={columns}
         rows={(branches.data ?? []) as unknown as BranchRow[]}
         rowKey={(r) => r.id}
+        onRowClick={isAdmin ? (r) => setEditing(r) : undefined}
         loading={branches.isLoading}
         error={
           branches.error ? apiMessage(branches.error, "The branch network is unavailable.") : null
@@ -114,6 +116,9 @@ export default function AdminBranches() {
         className="min-h-0 flex-1"
       />
       {isAdmin ? <CreateBranchDialog open={creating} onOpenChange={setCreating} /> : null}
+      {isAdmin && editing ? (
+        <EditBranchDialog key={editing.id} branch={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </Page>
   );
 }
@@ -244,6 +249,96 @@ function CreateBranchDialog({
           drifts on floating point. Geocoding happens once, here — the address is never sent
           to a maps provider again.
         </p>
+        {problem ? <ErrorNote>{problem}</ErrorNote> : null}
+      </div>
+    </Dialog>
+  );
+}
+
+function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = React.useState(branch.name);
+  const [address, setAddress] = React.useState(branch.address);
+  const [lat, setLat] = React.useState(String(branch.lat));
+  const [lng, setLng] = React.useState(String(branch.lng));
+  const [type, setType] = React.useState(branch.type as "hub" | "branch");
+  const [problem, setProblem] = React.useState<string | null>(null);
+
+  const save = useMutation({
+    ...orpc.identity.updateBranch.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
+      onClose();
+    },
+    onError: (error) => setProblem(apiMessage(error, "This branch could not be saved.")),
+  });
+
+  const latN = Number(lat);
+  const lngN = Number(lng);
+  const patch: { id: string; name?: string; address?: string; lat?: number; lng?: number; type?: "hub" | "branch" } = {
+    id: branch.id,
+  };
+  if (name.trim() !== branch.name) patch.name = name.trim();
+  if (address.trim() !== branch.address) patch.address = address.trim();
+  if (lat !== "" && Number.isFinite(latN) && latN !== branch.lat) patch.lat = latN;
+  if (lng !== "" && Number.isFinite(lngN) && lngN !== branch.lng) patch.lng = lngN;
+  if (type !== branch.type) patch.type = type;
+  const valid =
+    name.trim().length >= 2 &&
+    address.trim().length >= 4 &&
+    lat !== "" &&
+    lng !== "" &&
+    Number.isFinite(latN) &&
+    Number.isFinite(lngN);
+  const changed = Object.keys(patch).length > 1;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={`Edit ${branch.code}`}
+      description="The branch code is printed on manifests and seals already in circulation, so it cannot be changed. Moving the geocode changes nearest-branch routing for new addresses only."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!valid || !changed}
+            pending={save.isPending}
+            onClick={() => {
+              setProblem(null);
+              save.mutate(patch);
+            }}
+          >
+            Save branch
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Type">
+            <Select value={type} onChange={(e) => setType(e.target.value as "hub" | "branch")}>
+              <option value="branch">Branch</option>
+              <option value="hub">Hub</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="Address">
+          <Textarea value={address} onChange={(e) => setAddress(e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Latitude">
+            <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+          <Field label="Longitude">
+            <Input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="font-mono" />
+          </Field>
+        </div>
         {problem ? <ErrorNote>{problem}</ErrorNote> : null}
       </div>
     </Dialog>

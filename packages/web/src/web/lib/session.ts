@@ -93,9 +93,20 @@ export interface ApiSession {
   expiresIn: number;
   refreshToken: string;
   user: SessionUser;
+  /**
+   * MFA level of this session (§2). `enrol`/`challenge` mean the phone OTP
+   * passed but the authenticator step has not: such a session is PENDING and
+   * must never be stored — the login page finishes it via `mfa.*` first.
+   */
+  mfa?: { state: "none" | "enrol" | "challenge" | "verified"; devCode?: string };
+}
+
+export function isPendingMfa(session: ApiSession): boolean {
+  return session.mfa?.state === "enrol" || session.mfa?.state === "challenge";
 }
 
 export function storeApiSession(session: ApiSession): StoredSession {
+  if (isPendingMfa(session)) throw new Error("Refusing to store a session that has not passed the authenticator step.");
   const stored: StoredSession = {
     accessToken: session.accessToken,
     refreshToken: session.refreshToken,

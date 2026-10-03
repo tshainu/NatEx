@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { adminProc, mutate, readProc, staffProc } from "../middleware/pipeline";
+import { adminProc, deskProc, mutate, readProc } from "../middleware/pipeline";
 import * as notifyService from "../modules/notifications/service";
+import { errors } from "../shared/errors";
 
 /**
  * notifications routes — Milestone 3 (PROJECT.md §9 messaging, §10 M3
@@ -14,11 +15,11 @@ import * as notifyService from "../modules/notifications/service";
  * below shows that plainly — each attempt's channel and state is a row.
  */
 
-export const templates = staffProc
+export const templates = deskProc
   .input(z.object({}))
   .handler(() => notifyService.listTemplates());
 
-export const template = staffProc
+export const template = deskProc
   .input(z.object({ key: z.string().min(3).max(60) }))
   .handler(({ input }) => notifyService.getTemplate(input.key));
 
@@ -57,8 +58,45 @@ export const templateUpdate = adminProc
     ),
   );
 
+/**
+ * What an edit would look like before it is saved: the placeholders this
+ * message may use, the problems the save would be refused for, and each
+ * channel rendered with sample values (§10 M5 template editor).
+ */
+export const templatePreview = deskProc
+  .input(
+    z.object({
+      key: z.string().min(3).max(60),
+      bodyWhatsapp: z.string().max(1600).optional(),
+      bodySms: z.string().max(480).optional(),
+      bodyPush: z.string().max(240).optional(),
+      pushTitle: z.string().max(120).optional(),
+      channelOrder: z.string().max(60).optional(),
+    }),
+  )
+  .handler(async ({ input }) => {
+    const { key, ...draft } = input;
+    const current = await notifyService.getTemplate(key);
+    if (!current) errors.notFound(`Template ${key}`);
+    const merged = { ...current!, ...draft };
+    const sms = notifyService.render(merged.bodySms ?? "", notifyService.SAMPLE_VARS).text;
+    return {
+      allowed: notifyService.allowedPlaceholders(key, current),
+      problems: notifyService.templateProblems(key, draft, current),
+      rendered: {
+        whatsapp: notifyService.render(merged.bodyWhatsapp ?? "", notifyService.SAMPLE_VARS).text,
+        sms,
+        push: notifyService.render(merged.bodyPush ?? "", notifyService.SAMPLE_VARS).text,
+        pushTitle: notifyService.render(merged.pushTitle ?? "", notifyService.SAMPLE_VARS).text,
+      },
+      /** GSM-7 160 / segment; an over-long SMS is sent as several billed parts. */
+      smsSegments: sms.length <= 160 ? 1 : Math.ceil(sms.length / 153),
+      smsLength: sms.length,
+    };
+  });
+
 /** The send log, newest first — what went out, on which channel, and its state. */
-export const messages = staffProc
+export const messages = deskProc
   .input(
     z.object({
       templateKey: z.string().max(60).optional(),
@@ -81,7 +119,7 @@ export const forParcel = readProc
   );
 
 /** Channel/state rollup for the ops health panel. */
-export const summary = staffProc
+export const summary = deskProc
   .input(z.object({}))
   .handler(() => notifyService.logSummary());
 
@@ -90,6 +128,7 @@ export const notifications = {
   templates,
   template,
   templateUpdate,
+  templatePreview,
   messages,
   forParcel,
   summary,

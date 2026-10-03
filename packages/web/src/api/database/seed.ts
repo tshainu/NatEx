@@ -16,8 +16,9 @@
  * than silently added.
  */
 import { db } from "./__client";
-import { branch, otpChallenge, refreshToken, user } from "./schema/identity";
-import { merchant } from "./schema/merchants";
+import { branch, mfaFactor, mfaRecoveryCode, otpChallenge, refreshToken, user } from "./schema/identity";
+import { merchant, rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "./schema/merchants";
+import { settingValue } from "./schema/settings";
 import { parcel, parcelEvent } from "./schema/parcels";
 import { manifest, manifestItem } from "./schema/collection";
 import { geocodeCache, zone } from "./schema/routing";
@@ -41,12 +42,15 @@ import { seedParcel } from "../modules/parcels/service";
 import { seedManifest } from "../modules/collection/service";
 import { seedReasonCodes } from "../modules/delivery/reasons";
 import { seedTemplates } from "../modules/notifications/service";
+import { seedPlaceholderRateCard } from "../modules/merchants/rate-cards";
+import { seedDevMfaFactors } from "../modules/identity/mfa";
 import * as transport from "../modules/transport/service";
 import { colomboToday } from "../modules/collection/service";
 import type { ParcelStatus } from "../modules/parcels/state-machine";
+import { isDevelopment } from "../shared/env";
 
-if (process.env.NODE_ENV === "production") {
-  throw new Error("Refusing to run the destructive seed with NODE_ENV=production.");
+if (!isDevelopment()) {
+  throw new Error(`Refusing to run the destructive seed outside NODE_ENV=development/test (got ${process.env.NODE_ENV ?? "unset"}).`);
 }
 
 const BRANCH_ID = "brn_cmb_central";
@@ -105,8 +109,18 @@ async function clear() {
   await db.delete(parcelEvent);
   await db.delete(parcel);
   await db.delete(merchant);
+  // M5 rate cards: children before parents, after the merchants that point at them.
+  await db.delete(rateSurcharge);
+  await db.delete(rateSlab);
+  await db.delete(rateBand);
+  await db.delete(rateCardVersion);
+  await db.delete(rateCard);
+  await db.delete(settingValue);
   await db.delete(refreshToken);
   await db.delete(otpChallenge);
+  // M5 MFA rows reference identity_user: they go before the users.
+  await db.delete(mfaRecoveryCode);
+  await db.delete(mfaFactor);
   await db.delete(user);
   await db.delete(branch);
   await db.delete(zone);
@@ -708,6 +722,11 @@ export async function seed() {
   const parcels = await seedParcels();
   await seedManifests(parcels);
   const custody = await seedTransport(parcels);
+  // M5: the PLACEHOLDER rate card (§15 q3 is open — not client-approved
+  // pricing) and the development-only TOTP factors for the seeded ops, admin
+  // and finance users (identity/mfa.ts; refused in production).
+  const rateCards = await seedPlaceholderRateCard();
+  const mfa = await seedDevMfaFactors();
 
   const summary = {
     branches: 3,
@@ -719,6 +738,8 @@ export async function seed() {
     reasonCodes,
     templates,
     custody,
+    rateCards,
+    mfaSeeded: mfa.seeded.length,
     logins: [
       { role: "rider", phone: "+94771234567", name: "Pradeep Fernando" },
       { role: "ops", phone: "+94772345678", name: "Nimali Perera" },

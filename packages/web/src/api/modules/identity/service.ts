@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, user, otpChallenge, refreshToken } from "../../database/schema/identity";
 import {
@@ -8,6 +8,8 @@ import {
   mintRefreshToken,
   signAccessToken,
   verifySecret,
+  PENDING_MFA,
+  type MfaLevel,
   type Principal,
   type Role,
 } from "../../shared/auth";
@@ -16,6 +18,9 @@ import { prefixedId } from "../../shared/ulid";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
 import { writeAudit } from "../../shared/audit";
 import { distanceMetres } from "../../shared/geo";
+import { SETTING_KEYS, settingValue } from "../settings/service";
+import { devCodeFor, getFactor, MFA_ROLES, mfaRequiredFor } from "./mfa";
+import { isDevelopment } from "../../shared/env";
 
 /**
  * MODULE: identity — the ONLY reader of identity_* tables (PROJECT.md §4).
@@ -56,7 +61,7 @@ function sixDigitCode(): string {
  * Phone + OTP step 1. The code is sent through the SMS execution link and
  * stored only as an argon2id hash.
  *
- * Returns the code itself ONLY when NODE_ENV !== "production" and the gateway
+ * Returns the code itself ONLY in a development/test process (shared/env.ts) and when the gateway
  * is not configured — otherwise nobody could log in to the pilot. Flagged, not
  * hidden.
  */
@@ -88,7 +93,7 @@ export async function requestOtp(phoneInput: string): Promise<{
 
   await db.update(otpChallenge).set({ smsRef: sms.gatewayRef }).where(eq(otpChallenge.id, challengeId));
 
-  const exposeCode = process.env.NODE_ENV !== "production" && sms.state !== "sent";
+  const exposeCode = isDevelopment() && sms.state !== "sent";
   return {
     challengeId,
     expiresInSeconds: OTP_TTL_SECONDS,
@@ -110,13 +115,29 @@ export interface Session {
     merchantId: string | null;
     deviceId: string | null;
   };
+  /**
+   * M5 (§2). `state` is the session's MFA level. When it is `enrol` or
+   * `challenge` the tokens above are PENDING — good only for the `mfa.*`
+   * routes, for PENDING_SESSION_SECONDS — and the client must finish the
+   * second step before it has a usable session. `devCode` is present only
+   * outside production, for a development-seeded factor (see mfa.ts).
+   */
+  mfa: { state: MfaLevel; devCode?: string };
 }
+
+/** A pending (pre-MFA) session lives ten minutes and is never refreshed. */
+export const PENDING_SESSION_SECONDS = 10 * 60;
+
+/** Roles exempt from the idle timeout: offline-first field apps (§7). */
+const IDLE_EXEMPT: ReadonlySet<Role> = new Set<Role>(["rider", "transport"]);
 
 async function issueSession(
   account: IdentityUser,
   deviceId: string | null,
+  opts: { mfaLevel: MfaLevel; familyStartedAt?: Date; devCode?: string | null } = { mfaLevel: "none" },
 ): Promise<Session> {
   const [homeBranch] = await db.select().from(branch).where(eq(branch.id, account.branchId));
+  const pending = PENDING_MFA.has(opts.mfaLevel);
 
   const { token: accessToken, expiresIn } = await signAccessToken({
     sub: account.id,
@@ -125,20 +146,24 @@ async function issueSession(
     merchantId: account.merchantId,
     deviceId,
     name: account.name,
+    mfa: opts.mfaLevel,
   });
 
   const refresh = mintRefreshToken();
+  const ttl = pending ? PENDING_SESSION_SECONDS : REFRESH_TTL_SECONDS;
   await db.insert(refreshToken).values({
     id: prefixedId("rtk"),
     userId: account.id,
     tokenHash: await fingerprint(refresh),
     deviceId,
-    expiresAt: new Date(Date.now() + REFRESH_TTL_SECONDS * 1000),
+    expiresAt: new Date(Date.now() + ttl * 1000),
+    mfaLevel: opts.mfaLevel,
+    familyStartedAt: opts.familyStartedAt ?? new Date(),
   });
 
   return {
     accessToken,
-    expiresIn,
+    expiresIn: pending ? Math.min(expiresIn, PENDING_SESSION_SECONDS) : expiresIn,
     refreshToken: refresh,
     user: {
       id: account.id,
@@ -149,7 +174,41 @@ async function issueSession(
       merchantId: account.merchantId,
       deviceId,
     },
+    mfa: { state: opts.mfaLevel, ...(opts.devCode ? { devCode: opts.devCode } : {}) },
   };
+}
+
+/** What a fresh sign-in must still prove, for this account, right now. */
+async function signInLevel(account: IdentityUser): Promise<{ level: MfaLevel; devCode: string | null }> {
+  if (!(MFA_ROLES as readonly string[]).includes(account.role)) return { level: "none", devCode: null };
+  // An enrolled authenticator is always asked for, even with enforcement off:
+  // a user who chose MFA keeps it.
+  const factor = await getFactor(account.id);
+  if (factor?.confirmedAt) return { level: "challenge", devCode: await devCodeFor(factor) };
+  if (await mfaRequiredFor(account.role)) return { level: "enrol", devCode: null };
+  return { level: "none", devCode: null };
+}
+
+/**
+ * The second step succeeded (mfa.ts verified a TOTP or recovery code, or
+ * confirmed a first enrolment): swap the pending session for a full one. Every
+ * pending refresh token the user holds is revoked, so a pending token cannot
+ * be replayed into a second full session.
+ */
+export async function completeMfaSignIn(userId: string, deviceId: string | null): Promise<Session> {
+  const account = await getUserById(userId);
+  if (!account || account.status !== "active") errors.unauthenticated("Account unavailable.");
+  await db
+    .update(refreshToken)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(refreshToken.userId, userId),
+        isNull(refreshToken.revokedAt),
+        inArray(refreshToken.mfaLevel, [...PENDING_MFA]),
+      ),
+    );
+  return issueSession(account!, deviceId, { mfaLevel: "verified" });
 }
 
 /**
@@ -225,10 +284,26 @@ export async function verifyOtp(params: {
     account!.deviceId = deviceId;
   }
 
-  return issueSession(account!, deviceId ?? account!.deviceId);
+  const { level, devCode } = await signInLevel(account!);
+  return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
 }
 
-/** Rotating refresh: the presented token is revoked and replaced (§2). */
+async function revokeFamily(userId: string, rowId: string): Promise<void> {
+  await db.update(refreshToken).set({ revokedAt: new Date() }).where(and(eq(refreshToken.id, rowId), eq(refreshToken.userId, userId)));
+}
+
+/**
+ * Rotating refresh: the presented token is revoked and replaced (§2). M5
+ * session policy is enforced here, because the access token lives only 15
+ * minutes — refusing the rotation ends the session:
+ *   - pending (pre-MFA) sessions are never refreshed;
+ *   - an MFA role whose session did not pass MFA is sent back to sign in
+ *     (enforcement switched on, or the role changed, after it began);
+ *   - absolute lifetime: `session_max_days` from the sign-in, every role;
+ *   - idle timeout: `session_idle_minutes` since the last rotation, portal
+ *     roles only — riders and transport are exempt (offline-first, §7).
+ * The MFA level and the family start are carried into the successor unchanged.
+ */
 export async function rotateRefresh(presented: string): Promise<Session> {
   const hash = await fingerprint(presented);
   const [row] = await db
@@ -242,7 +317,32 @@ export async function rotateRefresh(presented: string): Promise<Session> {
   const account = await getUserById(row!.userId);
   if (!account || account.status !== "active") errors.unauthenticated("Account unavailable.");
 
-  const session = await issueSession(account!, row!.deviceId);
+  const level = (row!.mfaLevel ?? "none") as MfaLevel;
+  if (PENDING_MFA.has(level)) {
+    await revokeFamily(account!.id, row!.id);
+    errors.unauthenticated("Finish signing in: this session has not passed the authenticator step.");
+  }
+  if (level !== "verified" && (await mfaRequiredFor(account!.role))) {
+    await revokeFamily(account!.id, row!.id);
+    errors.unauthenticated("Sign in again: your role now requires an authenticator code.");
+  }
+
+  const now = Date.now();
+  const familyStartedAt = row!.familyStartedAt ?? row!.createdAt;
+  const maxDays = await settingValue(SETTING_KEYS.SESSION_MAX_DAYS);
+  if (now - familyStartedAt.getTime() > maxDays * 86_400_000) {
+    await revokeFamily(account!.id, row!.id);
+    errors.unauthenticated(`Session ended: sessions last at most ${maxDays} days. Sign in again.`);
+  }
+  if (!IDLE_EXEMPT.has(account!.role)) {
+    const idleMinutes = await settingValue(SETTING_KEYS.SESSION_IDLE_MINUTES);
+    if (now - row!.createdAt.getTime() > idleMinutes * 60_000) {
+      await revokeFamily(account!.id, row!.id);
+      errors.unauthenticated(`Session ended after ${idleMinutes} minutes without activity. Sign in again.`);
+    }
+  }
+
+  const session = await issueSession(account!, row!.deviceId, { mfaLevel: level, familyStartedAt });
   const [successor] = await db
     .select({ id: refreshToken.id })
     .from(refreshToken)
@@ -297,6 +397,7 @@ export async function listUsers(scope: Principal) {
       deviceId: user.deviceId,
       branchId: user.branchId,
       branchName: branch.name,
+      merchantId: user.merchantId,
       createdAt: user.createdAt,
     })
     .from(user)

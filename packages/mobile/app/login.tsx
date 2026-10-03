@@ -52,8 +52,16 @@ export default function LoginScreen() {
   });
 
   const verify = useMutation({
-    mutationFn: (input: { challengeId: string; code: string }) =>
-      client.identity.verifyOtp({ ...input, deviceId: deviceId() }),
+    mutationFn: async (input: { challengeId: string; code: string }) => {
+      const session = await client.identity.verifyOtp({ ...input, deviceId: deviceId() });
+      // §2 TOTP MFA (M5): ops, admin and finance finish sign-in with an
+      // authenticator code. That step lives in the web portal; the field app
+      // is for riders and transport, so a pending session is not stored here.
+      if (session.mfa.state === "enrol" || session.mfa.state === "challenge") {
+        throw new Error("This account signs in with an authenticator code. Use the NatEx web portal.");
+      }
+      return session;
+    },
     onSuccess: async (session) => {
       const api = session as ApiSession;
       await signIn(api);

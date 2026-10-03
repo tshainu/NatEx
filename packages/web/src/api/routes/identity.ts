@@ -6,8 +6,12 @@ import {
   publicMutate,
   publicProc,
   staffProc,
+  deskProc,
 } from "../middleware/pipeline";
+import { changeUserStatus } from "../modules/identity/admin";
 import * as identityService from "../modules/identity/service";
+import { getMerchant } from "../modules/merchants/service";
+import { errors } from "../shared/errors";
 import { ROLES } from "../shared/auth";
 import { toE6 } from "../shared/geo";
 
@@ -23,7 +27,14 @@ export const requestOtp = publicProc
   .handler(({ input, context }) =>
     publicMutate(
       context,
-      { route: "identity.requestOtp", bucket: { capacity: 5, refillPerMinute: 1 } },
+      {
+        route: "identity.requestOtp",
+        bucket: { capacity: 5, refillPerMinute: 1 },
+        // Per destination number as well as per IP: each OTP is a paid SMS to
+        // someone's phone. Keyed on the last nine digits so +94 / 0 / spaced
+        // spellings of one number share a bucket. 5 at once, then one per 5 min.
+        subject: { key: `phone:${input.phone.replace(/\D/g, "").slice(-9)}`, bucket: { capacity: 5, refillPerMinute: 0.2 } },
+      },
       () => identityService.requestOtp(input.phone),
     ),
   );
@@ -84,7 +95,7 @@ export const logout = authedProc.handler(({ context }) =>
 
 export const listBranches = staffProc.handler(() => identityService.listBranches());
 
-export const listUsers = staffProc.handler(({ context }) =>
+export const listUsers = deskProc.handler(({ context }) =>
   identityService.listUsers(context.principal),
 );
 
@@ -102,8 +113,13 @@ export const createUser = adminProc
       merchantId: z.string().nullish(),
     }),
   )
-  .handler(({ input, context }) =>
-    mutate(
+  .handler(async ({ input, context }) => {
+    if (!(await identityService.getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
+    if (input.role === "merchant") {
+      if (!input.merchantId) errors.badRequest("A merchant user needs a merchant.");
+      if (!(await getMerchant(input.merchantId!))) errors.badRequest(`Merchant ${input.merchantId} does not exist.`);
+    }
+    return mutate(
       context,
       input,
       {
@@ -118,10 +134,10 @@ export const createUser = adminProc
           phone: input.phone,
           role: input.role as (typeof ROLES)[number],
           branchId: input.branchId,
-          merchantId: input.merchantId ?? null,
+          merchantId: input.role === "merchant" ? (input.merchantId ?? null) : null,
         }),
-    ),
-  );
+    );
+  });
 
 export const setUserStatus = adminProc
   .input(
@@ -140,7 +156,7 @@ export const setUserStatus = adminProc
         entityId: () => input.userId,
         action: `user.${input.status}`,
       },
-      () => identityService.setUserStatus(input.userId, input.status),
+      () => changeUserStatus(context.principal, input.userId, input.status),
     ),
   );
 

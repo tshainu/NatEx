@@ -2,13 +2,22 @@
 
 Implementation of the NatEx specification in `PROJECT.md`. Section references
 below (§4, §10, …) point at that document, which is the source of truth for
-scope, domain rules and milestone order.
+scope, domain rules and milestone order. Operations (deploy, backup, MFA
+resets, monitoring, incidents) are in **[RUNBOOK.md](RUNBOOK.md)**; the
+build log with every verification run is `task.md`.
 
-**Built and verified: Milestone 1 (Core & Collection) and the backend plus ops
-web of Milestone 2 (Transport & Custody).** M3–M5 are not started. Nothing in
-this repository is stubbed with fake data: a screen that has no implementation
-behind it says which milestone it arrives in and why, rather than showing
-placeholder rows.
+**Milestones 1–5 are built and verified** against the live API and database:
+
+| Milestone | Scope (§10) |
+| --- | --- |
+| M1 Core & Collection | Booking, pickup manifests, two-party handover, origin-hub receipt, the §6 state machine |
+| M2 Transport & Custody | Bags, seals, linehaul trips, destination-hub receipt with variances, custody timeline |
+| M3 Delivery & Merchant | Runsheets, POD (OTP/photo/signature), failures and NDR, RTO, offline sync (§7), rider + transport app, merchant portal and bulk booking |
+| M4 Money | COD ledger, rider cash and deposits, four-way reconciliation, settlements with maker–checker, holds, payout file, invoices and credit notes, AR, disputes and claims, finance portal |
+| M5 Admin & Hardening | Admin portal (users, roles, branches, zones, rate cards, merchant onboarding), SLA/business settings, notification template editor, audit viewer, TOTP MFA + session policy, job monitor, readiness probe, backup/restore drill, load test, security review, runbook |
+
+Nothing is stubbed with fake data. Two things are deliberately **not** final
+because the client has not answered them — see [Open questions](#open-questions-15).
 
 ---
 
@@ -16,57 +25,66 @@ placeholder rows.
 
 ```bash
 bun install
-bun run dev          # web + API on :4200
+bun run db:push                       # schema
+cd packages/web && bun run db:seed    # DEV ONLY — destructive, creates dev MFA factors
+bun run dev                           # web + API on :4200
+bun run dev:mobile                    # rider/transport Expo app on :4300
 ```
 
-| Command | What it does |
+| Command (from `packages/web` unless noted) | What it does |
 | --- | --- |
-| `bun run dev` | Web app and API together (one Bun server) |
-| `bun run typecheck` | `tsc --noEmit` across web, mobile and desktop |
-| `bun run lint` | Project lint rules |
-| `bun run build` | Typecheck + production bundle |
-| `bun run db:push` | Apply the Drizzle schema to the database |
-| `cd packages/web && bun run db:seed` | Seed branches, users, merchants, parcels, zones |
-| `cd packages/web && bun run smoke` | **71 API assertions** end-to-end against the running server |
-| `cd packages/web && bun run ui-check` | **19 routes** loaded in a real browser, fails on any console/page error |
-
-`smoke` and `ui-check` both need `bun run dev` running first. They are the
-proof behind every "verified" claim in this README — see
-[Verification](#verification).
+| `bun run typecheck` (root) | web, mobile, desktop |
+| `bun run lint` (root) | project lint rules |
+| `bun run test` | unit + DB tests (1 423 at the M5 close) |
+| `bun --env-file=../../.env scripts/<name>.ts` | any regression script below; needs `bun run dev` running |
 
 Ports are fixed by the platform in `__ports.cjs`: web `4200`, mobile `4300`,
 desktop `4400`.
 
-### Environment
+### Configuration
 
-The database and storage variables come with the sandbox. NatEx adds:
+Root `.env` (template: `.env.template`). Full table with consequences in
+RUNBOOK.md section 1. The ones that matter:
 
-| Variable | Purpose | Required |
-| --- | --- | --- |
-| `JWT_ACCESS_SECRET` | Signs 15-minute access tokens | yes |
-| `JWT_REFRESH_SECRET` | Signs rotating refresh tokens | yes |
-| `SMS_EXECUTION_URL` | OTP/notification gateway endpoint (§9). Unset ⇒ messages are written to `shared_sms_log` and never sent, and OTP codes are returned in the API response in non-production so login still works | no |
-| `SMS_SENDER_ID` | Sender mask, defaults to `NATEX` | no |
-| `SMS_DLR_WEBHOOK_SECRET` | Shared secret on `POST /api/webhooks/sms/dlr` | yes if SMS is live |
-| `OUTBOX_POLL_MS` | Outbox worker interval, default 3000 | no |
+| Variable | Purpose |
+| --- | --- |
+| `NODE_ENV` | **Must be `production` in production.** Only `development`/`test` enable dev conveniences (`shared/env.ts`, fails closed). |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Token signing. Outside development the server refuses to sign or verify without them. |
+| `MFA_ENCRYPTION_KEY` | AES-256-GCM key material for TOTP secrets at rest. Changing it invalidates every enrolled authenticator. |
+| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | SMS gateway (§9). Unset ⇒ messages logged to `shared_sms_log`, never sent. |
+| `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | Nightly COD invariant: default 23 (Asia/Colombo) and 300 000 ms. |
+| `OUTBOX_POLL_MS` | Outbox worker interval, default 3000. |
+| `SENTRY_DSN` | Reserved — not wired yet. |
 
-### Signing in
+### Signing in (development)
 
-Phone + OTP, no passwords (§7). Outside production the six-digit code is
-returned by `identity.requestOtp` as `devCode` and pre-filled on the login
-screen, so the seeded users are reachable without an SMS gateway:
+Phone + OTP (§7). Ops, admin and finance also enter a TOTP code (§2). In
+development only, `identity.requestOtp` returns the SMS code as `devCode`, and
+the seeded staff hold a development TOTP factor whose current code is returned
+the same way, so every seeded user can sign in without an SMS gateway or an
+authenticator app. Both are off whenever `NODE_ENV` is not `development`/`test`,
+and a seeded dev factor is refused there.
 
 | Role | Phone |
 | --- | --- |
 | Administrator | `+94773456789` |
-| Operations | `+94772345678` |
-| Transport | `+94776789012`, `+94777890123` |
 | Finance | `+94774567890` |
-| Merchant | `+94775678901` |
-| Rider | `+94771234567` |
+| Operations | `+94772345678` (Colombo), `+94779012345` (Kandy) |
+| Transport | `+94776789012` (Colombo), `+94777890123` (Kandy) |
+| Rider | `+94771234567` (Colombo), `+94778901234` (Kandy) |
+| Merchant | `+94775678901` (Ceylon Threads) |
 
-Seeded branches: `CMB01` Colombo Central, `CMBHUB` Colombo Main Hub —
-Peliyagoda, `KDYHUB` Kandy Regional Hub.
+Branches: `CMB01` Colombo Central, `CMBHUB` Colombo Main Hub — Peliyagoda,
+`KDYHUB` Kandy Regional Hub.
+
+### Session policy (Admin → Settings)
+
+Access tokens live 15 minutes; refresh tokens rotate on every use with reuse
+detection and are hashed at rest. A portal session (ops, admin, finance,
+merchant) idle for 720 minutes must sign in again; riders and transport are
+exempt because their apps are offline-first. Every session ends 30 days after
+sign-in. Both are editable within safe ranges, as is MFA enforcement — every
+change is audited with a reason.
 
 ---
 
@@ -97,14 +115,35 @@ present.
 | JWT + rotating refresh | HS256 via Web Crypto, rotating refresh with reuse detection | No deviation. |
 | PostGIS-assisted route-order optimisation for delivery runsheets (§5, §10 M3) | JS nearest-neighbour sweep over stored microdegree points, recorded in `delivery_runsheet.route_method` | Greedy, not optimal: it produces a reasonable stop order, not a shortest tour, and it has no road network, no turn restrictions and no traffic. Stops with no stored coordinates are appended at the end in booking order. Distances are the same Haversine great-circle as above, so the `route_distance_metres` figure is a lower bound on real road distance. |
 | WhatsApp Business API and push (Expo) as first-class notification channels (§9 ladder: WhatsApp → SMS → push) | Real senders in `modules/notifications/service.ts` that **fail closed** | No WhatsApp or push credentials exist in this sandbox. Each sender checks its env vars (`WHATSAPP_API_URL`, `WHATSAPP_TOKEN`, `EXPO_PUSH_URL`) and, when they are absent, writes a `notify_message` row with `state = "skipped"` naming the missing variable, then lets the ladder fall through to SMS. Nothing is silently dropped and nothing is faked as sent — but in practice every notification in this deployment goes out over SMS. |
+| BullMQ repeatable job for the nightly COD invariant (§8) | In-process scheduler `jobs/nightly.ts`: ticks every `NIGHTLY_TICK_MS` (default 5 min), runs once per Colombo day at the first tick on/after `NIGHTLY_INVARIANT_HOUR` (default 23) | Only runs while the web server is up; a server down at 23:00 runs it at the next tick the same day, otherwise the night is missed (visible in Admin → Monitor → Invariants, and to the Kuma push monitor once wired). |
+| Redis token bucket (§2) | `shared_rate_limit` SQLite table, same algorithm (`middleware/rate-limit.ts`) | Coarser under concurrency: two simultaneous requests can both read the last token. Buckets are per user, per IP and (OTP) per destination number. |
+| Sentry + Uptime Kuma (§10 M5) | Readiness probe `GET /api/health/ready` and one error hook `shared/report-error.ts` | **Not connected** — blocked on a Sentry DSN and a Kuma host. Config and wiring steps in `RUNBOOK.md` section 5. |
 
-Two further gaps worth naming plainly:
+Further gaps worth naming plainly:
 
+- **The rider/transport app has not been tested on a physical phone.** It has
+  been driven end to end in Expo web in a headless browser (`ui-rider`,
+  `ui-rider-queue`, `probe-pod-photo`), not on Android/iOS hardware: camera,
+  GPS, background sync and offline storage on a real device are unproven.
 - **Google Maps / Mapbox geocoding (§9)** is not wired up. Serviceability
-  resolves against the seeded zone polygons only; there is no geocoding
-  provider, so the geocode cache table exists and is unused.
-- **`bun run build` emits a single 920 kB bundle.** Fine for the sandbox,
-  needs code-splitting before production.
+  resolves against the seeded zone polygons only.
+- **HTML security headers** are not set by the app (the static server is
+  template-managed); the API's are. Set the page headers at the edge — RUNBOOK.md section 1.
+- **Load** was measured on the dev server with reads only: ~85 req/s ceiling,
+  0 errors up to 100 concurrent users (RUNBOOK.md section 8).
+
+---
+
+## Open questions (§15)
+
+- **q3 — rate card structure: OPEN.** The rate-card engine (bands, zones,
+  versions, publish, assignment, quote) is built and configurable, but the
+  seeded card `rtc_pilot_placeholder` is labelled PLACEHOLDER and **no
+  merchant has a card assigned**. Invoices therefore do not price freight
+  automatically. The COD-fee part was answered (2026-09-30): bundled into the
+  delivery rate, held at 0 in `cod_finance_config`.
+- **q10 — VAT / SSCL: OPEN.** The tax arithmetic on invoices exists and is
+  seeded **off**. Rates and registration must come from the client's tax advisor.
 
 ---
 
@@ -113,32 +152,43 @@ Two further gaps worth naming plainly:
 ```
 packages/web/
   src/api/
-    index.ts              root oRPC router + SMS DLR webhook
-    middleware/pipeline.ts  auth, role gates, idempotency, rate limits, audit
-    modules/<feature>/    the ONLY code that touches that feature's tables (§4)
-      parcels/state-machine.ts   transitions, role gates, milestone gating (§6)
-    database/schema/      identity, merchants, parcels, collection, routing, transport, shared
-    jobs/worker.ts        outbox poller
-    shared/               auth, errors, geo, sms, outbox, ulid
-  src/web/                React app — ops, admin, finance, merchant, field portals
-    pages/track.tsx       the one public screen
-  scripts/smoke.ts        71 API assertions
-  scripts/ui-check.ts     19 browser route checks
-packages/mobile/          Expo client — not built yet
-packages/desktop/         Electron shell around the web app
+    index.ts                 router composition + SMS DLR webhook + readiness + security headers
+    routes/<feature>.ts      oRPC procedures, one file per feature
+    middleware/pipeline.ts   the §4 chain: request id → auth → idempotency → validation → rate limit → audit
+    middleware/auth.ts       JWT + role gates (tagged; route-guards.test.ts inventories them)
+    modules/<feature>/       the ONLY code that touches that feature's tables (§4)
+    database/schema/         one file per module
+    jobs/worker.ts           outbox drain        jobs/nightly.ts   nightly COD invariant
+    shared/                  auth, errors, audit + redaction, totp, secret-box, codes, env, report-error
+  src/web/                   React portals: ops, admin, finance, merchant, field + public tracking
+  scripts/                   regression scripts (smoke-*, probe-*, ui-*), backup-drill, load-test, security-review
+packages/mobile/             Expo rider + transport app (offline-first, §7)
+packages/desktop/            Electron shell around the web app
 ```
 
 Module boundaries from §4 are real: a service reads only its own feature's
-tables and calls sibling modules through their exported functions. `parcels`
-never touches `transport_*`, `transport` never writes `parcels_*` directly.
+tables and calls sibling modules through their exported functions.
 
-### Conventions (§11)
+### Conventions (§11) and hardening
 
-Money is integer cents everywhere — no float touches a monetary field. Times
-are stored UTC, rendered Asia/Colombo. `parcels_event`, `transport_hub_scan`
-and `shared_audit_log` are append-only: nothing updates or deletes a row.
-Mutations require an `Idempotency-Key` and replay returns the first result.
-Errors are `application/problem+json` with a stable `type`.
+- **Money** is integer cents everywhere; no float touches a monetary field.
+  Times are stored UTC, rendered Asia/Colombo.
+- **Append-only:** `parcels_event`, `transport_hub_scan`, the COD ledger and
+  `shared_audit_log`. Corrections are new rows.
+- **Idempotency:** every mutation takes an `Idempotency-Key`; a replay returns
+  the stored response; the same key with a different body — or from a
+  different user — is a 409.
+- **Errors** are `application/problem+json` with a stable `type`.
+- **Audit redaction** (`shared/redact.ts`): bank account numbers masked to the
+  last 4, tokens/OTP/TOTP material dropped, CSV bodies replaced by their size —
+  applied in `writeAudit` to every row.
+- **Collision-safe document codes** (`shared/codes.ts`): 6 Crockford base32
+  characters from the CSPRNG, re-minted on a UNIQUE violation.
+- **Transient DB resets** (Turso `ECONNRESET`): a request is retried at most
+  twice, and only if it never reached a write path (`shared/request-scope.ts`).
+- **Least privilege:** desk-only reads (staff list, consignee messages, rate
+  cards, settings, COD alerts, reconciliation) refuse riders and transport;
+  money reads admit desks plus the merchant for its own rows only.
 
 ---
 
@@ -155,49 +205,12 @@ identity. `ui-check` asserts that page renders from that payload alone.
 
 ## Verification
 
-§12 requires that nothing is reported as implemented without being executed.
-Current state, all re-run after the most recent change:
+§12: nothing is reported as implemented without being executed. The M5
+closing regression — every script re-run on the final code — is recorded in
+`task.md` ("M5 closing regression"), with counts.
 
-| Check | Result |
-| --- | --- |
-| `bun run typecheck` | 3 packages, clean |
-| `bun run lint` | 0 errors, 0 warnings |
-| `bun run build` | clean |
-| `bun run smoke` | **71/71 pass** |
-| `bun run ui-check` | **19/19 routes clean** |
-
-`smoke` walks the real flows rather than asserting on mocks: login as each
-role, book a parcel, build and scan a pickup manifest, hand over, receive at
-the origin hub, bag it, seal it, load a linehaul trip, depart, arrive, receive
-at the destination hub with deliberate variances — and asserts the guardrails
-each step of the way (illegal transition rejected, idempotent replay, role gate,
-departure with an unsealed bag refused, seal mismatch detected, short bag
-raising an exception, rate limiting, PDPA-safe tracking payload).
-
-`ui-check` signs in over the real API, injects the session, and loads every
-route in headless Chrome, failing on any console error, page error, unexpected
-redirect or visible error surface. It caught a live `React.Children.only` crash
-on `/ops/parcels` that `tsc` could not see.
-
----
-
-## What is missing
-
-Tracked honestly rather than quietly dropped:
-
-- **The Expo mobile app is not built.** This is the largest gap. §10 M1
-  requires rider login/device-bind, today, scan, pickup and handover; M2
-  requires transport bulk scan, bags, trips and variance. The API for all of
-  it exists and is smoke-tested, and `packages/mobile/lib/api.ts` is wired to
-  the typed client — but no screens exist beyond the Expo starter. Consequence:
-  the M1 exit criterion is currently satisfied through the ops web portal, not
-  through a rider's phone.
-- **No unit tests.** §12 asks for full unit coverage of the parcel state
-  machine. What exists is integration-level (`smoke.ts`) and browser-level
-  (`ui-check.ts`) instead; every legal transition is exercised, but the illegal
-  ones are only spot-checked rather than enumerated.
-- **M2 remainder**: the custody timeline component is built into the ops
-  screens rather than extracted, and the two-party handover exists in the API
-  but has no mobile surface.
-- **M3, M4, M5**: no code. Screens for delivery, COD, settlement, invoicing,
-  rate cards and admin configuration state which milestone they belong to.
+- `smoke`, `smoke-m3`, `smoke-m4`, `smoke-sync`, `smoke-m5` — API end to end per milestone
+- `probe-*` — focused API probes (finance pages, COD wiring, disputes, merchant visibility and portal, bulk booking, ops delivery, sync conflicts, POD photo, nightly)
+- `ui-*` — real headless Chrome against the running app (finance, merchant, every route, ops delivery, rider, rider queue, admin)
+- `security-review` — live attack probes; `route-guards.test.ts` — static guard inventory of all procedures
+- `backup-drill` — backup + verified restore; `load-test` — read throughput and latency

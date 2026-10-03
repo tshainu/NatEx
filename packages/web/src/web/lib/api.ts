@@ -96,6 +96,24 @@ const link = new RPCLink<ApiCallContext>({
 /** Direct typed client: await client.parcels.get({ awbOrId }) */
 export const client: RouterClient<AppRouter, ApiCallContext> = createORPCClient(link);
 
+/**
+ * A client bound to a PENDING sign-in token (§2 MFA step). It is never stored
+ * and never refreshed — a pending session cannot rotate — and the server only
+ * accepts it on the `mfa.status/enrolStart/enrolConfirm/verify` routes.
+ */
+export function pendingClient(pendingAccessToken: string): RouterClient<AppRouter> {
+  return createORPCClient(
+    new RPCLink({
+      url: RPC_URL,
+      headers: () => ({
+        "idempotency-key": newIdempotencyKey(),
+        "x-device-id": deviceId(),
+        authorization: `Bearer ${pendingAccessToken}`,
+      }),
+    }),
+  );
+}
+
 /** TanStack Query helpers: useQuery(orpc.parcels.board.queryOptions()) */
 export const orpc = createTanstackQueryUtils(client);
 

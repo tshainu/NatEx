@@ -78,6 +78,11 @@ export function startNightly(): void {
   console.log(`[nightly] invariant schedule started (daily from ${runHour()}:00 ${TZ}, tick ${TICK_MS}ms)`);
 }
 
+/** Job-monitor view of the nightly schedule (§10 M5). */
+export function nightlyStatus() {
+  return { running: Boolean(g.__natexNightlyTimer), runHour: runHour(), tickMs: TICK_MS, timezone: TZ };
+}
+
 export function stopNightly(): void {
   if (g.__natexNightlyTimer) clearInterval(g.__natexNightlyTimer);
   g.__natexNightlyTimer = null;

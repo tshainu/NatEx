@@ -1,4 +1,5 @@
 import type { RouterClient } from "@orpc/server";
+import { Hono } from "hono";
 import { createApp } from "./__core/app";
 import { startNightly } from "./jobs/nightly";
 import { recordDeliveryReceipt, startWorker } from "./jobs/worker";
@@ -7,16 +8,25 @@ import { collection } from "./routes/collection";
 import { delivery } from "./routes/delivery";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
+import { audit } from "./routes/audit";
 import { identity } from "./routes/identity";
+import { identityAdmin } from "./routes/identity-admin";
+import { merchantAdmin } from "./routes/merchant-admin";
 import { merchants } from "./routes/merchants";
+import { mfa } from "./routes/mfa";
+import { monitor } from "./routes/monitor";
 import { ndr } from "./routes/ndr";
 import { notifications } from "./routes/notifications";
 import { parcels } from "./routes/parcels";
 import { ping } from "./routes/ping";
+import { rateCards } from "./routes/rate-cards";
+import { readiness } from "./routes/readiness";
 import { routing } from "./routes/routing";
+import { settings } from "./routes/settings";
 import { sync } from "./routes/sync";
 import { transport } from "./routes/transport";
 import { problemResponse, problem } from "./shared/errors";
+import { securityHeaders } from "./middleware/security-headers";
 
 // API features are oRPC procedures, one file per feature in ./routes/,
 // composed into this router — typed end-to-end via the clients
@@ -30,12 +40,14 @@ import { problemResponse, problem } from "./shared/errors";
 // the money module split across two namespaces: cod (rider cash, deposits,
 // reconciliation), finance (settlement, holds, invoices, AR) and disputes
 // (the dispute queue and claim register). sync is the
-// device-facing offline engine (Â§7) and its ops exception queue. Rating
+// device-facing offline engine (§7) and its ops exception queue. Rating
 // arrives in a later milestone.
 export const router = {
   ping,
-  identity,
-  merchants,
+  identity: { ...identity, ...identityAdmin },
+  mfa,
+  merchants: { ...merchants, ...merchantAdmin },
+  rateCards,
   parcels,
   collection,
   routing,
@@ -47,6 +59,10 @@ export const router = {
   finance,
   disputes,
   sync,
+  // M5 — admin portal & hardening (§10 M5).
+  settings,
+  audit,
+  monitor,
 };
 
 export type AppRouter = typeof router;
@@ -91,8 +107,15 @@ app.post("/api/webhooks/sms/dlr", async (c) => {
   return c.json({ received: true, ...result });
 });
 
+// Public readiness probe for Uptime Kuma (routes/readiness.ts).
+app.get("/api/health/ready", readiness);
+
 // The outbox drain and the nightly invariant run in-process (see jobs/*.ts).
 startWorker();
 startNightly();
 
-export default app;
+// Outermost layer: security headers on every /api response, including the
+// oRPC mount the template registers inside createApp.
+const root = new Hono().use("*", securityHeaders).route("/", app);
+
+export default root;

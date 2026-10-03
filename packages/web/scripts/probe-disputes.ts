@@ -23,6 +23,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 import { CMB_BRANCH } from "./lib/rail";
 
 const API = process.env.PROBE_API ?? "http://localhost:4200";
@@ -81,7 +82,7 @@ async function login(phone: string) {
   await db.delete(rateLimit).where(like(rateLimit.bucket, "%identity.requestOtp"));
   const c = await anon.identity.requestOtp({ phone });
   if (!c.devCode) throw new Error(`no dev OTP for ${phone}`);
-  return anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: null });
+  return finishMfa(API, await anon.identity.verifyOtp({ challengeId: c.challengeId, code: c.devCode, deviceId: null }));
 }
 const holdRow = async (id: string | null) =>
   id ? (await db.select().from(cod.codHold).where(eq(cod.codHold.id, id)))[0] : undefined;
@@ -370,7 +371,10 @@ for (let i = 0; i < 20; i++) {
     .select({ disputeId: cod.codOpsAlert.disputeId, status: cod.codOpsAlert.status })
     .from(cod.codOpsAlert)
     .where(inArray(cod.codOpsAlert.disputeId, closedCases.map((c) => c.id)));
-  if (closedCases.every((c) => caseAlerts.some((x) => x.disputeId === c.id))) break;
+  // Wait for the settled state, not just for the rows to exist: an alert raised
+  // after its case closed is inserted open and closed by the worker one DB
+  // round trip later, and a read in that gap is not a failure.
+  if (closedCases.every((c) => caseAlerts.some((x) => x.disputeId === c.id)) && caseAlerts.every((x) => x.status === "resolved")) break;
   await new Promise((res) => setTimeout(res, 1500));
 }
 check(

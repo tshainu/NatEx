@@ -1,6 +1,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 import { ulid } from "../src/api/shared/ulid";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
@@ -98,11 +99,11 @@ async function login(phone: string, deviceId?: string) {
   await clearOtpBucket();
   const challenge = await anon.identity.requestOtp({ phone });
   if (!challenge.devCode) throw new Error(`no dev OTP for ${phone} (smsState=${challenge.smsState})`);
-  return anon.identity.verifyOtp({
+  return finishMfa(BASE, await anon.identity.verifyOtp({
     challengeId: challenge.challengeId,
     code: challenge.devCode,
     deviceId: deviceId ?? null,
-  });
+  }));
 }
 
 console.log(`\nNatEx sync engine smoke test (PROJECT.md §7) → ${BASE}\n`);

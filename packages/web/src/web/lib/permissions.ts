@@ -74,9 +74,21 @@ const ADMIN: PortalConfig = {
     { label: "Users", to: "/admin/users" },
     { label: "Branches", to: "/admin/branches" },
     { label: "Zones", to: "/admin/zones" },
-    { label: "Rate cards", to: "/admin/rate-cards", milestone: 5 },
+    { label: "Rate cards", to: "/admin/rate-cards" },
+    { label: "Settings", to: "/admin/settings" },
+    { label: "Templates", to: "/admin/templates" },
+    { label: "Audit log", to: "/admin/audit" },
+    { label: "System monitor", to: "/admin/monitor" },
   ],
 };
+
+/**
+ * Admin screens ops may READ (the server refuses ops writes on all of them).
+ * The audit log and the job monitor are adminProc reads, so ops never sees
+ * them — keep this list and ADMIN_ONLY_PATHS in step with the server gates.
+ */
+const OPS_REFERENCE_PATHS = ["/admin/users", "/admin/branches", "/admin/zones", "/admin/rate-cards", "/admin/settings", "/admin/templates"];
+const ADMIN_ONLY_PATHS = ["/admin/audit", "/admin/monitor"];
 
 const FINANCE: PortalConfig = {
   portal: "finance",
@@ -148,7 +160,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
     return [
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
-      { title: "Reference", items: [ADMIN.nav[0]!, ADMIN.nav[1]!, ADMIN.nav[2]!] },
+      { title: "Reference", items: ADMIN.nav.filter((item) => OPS_REFERENCE_PATHS.includes(item.to)) },
     ];
   }
   if (role === "transport") {
@@ -180,8 +192,10 @@ export function mayVisit(role: Role, path: string): boolean {
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));
   }
   if (path.startsWith("/admin")) {
-    // Ops may read the admin lists; only admin sees the write controls.
-    return role === "admin" || role === "ops";
+    // Ops may read the admin reference lists; only admin sees the write
+    // controls, and the audit log and job monitor are admin-only reads.
+    if (role === "admin") return true;
+    return role === "ops" && !ADMIN_ONLY_PATHS.some((prefix) => path.startsWith(prefix));
   }
   if (path.startsWith("/finance")) return role === "finance" || role === "admin";
   if (path.startsWith("/merchant")) return role === "merchant";

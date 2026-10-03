@@ -61,6 +61,11 @@ export async function reserve(params: {
 
   if (!existing) return null;
 
+  // A key belongs to the caller that first used it (M5 security review). Keys
+  // are global in the table, so without this a second user presenting the same
+  // key and body would be handed the first user's stored response.
+  if ((existing.userId ?? null) !== (params.userId ?? null)) errors.idempotencyMismatch();
+
   // Same key, different payload — a client bug that must never be silently accepted.
   if (existing.requestHash !== requestHash) errors.idempotencyMismatch();
 

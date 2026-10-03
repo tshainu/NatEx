@@ -19,6 +19,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import { chromium, type Browser, type BrowserContext, type ConsoleMessage } from "playwright-core";
 import { ne } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 const BASE = process.env.UI_CHECK_BASE ?? "http://localhost:4200";
 
@@ -41,6 +42,14 @@ const ROUTES = [
   "/admin/users",
   "/admin/branches",
   "/admin/zones",
+  "/admin/rate-cards",
+  "/admin/settings",
+  "/admin/templates",
+  "/admin/audit",
+  "/admin/monitor",
+  "/admin/monitor?tab=jobs",
+  "/admin/monitor?tab=invariants",
+  "/security",
   "/finance",
   "/finance/cod",
   "/finance/cod?tab=recon",
@@ -100,11 +109,11 @@ async function signIn(phone: string) {
   if (!challenge.devCode) {
     throw new Error(`no dev OTP for ${phone} (smsState=${challenge.smsState})`);
   }
-  return anon.identity.verifyOtp({
+  return finishMfa(BASE, await anon.identity.verifyOtp({
     challengeId: challenge.challengeId,
     code: challenge.devCode,
     deviceId: "ui-check",
-  });
+  }));
 }
 
 const failures: string[] = [];

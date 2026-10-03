@@ -1,6 +1,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { AppRouterClient } from "../src/api";
+import { finishMfa } from "./lib/mfa";
 
 /**
  * End-to-end exercise of the Milestone 1 + 2 API against a running dev server.
@@ -68,11 +69,11 @@ async function expectFail(label: string, expectStatus: number, fn: () => Promise
 async function login(phone: string, deviceId?: string) {
   const challenge = await anon.identity.requestOtp({ phone });
   if (!challenge.devCode) throw new Error(`no dev OTP for ${phone} (smsState=${challenge.smsState})`);
-  return anon.identity.verifyOtp({
+  return finishMfa(BASE, await anon.identity.verifyOtp({
     challengeId: challenge.challengeId,
     code: challenge.devCode,
     deviceId: deviceId ?? null,
-  });
+  }));
 }
 
 console.log(`\nNatEx M1+M2 smoke test → ${BASE}\n`);

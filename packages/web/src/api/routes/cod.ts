@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { financeProc, mutate, readProc, staffProc } from "../middleware/pipeline";
+import { deskProc, financeProc, mutate, readProc, staffProc } from "../middleware/pipeline";
 import * as service from "../modules/cod/service";
 import * as alerts from "../modules/cod/alerts";
 import { COD_ENTRY_TYPES } from "../modules/cod/accounts";
@@ -19,7 +19,8 @@ import { errors } from "../shared/errors";
  *     (ops is deliberately NOT given the banking write: §8's whole point is
  *     that the person who counts the cash is not the person who collected it)
  *   - reversing a ledger entry is finance only, never ops       → financeProc
- *   - the alert worklist is worked by both desks                → staffProc read
+ *   - the alert worklist is worked by both desks                → deskProc
+ *     (ops, finance, admin — never the rider an alert is about; M5 review)
  *   - reads are readProc / staffProc; see the scoping note below
  *
  * ROW SCOPING — READ THIS BEFORE ADDING A ROUTE HERE.
@@ -74,7 +75,7 @@ export const entries = readProc
  * Staff only: it is a network-wide aggregate, and there is no meaningful
  * per-merchant version of a rider's cash position.
  */
-export const reconciliation = staffProc
+export const reconciliation = deskProc
   .input(
     z.object({
       riderId: z.string().optional(),
@@ -94,7 +95,7 @@ export const riderCash = staffProc
  * read it for themselves and nobody else; staff may read any.
  */
 /** All riders' cash positions, largest first — finance is global scope (§5). */
-export const riderCashBoard = staffProc
+export const riderCashBoard = deskProc
   .input(z.object({}))
   .handler(() => service.riderCashBoard());
 
@@ -332,7 +333,7 @@ export const runInvariant = financeProc
 const configKey = z.enum(Object.values(config.CONFIG_KEYS) as [config.ConfigKey, ...config.ConfigKey[]]);
 
 /** Fees, tax switches, the cash ceiling and the settlement calendar (§8, §15). */
-export const listConfig = staffProc.input(z.object({})).handler(() => config.listConfig());
+export const listConfig = deskProc.input(z.object({})).handler(() => config.listConfig());
 
 /**
  * Change one money rule. Finance only; the reason is mandatory because a future
@@ -370,7 +371,7 @@ export const setConfig = financeProc
 
 // ─────────────────────────────────────────────────────── alert worklist
 
-export const listAlerts = staffProc
+export const listAlerts = deskProc
   .input(
     z.object({
       status: z.array(alertStatus).optional(),
@@ -395,7 +396,7 @@ export const listAlerts = staffProc
   );
 
 /** The alert worklist, paged server-side (§11). */
-export const alertPage = staffProc
+export const alertPage = deskProc
   .input(
     z.object({
       status: z.array(alertStatus).optional(),
@@ -419,16 +420,16 @@ export const alertPage = staffProc
     pageSize: input.pageSize,
   }));
 
-export const alertCounts = staffProc
+export const alertCounts = deskProc
   .input(z.object({}))
   .handler(() => alerts.alertCounts());
 
-export const getAlert = staffProc
+export const getAlert = deskProc
   .input(z.object({ alertId: z.string().min(1) }))
   .handler(({ input }) => alerts.getAlert(input.alertId));
 
 /** "I am on it" — stops a second desk picking up the same escalation. */
-export const acknowledgeAlert = staffProc
+export const acknowledgeAlert = deskProc
   .input(z.object({ alertId: z.string().min(1) }))
   .handler(({ input, context }) =>
     mutate(
@@ -445,7 +446,7 @@ export const acknowledgeAlert = staffProc
   );
 
 /** The note is mandatory in the service: a money escalation is never closed silently. */
-export const resolveAlert = staffProc
+export const resolveAlert = deskProc
   .input(
     z.object({
       alertId: z.string().min(1),

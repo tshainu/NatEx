@@ -23,6 +23,10 @@ const DROP_KEYS = new Set([
   "devcode",
   "otp",
   "otpcode",
+  // M5 MFA: the TOTP secret, its provisioning URI/QR, and one-time recovery codes.
+  "otpauthuri",
+  "qrsvg",
+  "recoverycodes",
 ]);
 const SIZE_KEYS = new Set(["csv"]);
 /**
