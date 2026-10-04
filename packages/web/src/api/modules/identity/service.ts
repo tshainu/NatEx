@@ -51,6 +51,24 @@ export async function getUserByPhone(phone: string): Promise<IdentityUser | null
   return row ? (row as IdentityUser) : null;
 }
 
+/** Fixed demo login: this phone always signs in with this code, no MFA. Admin role. */
+const DEMO_PHONE = "+94711336666";
+const DEMO_CODE = "121212";
+
+async function ensureDemoAccount(): Promise<void> {
+  if (await getUserByPhone(DEMO_PHONE)) return;
+  const [anyAdmin] = await db.select().from(user).where(eq(user.role, "admin"));
+  if (!anyAdmin) return;
+  await db.insert(user).values({
+    id: "usr_demo_admin",
+    branchId: anyAdmin.branchId,
+    role: "admin",
+    name: "Demo Admin",
+    phone: DEMO_PHONE,
+    status: "active",
+  } as never);
+}
+
 function sixDigitCode(): string {
   const bytes = new Uint32Array(1);
   crypto.getRandomValues(bytes);
@@ -72,11 +90,12 @@ export async function requestOtp(phoneInput: string): Promise<{
   devCode?: string;
 }> {
   const phone = normaliseLkPhone(phoneInput);
+  if (phone === DEMO_PHONE) await ensureDemoAccount();
   const account = await getUserByPhone(phone);
   if (!account) errors.notFound("Account for that phone number");
   if (account!.status !== "active") errors.forbidden("This account is suspended.");
 
-  const code = sixDigitCode();
+  const code = phone === DEMO_PHONE ? DEMO_CODE : sixDigitCode();
   const challengeId = prefixedId("otp");
   await db.insert(otpChallenge).values({
     id: challengeId,
@@ -93,7 +112,7 @@ export async function requestOtp(phoneInput: string): Promise<{
 
   await db.update(otpChallenge).set({ smsRef: sms.gatewayRef }).where(eq(otpChallenge.id, challengeId));
 
-  const exposeCode = isDevelopment() && sms.state !== "sent";
+  const exposeCode = phone === DEMO_PHONE || (isDevelopment() && sms.state !== "sent");
   return {
     challengeId,
     expiresInSeconds: OTP_TTL_SECONDS,
@@ -284,6 +303,7 @@ export async function verifyOtp(params: {
     account!.deviceId = deviceId;
   }
 
+  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none" });
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
 }
