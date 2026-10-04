@@ -31,12 +31,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
             href={groups[0]?.items[0]?.to ?? "/"}
             className="flex items-center gap-2 outline-none"
           >
-            <span className="grid size-7 place-items-center rounded-md bg-brand font-display text-[13px] font-bold text-primary-foreground">
-              N
-            </span>
-            <span className="font-display text-[16px] font-bold tracking-tight text-text-hi">
-              NatEx
-            </span>
+            <img
+              src="/natex-logo.png"
+              alt="NatEx"
+              className="h-8 w-auto object-contain"
+            />
           </Link>
           <p className="mt-2.5 text-[12px] text-text-lo">{user.name}</p>
           <Badge variant="brand" className="mt-1.5 border-brand/40 bg-brand/15 text-brand">
