@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { mutate, staffProc, transportProc } from "../middleware/pipeline";
 import * as transportService from "../modules/transport/service";
+import { POD_PHOTO_TYPES, presignGet, presignPut } from "../shared/storage";
+import { errors } from "../shared/errors";
+import { ulid } from "../shared/ulid";
 
 /**
  * transport routes — Milestone 2: bagging, linehaul trips, two-party hub
@@ -150,6 +153,11 @@ export const tripGet = staffProc
   .input(z.object({ tripId: z.string().min(1) }))
   .handler(({ input, context }) => transportService.getTripDetail(input.tripId, context.principal));
 
+/**
+ * Round 6 vehicle fields are optional here so older clients and scripts keep
+ * working; the web form requires them. The service enforces the one hard rule —
+ * a bus always names its operator.
+ */
 export const tripCreate = transportProc
   .input(
     z.object({
@@ -158,6 +166,12 @@ export const tripCreate = transportProc
       driverId: z.string().min(1).nullish(),
       route: z.string().max(120).nullish(),
       originHubId: z.string().min(1).optional(),
+      vehicleType: z.enum(transportService.TRIP_VEHICLE_TYPES).nullish(),
+      busOperator: z.enum(transportService.BUS_OPERATORS).nullish(),
+      contactName: z.string().trim().min(2).max(80).nullish(),
+      contactPhone: z.string().trim().min(9).max(16).nullish(),
+      expectedArrivalAt: z.coerce.date().nullish(),
+      arrivalStation: z.string().trim().min(2).max(120).nullish(),
     }),
   )
   .handler(({ input, context }) =>
@@ -173,6 +187,60 @@ export const tripCreate = transportProc
       () => transportService.createTrip(input, context.principal),
     ),
   );
+
+// ---------------------------------------------------------------- bag photo
+
+/**
+ * An upload slot for the optional photo of one bag. The browser PUTs the image
+ * straight to object storage, then names the returned ref on bagPhotoAttach.
+ */
+export const bagPhotoUpload = transportProc
+  .input(z.object({ bagId: z.string().min(1), contentType: z.enum(POD_PHOTO_TYPES) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "transport.bagPhotoUpload",
+        entity: "transport_bag",
+        entityId: () => input.bagId,
+        action: "bag_photo.upload_slot",
+        bucket: { capacity: 30, refillPerMinute: 15 },
+        idempotency: false,
+      },
+      async () => {
+        const row = await transportService.bagForPhoto(input.bagId, context.principal);
+        const sub = input.contentType.split("/")[1]!;
+        const ext = sub === "jpeg" ? "jpg" : sub;
+        return presignPut(`${transportService.bagPhotoPrefix(row.code)}${ulid()}.${ext}`, input.contentType);
+      },
+    ),
+  );
+
+export const bagPhotoAttach = transportProc
+  .input(z.object({ bagId: z.string().min(1), storageRef: z.string().min(4).max(200) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "transport.bagPhotoAttach",
+        entity: "transport_bag",
+        entityId: () => input.bagId,
+        action: "bag.photo_attached",
+      },
+      () => transportService.attachBagPhoto(input, context.principal),
+    ),
+  );
+
+/** A five-minute read link for a bag's photo. Same scope as reading the bag. */
+export const bagPhotoView = staffProc
+  .input(z.object({ bagId: z.string().min(1) }))
+  .handler(async ({ input, context }) => {
+    const row = await transportService.bagForPhoto(input.bagId, context.principal);
+    if (!row.photoRef) errors.notFound("Bag photo");
+    return presignGet(row.photoRef!);
+  });
 
 export const tripLoad = transportProc
   .input(z.object({ tripId: z.string().min(1), bagId: z.string().min(1) }))
@@ -338,6 +406,9 @@ export const transport = {
   bagSeal,
   bagBreakSeal,
   baggable,
+  bagPhotoUpload,
+  bagPhotoAttach,
+  bagPhotoView,
   tripList,
   tripGet,
   tripCreate,

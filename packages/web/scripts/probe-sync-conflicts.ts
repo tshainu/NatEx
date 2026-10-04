@@ -328,7 +328,7 @@ if (openRows.length === 0) {
   });
   check(claimed.state === "reviewing", "claiming moves it to reviewing", claimed.state);
   check(
-    claimed.resolvedByName === "Ishara Dissanayake",
+    claimed.resolvedByName === "Lakshmi Nadarajah",
     "the claimant's name is on the record",
     String(claimed.resolvedByName),
   );

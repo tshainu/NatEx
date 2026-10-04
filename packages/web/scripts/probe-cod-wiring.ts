@@ -260,7 +260,7 @@ console.log("\n3. Prepaid posts nothing; missing cash is refused");
 const noCash = await refusal(
   riderApi("deliver-C-nocash").delivery.recordDelivery({
     awb: parcels.C.awb,
-    receivedByName: "Nimal Silva",
+    receivedByName: "Sivakumar Rajan",
     method: "signature",
     signatureData: sig,
     codCollectedCents: 0,
@@ -273,7 +273,7 @@ check(
 );
 await riderApi("deliver-C").delivery.recordDelivery({
   awb: parcels.C.awb,
-  receivedByName: "Nimal Silva",
+  receivedByName: "Sivakumar Rajan",
   method: "signature",
   signatureData: sig,
   codCollectedCents: COD.C,

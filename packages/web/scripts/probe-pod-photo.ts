@@ -125,7 +125,7 @@ if (!photoMerchant) {
     name: PHOTO_MERCHANT,
     branchId: "brn_kdy_hub",
     address: "44 Yatinuwara Veediya, Kandy",
-    contactName: "Nadeesha Herath",
+    contactName: "Nandhini Herath",
     contactPhone: "+94812223344",
     codEnabled: true,
     podPolicy: "photo",

@@ -69,7 +69,7 @@ const TRANSPORT_ID = "usr_transport_suresh";
 const KANDY_TRANSPORT_ID = "usr_transport_chamara";
 /**
  * M3's delivery rider. He sits at the *destination* hub, because that is where
- * parcels arrive and where a runsheet is built — Colombo's rider (Pradeep) does
+ * parcels arrive and where a runsheet is built — Colombo's rider (Karthik) does
  * first-mile pickup, and branch scoping means he cannot deliver Kandy's stops.
  */
 const KANDY_RIDER_ID = "usr_rider_kandy";
@@ -172,7 +172,7 @@ async function seedUsers() {
       id: RIDER_ID,
       branchId: BRANCH_ID,
       role: "rider",
-      name: "Pradeep Fernando",
+      name: "Karthik Selvaraj",
       phone: "+94771234567",
       deviceId: null,
       status: "active",
@@ -181,7 +181,7 @@ async function seedUsers() {
       id: OPS_ID,
       branchId: BRANCH_ID,
       role: "ops",
-      name: "Nimali Perera",
+      name: "Priya Shanmugam",
       phone: "+94772345678",
       status: "active",
     },
@@ -189,7 +189,7 @@ async function seedUsers() {
       id: ADMIN_ID,
       branchId: BRANCH_ID,
       role: "admin",
-      name: "Rajitha Silva",
+      name: "Arjun Rajendran",
       phone: "+94773456789",
       status: "active",
     },
@@ -197,7 +197,7 @@ async function seedUsers() {
       id: FINANCE_ID,
       branchId: BRANCH_ID,
       role: "finance",
-      name: "Dilani Jayawardena",
+      name: "Kavitha Sivakumar",
       phone: "+94774567890",
       status: "active",
     },
@@ -205,7 +205,7 @@ async function seedUsers() {
       id: TRANSPORT_ID,
       branchId: BRANCH_ID,
       role: "transport",
-      name: "Suresh Kodikara",
+      name: "Murugan Thevarajah",
       phone: "+94776789012",
       status: "active",
     },
@@ -215,7 +215,7 @@ async function seedUsers() {
       id: KANDY_TRANSPORT_ID,
       branchId: KANDY_HUB_ID,
       role: "transport",
-      name: "Chamara Bandara",
+      name: "Vignesh Balasubramaniam",
       phone: "+94777890123",
       status: "active",
     },
@@ -226,7 +226,7 @@ async function seedUsers() {
       id: KANDY_OPS_ID,
       branchId: KANDY_HUB_ID,
       role: "ops",
-      name: "Ishara Dissanayake",
+      name: "Lakshmi Nadarajah",
       phone: "+94779012345",
       status: "active",
     },
@@ -234,7 +234,7 @@ async function seedUsers() {
       id: KANDY_RIDER_ID,
       branchId: KANDY_HUB_ID,
       role: "rider",
-      name: "Tharindu Rathnayake",
+      name: "Senthil Kumaran",
       phone: "+94778901234",
       deviceId: null,
       status: "active",
@@ -354,26 +354,26 @@ interface ParcelSpec {
 }
 
 const CONSIGNEES: [string, string, string, number, number][] = [
-  ["Kumari Bandara", "+94761110001", "18 Havelock Rd, Colombo 05", 6.8931, 79.8636],
-  ["Thilina Rathnayake", "+94761110002", "7 Rosmead Pl, Colombo 07", 6.9093, 79.8664],
-  ["Fathima Rizwan", "+94761110003", "92 Hill St, Dehiwala", 6.8512, 79.8712],
-  ["Dinesh Gunasekara", "+94761110004", "3/1 Pagoda Rd, Nugegoda", 6.8722, 79.8894],
-  ["Anusha Mendis", "+94761110005", "55 Marine Dr, Colombo 03", 6.9047, 79.8494],
-  ["Ravindu Jayasuriya", "+94761110006", "210 Kotte Rd, Rajagiriya", 6.9101, 79.8951],
-  ["Nadeesha Kumari", "+94761110007", "14 Templers Rd, Mount Lavinia", 6.8321, 79.8632],
-  ["Ashan de Silva", "+94761110008", "68 Duplication Rd, Colombo 04", 6.8887, 79.858],
-  ["Priyanka Wijesinghe", "+94761110009", "9 Ward Pl, Colombo 08", 6.9138, 79.8721],
-  ["Mohamed Nazeer", "+94761110010", "31 Old Kesbewa Rd, Boralesgamuwa", 6.8411, 79.9033],
-  ["Sachini Alwis", "+94761110011", "120 High Level Rd, Maharagama", 6.8477, 79.9271],
-  ["Kasun Herath", "+94761110012", "5 Flower Rd, Colombo 07", 6.9106, 79.8615],
-  ["Ishara Dias", "+94761110013", "77 Galle Rd, Wellawatte", 6.8748, 79.8592],
-  ["Buddhika Samarasinghe", "+94761110014", "22 Parliament Rd, Kotte", 6.8924, 79.9036],
-  ["Rashmi Fernando", "+94761110015", "40 Baseline Rd, Colombo 09", 6.9327, 79.8781],
-  ["Chathura Weerasinghe", "+94761110016", "6 Station Rd, Kalubowila", 6.8589, 79.8756],
-  ["Hasini Abeywickrama", "+94761110017", "88 Nawala Rd, Nawala", 6.8961, 79.8918],
-  ["Lasantha Peiris", "+94761110018", "17 Sea Ave, Colombo 03", 6.9153, 79.8477],
-  ["Tharindu Rodrigo", "+94761110019", "2 Bauddhaloka Mw, Colombo 04", 6.8963, 79.8641],
-  ["Nilanka Ekanayake", "+94761110020", "150 Kandy Rd, Kiribathgoda", 6.9791, 79.9284],
+  ["Anitha Kanagaratnam", "+94761110001", "18 Havelock Rd, Colombo 05", 6.8931, 79.8636],
+  ["Gowtham Pillai", "+94761110002", "7 Rosmead Pl, Colombo 07", 6.9093, 79.8664],
+  ["Nirmala Thurairajah", "+94761110003", "92 Hill St, Dehiwala", 6.8512, 79.8712],
+  ["Dinesh Ganeshan", "+94761110004", "3/1 Pagoda Rd, Nugegoda", 6.8722, 79.8894],
+  ["Yamuna Sritharan", "+94761110005", "55 Marine Dr, Colombo 03", 6.9047, 79.8494],
+  ["Rajesh Mahendran", "+94761110006", "210 Kotte Rd, Rajagiriya", 6.9101, 79.8951],
+  ["Thenmozhi Arulanandam", "+94761110007", "14 Templers Rd, Mount Lavinia", 6.8321, 79.8632],
+  ["Prakash Velupillai", "+94761110008", "68 Duplication Rd, Colombo 04", 6.8887, 79.858],
+  ["Sangeetha Kandiah", "+94761110009", "9 Ward Pl, Colombo 08", 6.9138, 79.8721],
+  ["Mohan Sivapalan", "+94761110010", "31 Old Kesbewa Rd, Boralesgamuwa", 6.8411, 79.9033],
+  ["Shanthi Ramanathan", "+94761110011", "120 High Level Rd, Maharagama", 6.8477, 79.9271],
+  ["Bala Kumaraswamy", "+94761110012", "5 Flower Rd, Colombo 07", 6.9106, 79.8615],
+  ["Revathi Ponnambalam", "+94761110013", "77 Galle Rd, Wellawatte", 6.8748, 79.8592],
+  ["Kannan Jeyakumar", "+94761110014", "22 Parliament Rd, Kotte", 6.8924, 79.9036],
+  ["Divya Paramanathan", "+94761110015", "40 Baseline Rd, Colombo 09", 6.9327, 79.8781],
+  ["Sathish Yogarajah", "+94761110016", "6 Station Rd, Kalubowila", 6.8589, 79.8756],
+  ["Malathi Navaratnam", "+94761110017", "88 Nawala Rd, Nawala", 6.8961, 79.8918],
+  ["Ganesh Sabaratnam", "+94761110018", "17 Sea Ave, Colombo 03", 6.9153, 79.8477],
+  ["Vasanthi Loganathan", "+94761110019", "2 Bauddhaloka Mw, Colombo 04", 6.8963, 79.8641],
+  ["Siva Thillainathan", "+94761110020", "150 Kandy Rd, Kiribathgoda", 6.9791, 79.9284],
 ];
 
 /**
@@ -381,16 +381,16 @@ const CONSIGNEES: [string, string, string, number, number][] = [
  * ten parcels sitting at Colombo waiting for the overnight leg upcountry.
  */
 const UPCOUNTRY_CONSIGNEES: [string, string, string, number, number][] = [
-  ["Nuwan Dissanayake", "+94762220001", "31 Peradeniya Rd, Kandy", 7.2872, 80.6281],
-  ["Sanduni Ratnayake", "+94762220002", "8 Sangaraja Mw, Kandy", 7.2931, 80.6339],
-  ["Mahesh Chandrasiri", "+94762220003", "142 Katugastota Rd, Kandy", 7.3126, 80.6244],
-  ["Iresha Senanayake", "+94762220004", "6 Temple Rd, Peradeniya", 7.2599, 80.5977],
-  ["Janaka Wickramasinghe", "+94762220005", "77 Kandy Rd, Katugastota", 7.3341, 80.6178],
-  ["Shalini Gamage", "+94762220006", "19 Rajapihilla Mw, Kandy", 7.2846, 80.6412],
-  ["Dilan Premarathne", "+94762220007", "204 Colombo St, Kandy", 7.2905, 80.6301],
-  ["Amaya Kulatunga", "+94762220008", "45 Hantana Rd, Kandy", 7.2761, 80.6188],
-  ["Suranga Bandaranayake", "+94762220009", "11 Bahirawakanda Rd, Kandy", 7.2958, 80.6244],
-  ["Kavindi Rajapaksa", "+94762220010", "88 Digana Rd, Kundasale", 7.2824, 80.6892],
+  ["Ramesh Ratnasingam", "+94762220001", "31 Peradeniya Rd, Kandy", 7.2872, 80.6281],
+  ["Kalaivani Subramaniam", "+94762220002", "8 Sangaraja Mw, Kandy", 7.2931, 80.6339],
+  ["Hari Krishnan", "+94762220003", "142 Katugastota Rd, Kandy", 7.3126, 80.6244],
+  ["Abirami Selvanayagam", "+94762220004", "6 Temple Rd, Peradeniya", 7.2599, 80.5977],
+  ["Naveen Thambiah", "+94762220005", "77 Kandy Rd, Katugastota", 7.3341, 80.6178],
+  ["Pavithra Murugesu", "+94762220006", "19 Rajapihilla Mw, Kandy", 7.2846, 80.6412],
+  ["Aravind Sinnathamby", "+94762220007", "204 Colombo St, Kandy", 7.2905, 80.6301],
+  ["Janani Kathirgamanathan", "+94762220008", "45 Hantana Rd, Kandy", 7.2761, 80.6188],
+  ["Ilango Manoharan", "+94762220009", "11 Bahirawakanda Rd, Kandy", 7.2958, 80.6244],
+  ["Keerthana Rasiah", "+94762220010", "88 Digana Rd, Kundasale", 7.2824, 80.6892],
 ];
 
 /**
@@ -456,13 +456,13 @@ function chainFor(status: ParcelStatus, index: number) {
   };
   const pickedUp = {
     status: "PickedUp" as ParcelStatus,
-    actorName: "Pradeep Fernando",
+    actorName: "Karthik Selvaraj",
     actorRole: "rider",
     at: hoursAgo(base - 6),
   };
   const atHub = {
     status: "AtOriginHub" as ParcelStatus,
-    actorName: "Nimali Perera",
+    actorName: "Priya Shanmugam",
     actorRole: "ops",
     at: hoursAgo(base - 9),
   };
@@ -480,7 +480,7 @@ function chainFor(status: ParcelStatus, index: number) {
         pickedUp,
         {
           status: "OnHold" as ParcelStatus,
-          actorName: "Nimali Perera",
+          actorName: "Priya Shanmugam",
           actorRole: "ops",
           at: hoursAgo(base - 8),
         },
@@ -635,14 +635,14 @@ async function seedGeocodes() {
 async function seedTransport(parcels: SeededParcel[]) {
   const cmb: Principal = {
     userId: TRANSPORT_ID,
-    name: "Suresh Kodikara",
+    name: "Murugan Thevarajah",
     role: "transport",
     branchId: BRANCH_ID,
     deviceId: "seed-hub-scanner-cmb",
   };
   const kdy: Principal = {
     userId: KANDY_TRANSPORT_ID,
-    name: "Chamara Bandara",
+    name: "Vignesh Balasubramaniam",
     role: "transport",
     branchId: KANDY_HUB_ID,
     deviceId: "seed-hub-scanner-kdy",
@@ -691,8 +691,8 @@ async function seedTransport(parcels: SeededParcel[]) {
       bagId: bag3.id,
       scannedAwbs: short,
       sealNumber: "SL-884202",
-      releasedByName: "Suresh Kodikara",
-      receivedByName: "Chamara Bandara",
+      releasedByName: "Murugan Thevarajah",
+      receivedByName: "Vignesh Balasubramaniam",
     },
     kdy,
   );
@@ -741,14 +741,14 @@ export async function seed() {
     rateCards,
     mfaSeeded: mfa.seeded.length,
     logins: [
-      { role: "rider", phone: "+94771234567", name: "Pradeep Fernando" },
-      { role: "ops", phone: "+94772345678", name: "Nimali Perera" },
-      { role: "admin", phone: "+94773456789", name: "Rajitha Silva" },
-      { role: "finance", phone: "+94774567890", name: "Dilani Jayawardena" },
-      { role: "transport", phone: "+94776789012", name: "Suresh Kodikara (Colombo)" },
-      { role: "transport", phone: "+94777890123", name: "Chamara Bandara (Kandy)" },
-      { role: "rider", phone: "+94778901234", name: "Tharindu Rathnayake (Kandy)" },
-      { role: "ops", phone: "+94779012345", name: "Ishara Dissanayake (Kandy)" },
+      { role: "rider", phone: "+94771234567", name: "Karthik Selvaraj" },
+      { role: "ops", phone: "+94772345678", name: "Priya Shanmugam" },
+      { role: "admin", phone: "+94773456789", name: "Arjun Rajendran" },
+      { role: "finance", phone: "+94774567890", name: "Kavitha Sivakumar" },
+      { role: "transport", phone: "+94776789012", name: "Murugan Thevarajah (Colombo)" },
+      { role: "transport", phone: "+94777890123", name: "Vignesh Balasubramaniam (Kandy)" },
+      { role: "rider", phone: "+94778901234", name: "Senthil Kumaran (Kandy)" },
+      { role: "ops", phone: "+94779012345", name: "Lakshmi Nadarajah (Kandy)" },
       { role: "merchant", phone: "+94775678901", name: "Sanjay Kumar" },
     ],
   };

@@ -68,6 +68,15 @@ export const board = readProc.handler(async ({ context }) => {
 /** Dashboard tallies, aggregated in SQL under the caller's §5 scope. */
 export const summary = readProc.handler(({ context }) => parcelsService.parcelSummary(context.principal));
 
+/**
+ * Daily throughput (booked, delivered, failed attempts, RTO) for the dashboard
+ * charts — same §5 scope as `summary`: a merchant its own account, ops its
+ * branch, admin and finance the network.
+ */
+export const trends = readProc
+  .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
+  .handler(({ input, context }) => parcelsService.parcelTrends(context.principal, input.days));
+
 export const create = authedProc
   .input(
     z.object({
@@ -266,6 +275,7 @@ export const parcels = {
   get,
   board,
   summary,
+  trends,
   create,
   bulkCreate,
   transition,

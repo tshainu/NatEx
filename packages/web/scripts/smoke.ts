@@ -475,7 +475,7 @@ await expectFail("only the destination hub may receive the bag", 403, () =>
     bagId: bagRow.id,
     scannedAwbs: [awbA],
     sealNumber,
-    releasedByName: "Driver Nimal",
+    releasedByName: "Driver Kumaran",
   }),
 );
 
@@ -485,7 +485,7 @@ const receipt = await clientFor(kandy.accessToken, `smoke-recv-${Date.now()}`).t
   bagId: bagRow.id,
   scannedAwbs: [awbA],
   sealNumber: "WRONG-SEAL-1",
-  releasedByName: "Driver Nimal",
+  releasedByName: "Driver Kumaran",
   receivedByName: kandy.user.name,
 });
 if (
@@ -518,7 +518,7 @@ await expectFail("receiving the same bag twice is a conflict", 409, () =>
     bagId: bagRow.id,
     scannedAwbs: [awbA],
     sealNumber,
-    releasedByName: "Driver Nimal",
+    releasedByName: "Driver Kumaran",
   }),
 );
 

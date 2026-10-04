@@ -2,7 +2,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, RefreshCw, AlertTriangle } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
-import { since, humanise, time } from "@/lib/format";
+import { money, since, humanise, time } from "@/lib/format";
 import { boardRank, isException, statusColour, GROUP_COLOUR } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,10 @@ import { StatusPill } from "@/components/natex/status-pill";
 import { MetricTile, CountRow } from "@/components/natex/metric-tile";
 import { ParcelDrawer } from "@/components/natex/parcel-drawer";
 import { ErrorNote } from "@/components/natex/page";
+import { DailyBars, StatusDonut } from "@/components/natex/charts";
+import { SERIES } from "@/lib/chart";
+import { useParcelTrends } from "@/queries/dashboard";
+import { useDeliveryCounts } from "@/queries/delivery";
 
 /**
  * Ops live board — the one intentionally asymmetric, dark screen (design.md):
@@ -21,7 +25,11 @@ import { ErrorNote } from "@/components/natex/page";
  * Realtime: PROJECT.md §8 specifies Socket.io. Runable's template has no
  * websocket server, so this polls every 5s through TanStack Query — logged in
  * the README as a known deviation, not hidden. A row whose status changed
- * between polls gets the amber left-border flash.
+ * between polls gets the emerald left-border flash.
+ *
+ * Round 6: a chart strip under the header — 14-day throughput for the branch
+ * (`parcels.trends`), the status mix of the counts already polled, and today's
+ * runs (`delivery.counts`). The page scrolls so the stream keeps its height.
  */
 
 const POLL_MS = 5000;
@@ -59,6 +67,9 @@ export default function OpsBoard() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const trends = useParcelTrends(14);
+  const runs = useDeliveryCounts();
 
   const board = useQuery({
     ...orpc.parcels.board.queryOptions(),
@@ -144,8 +155,8 @@ export default function OpsBoard() {
   ];
 
   return (
-    <div className="dark h-full bg-ink-900 text-text-hi">
-      <div className="flex h-full min-h-0 flex-col gap-5 p-6">
+    <div className="dark natex-scroll h-full overflow-y-auto bg-ink-900 text-text-hi">
+      <div className="flex min-h-full flex-col gap-5 p-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-[24px] font-bold">Live board</h1>
@@ -187,7 +198,88 @@ export default function OpsBoard() {
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 xl:grid-cols-[2fr_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr]">
+          <section className="rounded-lg border border-border bg-card lg:col-span-2 xl:col-span-1">
+            <header className="flex items-baseline justify-between border-b border-border px-4 py-3">
+              <h2 className="label-xs text-muted-foreground">Throughput · 14 days</h2>
+              {trends.data ? (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {trends.data.totals.booked} booked · {trends.data.totals.delivered} delivered
+                  {trends.data.successPct !== null ? ` · ${trends.data.successPct}% success` : ""}
+                </span>
+              ) : null}
+            </header>
+            <div className="px-4 py-3">
+              {trends.error ? (
+                <ErrorNote>{apiMessage(trends.error, "Throughput is unavailable.")}</ErrorNote>
+              ) : trends.data ? (
+                <DailyBars
+                  title="Branch throughput, last 14 days"
+                  height={150}
+                  data={trends.data.days}
+                  series={[
+                    { key: "booked", label: "Booked", colour: SERIES.booked },
+                    { key: "delivered", label: "Delivered", colour: SERIES.delivered },
+                    { key: "attempted", label: "Failed attempt", colour: SERIES.attempted },
+                    { key: "rto", label: "RTO", colour: SERIES.rto },
+                  ]}
+                />
+              ) : (
+                <div className="h-[178px] animate-pulse rounded-md bg-muted" aria-hidden />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card">
+            <header className="border-b border-border px-4 py-3">
+              <h2 className="label-xs text-muted-foreground">Status mix</h2>
+            </header>
+            <div className="px-4 py-4">
+              <StatusDonut byStatus={counts} size={128} title="Branch status mix" />
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card">
+            <header className="flex items-baseline justify-between border-b border-border px-4 py-3">
+              <h2 className="label-xs text-muted-foreground">Today&apos;s runs</h2>
+              {runs.data ? (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {runs.data.dispatched}/{runs.data.runsheetsToday} dispatched
+                </span>
+              ) : null}
+            </header>
+            <div className="space-y-4 px-4 py-4">
+              {runs.error ? (
+                <ErrorNote>{apiMessage(runs.error, "Today's runs are unavailable.")}</ErrorNote>
+              ) : (
+                <>
+                  <RunProgress
+                    delivered={runs.data?.delivered ?? 0}
+                    failed={runs.data?.failed ?? 0}
+                    planned={runs.data?.stopsPlanned ?? 0}
+                  />
+                  <div>
+                    <p className="label-xs text-muted-foreground">COD collected vs expected</p>
+                    <p className="mt-1 font-mono text-[15px] font-medium">
+                      {money(runs.data?.codCollectedCents ?? 0)}
+                      <span className="text-[12px] text-muted-foreground">
+                        {" "}/ {money(runs.data?.codExpectedCents ?? 0)}
+                      </span>
+                    </p>
+                    <Meter
+                      value={runs.data?.codCollectedCents ?? 0}
+                      max={runs.data?.codExpectedCents ?? 0}
+                      colour={SERIES.collected}
+                      label="COD collected against expected"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="grid min-h-[560px] flex-1 grid-cols-1 gap-5 xl:grid-cols-[2fr_1fr]">
           {/* Parcel stream */}
           <div className="flex min-h-0 flex-col gap-3">
             {statusFilter ? (
@@ -352,6 +444,47 @@ export default function OpsBoard() {
   );
 }
 
+/** Stops delivered / failed / still out, as one segmented bar with counts. */
+function RunProgress({ delivered, failed, planned }: { delivered: number; failed: number; planned: number }) {
+  const remaining = Math.max(planned - delivered - failed, 0);
+  const pct = (n: number) => (planned > 0 ? `${(n / planned) * 100}%` : "0%");
+  return (
+    <div>
+      <p className="label-xs text-muted-foreground">Stops · {planned} planned</p>
+      <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+        <span style={{ width: pct(delivered), backgroundColor: SERIES.delivered }} />
+        <span style={{ width: pct(failed), backgroundColor: SERIES.attempted }} />
+      </div>
+      <dl className="mt-2 grid grid-cols-3 gap-2 text-[12px]">
+        <div>
+          <dt className="text-muted-foreground">Delivered</dt>
+          <dd className="font-mono text-[14px]">{delivered}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Failed</dt>
+          <dd className="font-mono text-[14px]">{failed}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Still out</dt>
+          <dd className="font-mono text-[14px]">{remaining}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function Meter({ value, max, colour, label }: { value: number; max: number; colour: string; label: string }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  return (
+    <div className="mt-2">
+      <meter className="sr-only" min={0} max={Math.max(max, 1)} value={value} aria-label={label} />
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: colour }} />
+      </div>
+    </div>
+  );
+}
+
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = React.useState(value);
   React.useEffect(() => {
@@ -363,7 +496,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /**
  * Remembers the status each row had on the previous poll so a row that just
- * moved gets the one-shot amber flash (design.md). Nothing loops: the class is
+ * moved gets the one-shot emerald flash (design.md). Nothing loops: the class is
  * dropped after the animation window.
  */
 function useStatusFlash(rows: { id: string; status: string }[]): Set<string> {

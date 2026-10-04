@@ -85,6 +85,14 @@ export const reconciliation = deskProc
   )
   .handler(({ input }) => service.reconciliation(input));
 
+/**
+ * The four checkpoints per day over a window — the finance flow chart. Same
+ * audience as `reconciliation`: a network-wide aggregate, staff desks only.
+ */
+export const dailyFlow = deskProc
+  .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
+  .handler(({ input }) => service.dailyFlow(input.days));
+
 /** One rider's cash-in-hand — the §8 invariant, per rider, to the cent. */
 export const riderCash = staffProc
   .input(z.object({ riderId: z.string().min(1) }))
@@ -471,6 +479,7 @@ export const resolveAlert = deskProc
 export const cod = {
   entries,
   reconciliation,
+  dailyFlow,
   riderCash,
   riderCashBoard,
   myUndeposited,

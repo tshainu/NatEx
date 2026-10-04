@@ -372,7 +372,7 @@ const skewed = await clientFor(kandyRider.accessToken, key("skew")).sync.push({
       kind: "delivery.deliver",
       seq: 40,
       clientTs: Date.now() + 30 * 60_000,
-      payload: { awb: ofd[3]!, receivedByName: "Nuwan Silva", ...POD },
+      payload: { awb: ofd[3]!, receivedByName: "Sivakumar Rajan", ...POD },
     },
   ],
 });

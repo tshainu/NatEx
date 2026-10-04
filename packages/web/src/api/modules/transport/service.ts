@@ -10,6 +10,7 @@ import {
 import { prefixedId } from "../../shared/ulid";
 import { isTransientDbError } from "../../shared/request-scope";
 import { errors } from "../../shared/errors";
+import { normaliseLkPhone } from "../../shared/sms";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import * as parcels from "../parcels/service";
@@ -750,12 +751,71 @@ export async function breakSeal(
 
 // ------------------------------------------------------------------- trips
 
+/** Vehicle types a linehaul trip may run on (Round 6). */
+export const TRIP_VEHICLE_TYPES = ["bus", "van", "lorry", "car"] as const;
+export type TripVehicleType = (typeof TRIP_VEHICLE_TYPES)[number];
+/** Who runs the bus — asked every time the vehicle is a bus. */
+export const BUS_OPERATORS = ["ctb", "private", "ac_bus"] as const;
+export type BusOperator = (typeof BUS_OPERATORS)[number];
+
 export interface CreateTripInput {
   vehicleRegistration: string;
   destHubId: string;
   driverId?: string | null;
   route?: string | null;
   originHubId?: string;
+  vehicleType?: TripVehicleType | null;
+  busOperator?: BusOperator | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  expectedArrivalAt?: Date | null;
+  arrivalStation?: string | null;
+}
+
+const LK_PHONE = /^\+94\d{9}$/;
+
+/**
+ * The Round 6 vehicle fields, checked together. A bus always carries an
+ * operator; nothing else may. A contact phone must be a Sri Lankan number. An
+ * expected arrival cannot already be in the past.
+ */
+function vehicleFields(input: CreateTripInput, now = new Date()) {
+  const vehicleType = input.vehicleType ?? null;
+  const busOperator = input.busOperator ?? null;
+  if (vehicleType === "bus" && !busOperator) {
+    errors.badRequest("A bus trip needs the bus operator: CTB, Private or AC bus.", {
+      field: "busOperator",
+    });
+  }
+  if (vehicleType !== "bus" && busOperator) {
+    errors.badRequest("A bus operator only applies when the vehicle is a bus.", {
+      field: "busOperator",
+    });
+  }
+  let contactPhone: string | null = null;
+  if (input.contactPhone?.trim()) {
+    contactPhone = normaliseLkPhone(input.contactPhone.trim());
+    if (!LK_PHONE.test(contactPhone)) {
+      errors.badRequest("The contact phone must be a Sri Lankan number, e.g. 0771234567.", {
+        field: "contactPhone",
+      });
+    }
+  }
+  const expectedArrivalAt = input.expectedArrivalAt ?? null;
+  // Five minutes of grace for a clock that is slightly behind the server.
+  if (expectedArrivalAt && expectedArrivalAt.getTime() < now.getTime() - 5 * 60_000) {
+    errors.badRequest("The expected arrival time is already in the past.", {
+      field: "expectedArrivalAt",
+    });
+  }
+  return {
+    vehicleType,
+    busOperator,
+    contactName: input.contactName?.trim() || null,
+    contactPhone,
+    expectedArrivalAt,
+    arrivalStation: input.arrivalStation?.trim() || null,
+  };
 }
 
 export async function createTrip(input: CreateTripInput, actor: Principal): Promise<TripRow> {
@@ -772,6 +832,7 @@ export async function createTrip(input: CreateTripInput, actor: Principal): Prom
   ]);
   if (!origin) errors.notFound("Origin hub");
   if (!dest) errors.notFound("Destination hub");
+  const vehicle = vehicleFields(input);
 
   let driverName: string | null = null;
   if (input.driverId) {
@@ -797,9 +858,48 @@ export async function createTrip(input: CreateTripInput, actor: Principal): Prom
       route: input.route ?? `${origin!.code} → ${dest!.code}`,
       status: "planned",
       createdByName: actor.name,
+      ...vehicle,
     })
     .returning();
   return row!;
+}
+
+// ---------------------------------------------------------------- bag photo
+
+/** Object-key prefix a bag's photo must live under. */
+export function bagPhotoPrefix(bagCode: string): string {
+  return `bag/${bagCode.toUpperCase()}/`;
+}
+
+/** The bag a photo slot is being asked for — scoped exactly like any bag read. */
+export async function bagForPhoto(bagId: string, actor: Principal): Promise<BagRow> {
+  const [row] = await db.select().from(bag).where(eq(bag.id, bagId));
+  if (!row) errors.notFound("Bag");
+  assertBagVisible(row!, actor);
+  if (row!.status === "cancelled") errors.conflict(`Bag ${row!.code} is cancelled.`);
+  return row!;
+}
+
+/**
+ * Attach (or replace) the optional photo of a bag. The ref must be one minted
+ * for THIS bag by transport.bagPhotoUpload — a pasted URL or another bag's
+ * upload is refused, the same rule photo POD follows.
+ */
+export async function attachBagPhoto(
+  input: { bagId: string; storageRef: string },
+  actor: Principal,
+): Promise<BagRow> {
+  const row = await bagForPhoto(input.bagId, actor);
+  const ref = input.storageRef.trim();
+  if (!ref.startsWith(`s3:${bagPhotoPrefix(row.code)}`)) {
+    errors.badRequest("That photo was not uploaded for this bag.", { field: "storageRef" });
+  }
+  const [updated] = await db
+    .update(bag)
+    .set({ photoRef: ref, photoAt: new Date(), photoByName: actor.name })
+    .where(eq(bag.id, row.id))
+    .returning();
+  return updated!;
 }
 
 /** Load a sealed bag onto a planned trip — the second half of the §6 precondition. */

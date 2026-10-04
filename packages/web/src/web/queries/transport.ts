@@ -4,7 +4,7 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from "@tanstack/react-query";
-import { orpc, apiMessage } from "../lib/api";
+import { orpc, client, apiMessage } from "../lib/api";
 
 /**
  * Transport (Milestone 2) data hooks — bags, linehaul trips, the inbound queue,
@@ -245,4 +245,59 @@ export function useExceptionResolve(handlers: {
     handlers,
     "That exception could not be updated.",
   );
+}
+
+// ---------------------------------------------------------------- bag photo
+
+/**
+ * Shrink a camera photo before upload: longest side 1600px, JPEG. A hub on a
+ * weak line should not push a 6 MB original for a bag snapshot.
+ */
+async function shrinkPhoto(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not read that image."))), "image/jpeg", 0.85),
+  );
+}
+
+/** Upload slot → PUT straight to the bucket → attach the ref to the bag. */
+export function useBagPhotoUpload(handlers: {
+  onSuccess?: (bag: { id: string; code: string }) => void;
+  onError?: (message: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ bagId, file }: { bagId: string; file: File }) => {
+      if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
+      const body = await shrinkPhoto(file);
+      const slot = await client.transport.bagPhotoUpload({ bagId, contentType: "image/jpeg" });
+      const put = await fetch(slot.uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": "image/jpeg" },
+        body,
+      });
+      if (!put.ok) throw new Error(`The photo upload failed (${put.status}). Try again.`);
+      return client.transport.bagPhotoAttach({ bagId, storageRef: slot.storageRef });
+    },
+    onSuccess: (bag) => {
+      void queryClient.invalidateQueries();
+      handlers.onSuccess?.(bag);
+    },
+    onError: (error: Error) => handlers.onError?.(apiMessage(error, error.message || "The photo could not be saved.")),
+  });
+}
+
+/** A short-lived link to view one bag's photo; refreshed before it expires. */
+export function useBagPhotoView(bagId: string | null) {
+  return useQuery({
+    ...orpc.transport.bagPhotoView.queryOptions({ input: { bagId: bagId ?? "" } }),
+    enabled: Boolean(bagId),
+    staleTime: 4 * 60_000,
+  });
 }

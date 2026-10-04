@@ -5,7 +5,7 @@ import type { Role } from "../../shared/auth";
 import { fingerprint } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { open, seal } from "../../shared/secret-box";
-import { base32Encode, matchTotp, newTotpSecret, otpauthUri, stepAt, TOTP_WINDOW, totpAt } from "../../shared/totp";
+import { base32Encode, matchTotp, newTotpSecret, otpauthUri, stepAt, TOTP_STEP_SECONDS, TOTP_WINDOW, totpAt } from "../../shared/totp";
 import { prefixedId } from "../../shared/ulid";
 import { SETTING_KEYS, settingFlag } from "../settings/service";
 import { isDevelopment } from "../../shared/env";
@@ -65,7 +65,14 @@ export async function devCodeFor(factor: FactorRow, nowMs = Date.now()): Promise
   if (isProduction() || !factor.seeded) return null;
   const now = stepAt(nowMs);
   const secret = await open(factor.secretEnc);
+  // A past step is accepted only until the current step ends. Offering one in
+  // its last few seconds let the boundary pass between verifyOtp and
+  // mfa.verify, and the caller got "Incorrect authenticator code" (Round 6
+  // regression flake). Oldest first otherwise, so a step serves three sign-ins.
+  const stepMs = TOTP_STEP_SECONDS * 1000;
+  const msLeftInStep = stepMs - (nowMs % stepMs);
   for (let s = now - TOTP_WINDOW; s <= now + TOTP_WINDOW; s += 1) {
+    if (s < now && msLeftInStep < 5_000) continue;
     if (s > factor.lastStep) return totpAt(secret, s);
   }
   return null;

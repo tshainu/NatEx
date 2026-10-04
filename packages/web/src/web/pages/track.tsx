@@ -62,7 +62,7 @@ export default function Track() {
       <header className="border-b bg-card">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-4">
           <Link href="/" className="flex items-center gap-2 outline-none">
-            <span className="grid size-7 place-items-center rounded-md bg-brand font-display text-[13px] font-bold text-brand-ink">
+            <span className="grid size-7 place-items-center rounded-md bg-brand font-display text-[13px] font-bold text-primary-foreground">
               N
             </span>
             <span className="font-display text-[16px] font-bold tracking-tight">NatEx</span>

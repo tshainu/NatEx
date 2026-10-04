@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Link, useLocation } from "wouter";
 import { PackagePlus, Truck, Upload } from "lucide-react";
 import { apiMessage } from "@/lib/api";
@@ -10,13 +11,17 @@ import { MetricTile } from "@/components/natex/metric-tile";
 import { StatusPill } from "@/components/natex/status-pill";
 import { useNdrCounts } from "@/queries/ndr";
 import { useMerchantProfile, useParcelSummary, usePickupCounts } from "@/queries/merchant";
+import { useParcelTrends } from "@/queries/dashboard";
+import { DailyArea, DailyBars, RangeToggle, StatusDonut } from "@/components/natex/charts";
+import { SERIES } from "@/lib/chart";
 
 /**
  * Merchant dashboard (§10 M3). Every number on this screen is aggregated in SQL
  * under the merchant's own §5 scope by `parcels.summary`,
  * `collection.pickupRequestCounts` and `ndr.counts` — nothing is summed from a
  * page of rows in the browser, so a merchant with 10 000 parcels sees the same
- * truth as one with 10.
+ * truth as one with 10. The charts (Round 6) read `parcels.trends`, aggregated
+ * per Asia/Colombo day under the same scope.
  */
 
 export default function MerchantDashboard() {
@@ -25,12 +30,15 @@ export default function MerchantDashboard() {
   const summary = useParcelSummary();
   const pickups = usePickupCounts();
   const ndr = useNdrCounts();
+  const [days, setDays] = React.useState(30);
+  const trends = useParcelTrends(days);
 
   const merchant = profile.data;
   const s = summary.data;
   const ndrOpen = ndr.data ? ndr.data.open + ndr.data.instructed + ndr.data.reattemptScheduled : undefined;
 
-  const error = profile.error ?? summary.error ?? pickups.error ?? ndr.error;
+  const error = profile.error ?? summary.error ?? pickups.error ?? ndr.error ?? trends.error;
+  const t = trends.data;
   const byStatus = new Map((s?.byStatus ?? []).map((r) => [r.status, r.count]));
 
   return (
@@ -83,7 +91,32 @@ export default function MerchantDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
+        <Card
+          title="Shipments per day"
+          description={`Booked, delivered and failed attempts over the last ${days} days.`}
+          actions={<RangeToggle value={days} onChange={setDays} />}
+        >
+          {t ? (
+            <DailyBars
+              title="Shipments per day"
+              data={t.days}
+              series={[
+                { key: "booked", label: "Booked", colour: SERIES.booked },
+                { key: "delivered", label: "Delivered", colour: SERIES.delivered },
+                { key: "attempted", label: "Failed attempt", colour: SERIES.attempted },
+              ]}
+            />
+          ) : (
+            <ChartSkeleton />
+          )}
+        </Card>
+        <Card title="Status mix" description="Every shipment you have booked, by stage.">
+          {s ? <StatusDonut byStatus={s.byStatus} /> : <ChartSkeleton height={168} />}
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <MetricTile label="Delivered · 30 days" value={s?.last30d.delivered ?? "—"} />
         <MetricTile
           label="COD on deliveries · 30 days"
@@ -91,34 +124,31 @@ export default function MerchantDashboard() {
           hint="Declared amount — settlement is reported by Finance"
         />
         <MetricTile label="Returns started · 30 days" value={s?.last30d.returnsStarted ?? "—"} />
+        <MetricTile
+          label={`Delivery success · ${days} days`}
+          value={t ? (t.successPct === null ? "—" : `${t.successPct}%`) : "—"}
+          hint="Delivered ÷ (delivered + failed attempts)"
+          accent={t && t.successPct !== null ? GROUP_COLOUR.good : undefined}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
-        <Card title="Shipments by status" actions={s ? <span className="font-mono text-[12px] text-muted-foreground">{s.total} all time</span> : null}>
-          {s && s.total === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              Nothing booked yet. Book a single parcel or upload a CSV under Book parcels.
-            </p>
+        <Card
+          title="COD on delivered shipments"
+          description={`Declared COD on the parcels delivered each day · ${t ? money(t.totals.deliveredCodCents) : "—"} over ${days} days.`}
+        >
+          {t ? (
+            <DailyArea
+              title="COD on delivered shipments"
+              money
+              height={200}
+              data={t.days}
+              series={[{ key: "deliveredCodCents", label: "COD delivered", colour: SERIES.delivered }]}
+            />
           ) : (
-            <ul className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-              {BOARD_ORDER.filter((st) => (byStatus.get(st as never) ?? 0) > 0).map((st) => (
-                <li key={st}>
-                  <Link
-                    href={`/merchant/parcels?status=${st}`}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <StatusPill status={st} />
-                    <span className="font-mono text-[13px]">{byStatus.get(st as never)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <ChartSkeleton height={200} />
           )}
-          {s ? (
-            <p className="mt-4 text-[11px] text-muted-foreground">As of {dateTime(s.generatedAt)}</p>
-          ) : null}
         </Card>
-
         <Card title="Pickups">
           <dl className="space-y-2 text-[13px]">
             <div className="flex justify-between">
@@ -147,6 +177,35 @@ export default function MerchantDashboard() {
           </div>
         </Card>
       </div>
+
+      <Card title="Shipments by status" actions={s ? <span className="font-mono text-[12px] text-muted-foreground">{s.total} all time</span> : null}>
+        {s && s.total === 0 ? (
+          <p className="text-[13px] text-muted-foreground">
+            Nothing booked yet. Book a single parcel or upload a CSV under Book parcels.
+          </p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4">
+            {BOARD_ORDER.filter((st) => (byStatus.get(st as never) ?? 0) > 0).map((st) => (
+              <li key={st}>
+                <Link
+                  href={`/merchant/parcels?status=${st}`}
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <StatusPill status={st} />
+                  <span className="font-mono text-[13px]">{byStatus.get(st as never)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+        {s ? (
+          <p className="mt-4 text-[11px] text-muted-foreground">As of {dateTime(s.generatedAt)}</p>
+        ) : null}
+      </Card>
     </Page>
   );
+}
+
+function ChartSkeleton({ height = 220 }: { height?: number }) {
+  return <div className="animate-pulse rounded-md bg-muted" style={{ height }} aria-hidden />;
 }

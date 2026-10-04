@@ -103,7 +103,7 @@ describe("route guards (static inventory)", () => {
   });
 
   test("admin-only namespaces stay admin-only", () => {
-    for (const g of guards.filter((x) => /^(audit|monitor)\./.test(x.path))) {
+    for (const g of guards.filter((x) => /^(audit|monitor|dashboard)\./.test(x.path))) {
       expect({ path: g.path, roles: g.roles }).toEqual({ path: g.path, roles: ["admin"] });
     }
     for (const path of ["settings.set", "rateCards.publish", "rateCards.assign", "identity.createUser"]) {
@@ -134,5 +134,19 @@ describe("route guards (static inventory)", () => {
         expect({ path: g.path, has: (g.roles ?? []).includes(r) }).toEqual({ path: g.path, has: false });
       }
     }
+  });
+
+  test("round 6 procedures carry the intended gates", () => {
+    expect(byPath.get("dashboard.company")?.roles).toEqual(["admin"]);
+    for (const r of FIELD_ROLES) expect(byPath.get("cod.dailyFlow")?.roles).not.toContain(r);
+    // A bag photo is read like the bag itself: the same staff gate, never a merchant.
+    expect(byPath.get("transport.bagPhotoView")?.roles).toEqual(byPath.get("transport.bagGet")!.roles);
+    expect(byPath.get("transport.bagPhotoView")?.roles).not.toContain("merchant");
+    for (const path of ["transport.bagPhotoUpload", "transport.bagPhotoAttach"]) {
+      const g = byPath.get(path);
+      expect(g?.roles).toContain("transport");
+      for (const r of ["rider", "merchant"] as Role[]) expect({ path, has: g!.roles!.includes(r) }).toEqual({ path, has: false });
+    }
+    expect(byPath.get("parcels.trends")?.auth).toBe("auth");
   });
 });

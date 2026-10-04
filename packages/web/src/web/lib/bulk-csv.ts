@@ -22,7 +22,7 @@ export interface TemplateColumn {
 
 export const TEMPLATE_COLUMNS: TemplateColumn[] = [
   { key: "orderRef", header: "order_ref", required: false, example: "ORD-1001", aliases: ["order", "order_id", "reference", "ref"] },
-  { key: "consigneeName", header: "consignee_name", required: true, example: "Dilani Perera", aliases: ["name", "customer", "customer_name", "recipient"] },
+  { key: "consigneeName", header: "consignee_name", required: true, example: "Meena Ganesan", aliases: ["name", "customer", "customer_name", "recipient"] },
   { key: "consigneePhone", header: "consignee_phone", required: true, example: "0771234567", aliases: ["phone", "mobile", "customer_phone", "contact"] },
   { key: "destAddress", header: "delivery_address", required: true, example: "No. 12, Temple Road, Kandy", aliases: ["address", "dest_address", "destination"] },
   { key: "weightKg", header: "weight_kg", required: true, example: "0.75", aliases: ["weight", "kg"] },

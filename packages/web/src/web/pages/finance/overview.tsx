@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
 import { apiMessage } from "@/lib/api";
@@ -9,6 +10,9 @@ import { useAlertCounts, useInvariantRuns, useReconciliation, useStale } from "@
 import { useArAgeing, useCurrentPeriod, useSettlementDue } from "@/queries/finance";
 import { useDisputeCounts } from "@/queries/disputes";
 import { StatusBadge } from "./shared";
+import { useCodFlow } from "@/queries/dashboard";
+import { CategoryBars, DailyBars, RangeToggle, SplitBar } from "@/components/natex/charts";
+import { SERIES } from "@/lib/chart";
 
 /**
  * Finance dashboard (§10 M4 "Finance portal: dashboard").
@@ -19,6 +23,9 @@ import { StatusBadge } from "./shared";
  * each stage"; each gap is money that has not yet moved to the next stage,
  * which is not automatically an error, so the controls card says which gaps
  * are stale.
+ *
+ * Round 6 charts: `cod.dailyFlow` (the same four checkpoints per Colombo day,
+ * reversals netted out exactly as in reconciliation) and the AR ageing totals.
  */
 export default function FinanceOverview() {
   const recon = useReconciliation();
@@ -29,12 +36,18 @@ export default function FinanceOverview() {
   const ar = useArAgeing();
   const due = useSettlementDue();
   const period = useCurrentPeriod();
+  const [days, setDays] = React.useState(30);
+  const flow = useCodFlow(days);
 
   const r = recon.data;
   const latest = runs.data?.[0];
   const dueRows = due.data ?? [];
   const dueGross = dueRows.reduce((sum, row) => sum + row.grossCents, 0);
-  const error = recon.error ?? alerts.error ?? disputes.error ?? ar.error;
+  const error = recon.error ?? alerts.error ?? disputes.error ?? ar.error ?? flow.error;
+  const flowTotals = (flow.data ?? []).reduce(
+    (t, d) => ({ collected: t.collected + d.collectedCents, settled: t.settled + d.settledCents }),
+    { collected: 0, settled: 0 },
+  );
 
   return (
     <Page
@@ -86,6 +99,72 @@ export default function FinanceOverview() {
           />
         </div>
       </section>
+
+      <Card
+        title="Where the cash is right now"
+        description="Every rupee collected and not yet paid out, by whose hands it is in. Settled is shown for scale."
+      >
+        {r ? (
+          <SplitBar
+            segments={[
+              { key: "rider", label: "With riders", colour: SERIES.collected, value: r.inRiderHandsCents, hint: "Collected, not deposited" },
+              { key: "safe", label: "In branch safes", colour: SERIES.deposited, value: r.inBranchSafeCents, hint: "Deposited, not banked" },
+              { key: "await", label: "Awaiting settlement", colour: SERIES.banked, value: r.awaitingSettlementCents, hint: "Banked, not paid out" },
+              { key: "settled", label: "Settled to merchants", colour: SERIES.settled, value: r.settledCents, hint: "Paid out" },
+            ]}
+          />
+        ) : (
+          <div className="h-16 animate-pulse rounded-md bg-muted" aria-hidden />
+        )}
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
+        <Card
+          title="COD through the checkpoints"
+          description={`Per day, last ${days} days · ${money(flowTotals.collected)} collected, ${money(flowTotals.settled)} settled. Reversed entries are netted out.`}
+          actions={<RangeToggle value={days} onChange={setDays} />}
+        >
+          {flow.data ? (
+            <DailyBars
+              title="COD through the checkpoints"
+              money
+              data={flow.data}
+              series={[
+                { key: "collectedCents", label: "Collected", colour: SERIES.collected },
+                { key: "depositedCents", label: "Deposited", colour: SERIES.deposited },
+                { key: "bankedCents", label: "Banked", colour: SERIES.banked },
+                { key: "settledCents", label: "Settled", colour: SERIES.settled },
+              ]}
+            />
+          ) : (
+            <div className="h-[220px] animate-pulse rounded-md bg-muted" aria-hidden />
+          )}
+        </Card>
+        <Card
+          title="Receivables ageing"
+          description={ar.data ? `${money(ar.data.outstandingCents)} outstanding` : "Invoiced charges outstanding"}
+        >
+          {ar.data ? (
+            <CategoryBars
+              title="Receivables ageing"
+              money
+              labelWidth={84}
+              rowHeight={34}
+              data={[
+                { label: "Not yet due", value: ar.data.notYetDueCents },
+                { label: "0–30 days", value: ar.data.totals["0-30"] },
+                { label: "31–60 days", value: ar.data.totals["31-60"] },
+                { label: "61–90 days", value: ar.data.totals["61-90"] },
+                { label: "90+ days", value: ar.data.totals["90+"] },
+              ]}
+              series={[{ key: "value", label: "Outstanding", colour: SERIES.age0 }]}
+              rowColours={[SERIES.notDue, SERIES.age0, SERIES.age31, SERIES.age61, SERIES.age90]}
+            />
+          ) : (
+            <div className="h-[190px] animate-pulse rounded-md bg-muted" aria-hidden />
+          )}
+        </Card>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card

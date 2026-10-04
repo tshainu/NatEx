@@ -24,9 +24,9 @@ import { useColors } from "../hooks/use-colors";
  */
 
 const FIELD_LOGINS = [
-  { role: "Rider · Colombo", phone: "+94771234567", name: "Pradeep Fernando" },
-  { role: "Transport · Colombo", phone: "+94776789012", name: "Suresh Kodikara" },
-  { role: "Transport · Kandy", phone: "+94777890123", name: "Chamara Bandara" },
+  { role: "Rider · Colombo", phone: "+94771234567", name: "Karthik Selvaraj" },
+  { role: "Transport · Colombo", phone: "+94776789012", name: "Murugan Thevarajah" },
+  { role: "Transport · Kandy", phone: "+94777890123", name: "Vignesh Balasubramaniam" },
 ];
 
 export default function LoginScreen() {

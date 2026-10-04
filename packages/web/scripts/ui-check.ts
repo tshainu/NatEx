@@ -39,6 +39,7 @@ const ROUTES = [
   "/ops/sync-conflicts",
   "/ops/serviceability",
   "/ops/merchants",
+  "/admin/dashboard",
   "/admin/users",
   "/admin/branches",
   "/admin/zones",

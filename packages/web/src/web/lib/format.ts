@@ -116,5 +116,24 @@ export function metres(value: number | null | undefined): string {
 
 /** Turns PascalCase statuses into readable words: OutForDelivery → Out For Delivery. */
 export function humanise(value: string): string {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    // An acronym followed by a word: "RTOInitiated" reads "RTO Initiated".
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/_/g, " ");
+}
+
+/**
+ * A `<input type="datetime-local">` value read as Asia/Colombo wall-clock time.
+ * Sri Lanka is a fixed +05:30 with no DST, so the offset is exact.
+ */
+export function colomboLocalToDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const d = new Date(`${value}:00+05:30`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** The inverse: a Date as a `datetime-local` value in Asia/Colombo. */
+export function dateToColomboLocal(value: Date): string {
+  return new Date(value.getTime() + 330 * 60_000).toISOString().slice(0, 16);
 }

@@ -31,7 +31,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             href={groups[0]?.items[0]?.to ?? "/"}
             className="flex items-center gap-2 outline-none"
           >
-            <span className="grid size-7 place-items-center rounded-md bg-brand font-display text-[13px] font-bold text-brand-ink">
+            <span className="grid size-7 place-items-center rounded-md bg-brand font-display text-[13px] font-bold text-primary-foreground">
               N
             </span>
             <span className="font-display text-[16px] font-bold tracking-tight text-text-hi">
@@ -47,7 +47,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <nav className="natex-scroll flex-1 overflow-y-auto px-3 py-4">
           {groups.map((group) => (
             <div key={group.title} className="mb-5 last:mb-0">
-              <p className="label-xs px-2 pb-2 text-text-lo/70">{group.title}</p>
+              <p className="px-2 pb-2 font-display text-[11.5px] font-extrabold uppercase leading-tight tracking-[0.08em] text-text-hi">
+                {group.title}
+              </p>
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   // Longest prefix wins, so "/merchant" (Dashboard) is not lit
@@ -65,8 +67,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
                           "flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-[13px] transition-colors duration-120",
                           "outline-none focus-visible:ring-[3px] focus-visible:ring-brand/40",
                           active
-                            ? "bg-brand/15 font-medium text-brand"
-                            : "text-text-lo hover:bg-ink-700 hover:text-text-hi",
+                            ? "bg-brand/15 font-semibold text-brand"
+                            : "font-medium text-text-lo hover:bg-ink-700 hover:text-text-hi",
                         )}
                       >
                         <span className="truncate">{item.label}</span>

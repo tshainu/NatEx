@@ -34,14 +34,14 @@ describe("rupeesToCents (used by bulk rows)", () => {
 
 describe("prepareBulkCsv", () => {
   test("happy row maps to the API payload with integer money", () => {
-    const f = prepareBulkCsv(`${HEADER}\nORD-1,Dilani Perera,0771234567,"No. 12, Temple Road, Kandy",0.75,,,,2450.50,3000`);
+    const f = prepareBulkCsv(`${HEADER}\nORD-1,Meena Ganesan,0771234567,"No. 12, Temple Road, Kandy",0.75,,,,2450.50,3000`);
     expect(f.fileErrors).toEqual([]);
     expect(f.rows).toHaveLength(1);
     expect(f.rows[0]!.errors).toEqual([]);
     expect(f.rows[0]!.payload).toEqual({
       line: 2,
       orderRef: "ORD-1",
-      consigneeName: "Dilani Perera",
+      consigneeName: "Meena Ganesan",
       consigneePhone: "0771234567",
       destAddress: "No. 12, Temple Road, Kandy",
       weightGrams: 750,

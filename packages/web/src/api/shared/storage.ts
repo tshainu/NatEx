@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { errors } from "./errors";
 
@@ -46,4 +46,21 @@ export async function presignPut(
     { expiresIn: expiresInSeconds },
   );
   return { uploadUrl, storageRef: `s3:${key}`, expiresInSeconds };
+}
+
+/**
+ * A short-lived read link for a stored object ref (`s3:<key>`). Minted per view
+ * and never persisted — the ref is what stays on the row.
+ */
+export async function presignGet(
+  storageRef: string,
+  expiresInSeconds = 300,
+): Promise<{ url: string; expiresInSeconds: number }> {
+  if (!storageRef.startsWith("s3:")) errors.badRequest("Not a stored object reference.");
+  const url = await getSignedUrl(
+    s3(),
+    new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageRef.slice(3) }),
+    { expiresIn: expiresInSeconds },
+  );
+  return { url, expiresInSeconds };
 }

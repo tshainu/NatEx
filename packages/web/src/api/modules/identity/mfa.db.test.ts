@@ -129,6 +129,17 @@ describe("development seed factors", () => {
     expect((await verifyChallenge(SEEDED, code!)).method).toBe("totp");
   });
 
+  test("near a step boundary the dev code is never one that is about to expire", async () => {
+    const factor = (await getFactor(SEEDED))!;
+    const secret = await devTotpSecret(SEEDED);
+    // A step well after anything used, so every window step is still free.
+    const step = Math.max(factor.lastStep, stepAt(Date.now())) + 10;
+    const early = step * 30_000 + 1_000;
+    const late = step * 30_000 + 27_000;
+    expect(await devCodeFor({ ...factor }, early)).toBe(await totpAt(secret, step - 1));
+    expect(await devCodeFor({ ...factor }, late)).toBe(await totpAt(secret, step));
+  });
+
   test("in production a seeded factor offers no dev code", async () => {
     const factor = (await getFactor(SEEDED))!;
     expect(await withNodeEnv("production", () => devCodeFor(factor))).toBeNull();

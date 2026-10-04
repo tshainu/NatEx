@@ -69,7 +69,8 @@ const TRANSPORT_PATHS = TRANSPORT_NAV.map((item) => item.to);
 const ADMIN: PortalConfig = {
   portal: "admin",
   name: "Administration",
-  home: "/admin/users",
+  // Round 6: the company dashboard is the admin's landing screen.
+  home: "/admin/dashboard",
   nav: [
     { label: "Users", to: "/admin/users" },
     { label: "Branches", to: "/admin/branches" },
@@ -88,7 +89,10 @@ const ADMIN: PortalConfig = {
  * them — keep this list and ADMIN_ONLY_PATHS in step with the server gates.
  */
 const OPS_REFERENCE_PATHS = ["/admin/users", "/admin/branches", "/admin/zones", "/admin/rate-cards", "/admin/settings", "/admin/templates"];
-const ADMIN_ONLY_PATHS = ["/admin/audit", "/admin/monitor"];
+const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/audit", "/admin/monitor"];
+
+/** The whole-company view — adminProc server-side, so admin's sidebar only. */
+const OVERVIEW_NAV: NavItem[] = [{ label: "Company dashboard", to: "/admin/dashboard" }];
 
 const FINANCE: PortalConfig = {
   portal: "finance",
@@ -150,6 +154,7 @@ export function portalFor(role: Role): PortalConfig {
 export function navFor(role: Role): { title: string; items: NavItem[] }[] {
   if (role === "admin") {
     return [
+      { title: "Overview", items: OVERVIEW_NAV },
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },

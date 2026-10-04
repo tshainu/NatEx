@@ -12,6 +12,7 @@ import { Badge, LifecyclePill } from "../../../components/natex/pill";
 import { Body, Label, Mono, Small } from "../../../components/natex/text";
 import { Space } from "../../../constants/theme";
 import { useColors } from "../../../hooks/use-colors";
+import { vehicleLabel } from "../../../lib/vehicles";
 
 /**
  * One trip: load sealed bags, depart, arrive.
@@ -142,6 +143,19 @@ export default function TripScreen() {
           <Field label="Vehicle" value={trip?.vehicleRegistration} mono />
           <Field label="Parcels" value={String(data?.parcelCount ?? 0)} />
         </View>
+        {trip?.vehicleType ? (
+          <Field label="Vehicle type" value={vehicleLabel(trip.vehicleType, trip.busOperator)} />
+        ) : null}
+        {trip?.contactName ? (
+          <Field
+            label="Contact"
+            value={trip.contactPhone ? `${trip.contactName} · ${trip.contactPhone}` : trip.contactName}
+          />
+        ) : null}
+        {trip?.expectedArrivalAt ? (
+          <Field label="Arrival due" value={dateTime(trip.expectedArrivalAt)} />
+        ) : null}
+        {trip?.arrivalStation ? <Field label="Arrival station" value={trip.arrivalStation} /> : null}
         {trip?.route ? <Field label="Route" value={trip.route} /> : null}
         {trip?.seal ? <Field label="Vehicle seal" value={trip.seal} mono /> : null}
         {trip?.departedAt ? <Field label="Departed" value={dateTime(trip.departedAt)} /> : null}

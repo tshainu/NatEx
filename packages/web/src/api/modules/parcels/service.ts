@@ -6,7 +6,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
-import { colomboToday as colomboDate } from "../../shared/time";
+import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
   isLegalTransition,
@@ -423,6 +423,170 @@ export async function parcelSummary(scope: Principal, now: Date = new Date()): P
     },
     generatedAt: now.toISOString(),
   };
+}
+
+/** Colombo calendar day of a unix-seconds column, in SQL (fixed +05:30, §9). */
+const colomboDay = (column: unknown) => sql<string>`date(${column} + 19800, 'unixepoch')`;
+
+export interface TrendDay {
+  /** YYYY-MM-DD, Asia/Colombo. */
+  date: string;
+  booked: number;
+  /** COD declared on the parcels booked that day. Integer cents. */
+  bookedCodCents: number;
+  delivered: number;
+  /** COD declared on the parcels delivered that day. Integer cents. */
+  deliveredCodCents: number;
+  /** Parcels with a failed delivery attempt that day. */
+  attempted: number;
+  /** Parcels sent into return-to-origin that day. */
+  rto: number;
+}
+
+export interface ParcelTrends {
+  days: TrendDay[];
+  totals: Omit<TrendDay, "date">;
+  /**
+   * delivered ÷ (delivered + failed attempts) over the window, as a whole
+   * percentage — null when the window has neither, rather than a fake 0 %.
+   */
+  successPct: number | null;
+  generatedAt: string;
+}
+
+/**
+ * Daily throughput for the dashboard charts, aggregated in SQL under the
+ * caller's §5 scope. Booked is counted from the parcel's creation; delivered,
+ * failed attempts and RTO from the append-only event log (distinct parcels
+ * per day, so a retried scan never counts twice). Every day in the window is
+ * returned, including empty ones, so a chart never silently skips a day.
+ */
+export async function parcelTrends(
+  scope: Principal,
+  days: number,
+  now: Date = new Date(),
+): Promise<ParcelTrends> {
+  const span = Math.min(Math.max(Math.trunc(days), 1), 90);
+  const today = colomboDate(now);
+  const first = addDays(today, -(span - 1));
+  const since = Math.floor(new Date(`${first}T00:00:00+05:30`).getTime() / 1000);
+  const where = scopeFilter(scope);
+
+  const [bookedRows, outcomeRows] = await Promise.all([
+    db
+      .select({
+        day: colomboDay(parcel.createdAt),
+        value: count(),
+        cod: sql<number>`coalesce(sum(${parcel.codAmountCents}), 0)`,
+      })
+      .from(parcel)
+      .where(and(where, sql`${parcel.createdAt} >= ${since}`))
+      .groupBy(colomboDay(parcel.createdAt)),
+    db
+      .select({
+        day: colomboDay(parcelEvent.ts),
+        toStatus: parcelEvent.toStatus,
+        value: sql<number>`count(distinct ${parcel.id})`,
+        cod: sql<number>`coalesce(sum(${parcel.codAmountCents}), 0)`,
+      })
+      .from(parcelEvent)
+      .innerJoin(parcel, eq(parcel.id, parcelEvent.parcelId))
+      .where(
+        and(
+          where,
+          inArray(parcelEvent.toStatus, ["Delivered", "DeliveryAttempted", "RTOInitiated"]),
+          sql`${parcelEvent.ts} >= ${since}`,
+        ),
+      )
+      .groupBy(colomboDay(parcelEvent.ts), parcelEvent.toStatus),
+  ]);
+
+  const byDay = new Map<string, TrendDay>();
+  for (let i = 0; i < span; i += 1) {
+    const date = addDays(first, i);
+    byDay.set(date, { date, booked: 0, bookedCodCents: 0, delivered: 0, deliveredCodCents: 0, attempted: 0, rto: 0 });
+  }
+  for (const row of bookedRows) {
+    const day = byDay.get(row.day);
+    if (!day) continue;
+    day.booked = Number(row.value);
+    day.bookedCodCents = Number(row.cod);
+  }
+  for (const row of outcomeRows) {
+    const day = byDay.get(row.day);
+    if (!day) continue;
+    if (row.toStatus === "Delivered") {
+      day.delivered = Number(row.value);
+      day.deliveredCodCents = Number(row.cod);
+    } else if (row.toStatus === "DeliveryAttempted") day.attempted = Number(row.value);
+    else if (row.toStatus === "RTOInitiated") day.rto = Number(row.value);
+  }
+
+  const list = [...byDay.values()];
+  const totals = list.reduce(
+    (t, d) => ({
+      booked: t.booked + d.booked,
+      bookedCodCents: t.bookedCodCents + d.bookedCodCents,
+      delivered: t.delivered + d.delivered,
+      deliveredCodCents: t.deliveredCodCents + d.deliveredCodCents,
+      attempted: t.attempted + d.attempted,
+      rto: t.rto + d.rto,
+    }),
+    { booked: 0, bookedCodCents: 0, delivered: 0, deliveredCodCents: 0, attempted: 0, rto: 0 },
+  );
+  const outcomes = totals.delivered + totals.attempted;
+  return {
+    days: list,
+    totals,
+    successPct: outcomes === 0 ? null : Math.round((totals.delivered / outcomes) * 100),
+    generatedAt: now.toISOString(),
+  };
+}
+
+/**
+ * Network split by accountable branch — the admin dashboard's branch chart.
+ * Branch names belong to identity; the caller resolves them.
+ */
+export async function branchSplit(): Promise<{ branchId: string; open: number; closed: number }[]> {
+  const terminal = TERMINAL_LIST as unknown as string[];
+  const rows = await db
+    .select({
+      branchId: parcel.branchId,
+      open: sql<number>`sum(case when ${parcel.status} not in (${sql.join(terminal.map((t) => sql`${t}`), sql`, `)}) then 1 else 0 end)`,
+      total: count(),
+    })
+    .from(parcel)
+    .groupBy(parcel.branchId);
+  return rows.map((r) => ({
+    branchId: r.branchId,
+    open: Number(r.open ?? 0),
+    closed: Number(r.total) - Number(r.open ?? 0),
+  }));
+}
+
+/**
+ * Busiest merchants by parcels booked in the window, with COD declared on
+ * them. Merchant names belong to the merchants module; the caller resolves them.
+ */
+export async function topMerchants(
+  days: number,
+  limit: number,
+  now: Date = new Date(),
+): Promise<{ merchantId: string; parcels: number; codCents: number }[]> {
+  const first = addDays(colomboDate(now), -(Math.max(days, 1) - 1));
+  const since = Math.floor(new Date(`${first}T00:00:00+05:30`).getTime() / 1000);
+  const rows = await db
+    .select({
+      merchantId: parcel.merchantId,
+      parcels: count(),
+      cod: sql<number>`coalesce(sum(${parcel.codAmountCents}), 0)`,
+    })
+    .from(parcel)
+    .where(sql`${parcel.createdAt} >= ${since}`)
+    .groupBy(parcel.merchantId)
+    .orderBy(desc(count()))
+    .limit(Math.min(Math.max(limit, 1), 20));
+  return rows.map((r) => ({ merchantId: r.merchantId, parcels: Number(r.parcels), codCents: Number(r.cod) }));
 }
 
 /** Recent custody events across the branch — the ops live feed. */

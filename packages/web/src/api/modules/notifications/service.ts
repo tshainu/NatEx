@@ -286,14 +286,14 @@ export function templateProblems(
 
 /** Sample values, so the editor can show what a customer would read. */
 export const SAMPLE_VARS: Vars = {
-  consigneeName: "Nimal Perera",
+  consigneeName: "Meena Ganesan",
   merchantName: "Ceylon Threads",
   awb: "NX2610020001",
   trackUrl: "natex.lk/track/NX2610020001",
   codLine: "Please have Rs. 2,450.00 ready. ",
-  riderName: "Kasun",
+  riderName: "Karthik",
   date: "2 Oct 2026",
-  receivedBy: "Nimal Perera",
+  receivedBy: "Meena Ganesan",
   reason: "Consignee not available",
   attemptNo: 1,
 };

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -75,8 +75,8 @@
   --ink-800: #0f2033;
   --ink-700: #16304a;
   --ink-600: #1e4266;
-  --brand: #f59e0b;
-  --brand-ink: #7c3e00;
+  --brand: #10b981;
+  --brand-ink: #047857;
   --paper: #f7f8fa;
   --paper-card: #ffffff;
   --line: #e3e7ed;
@@ -85,7 +85,7 @@
   --text-dark: #0c1b2a;
 
   --status-created: #64748b;
-  --status-moving: #f59e0b;
+  --status-moving: #0ea5e9;
   --status-good: #10b981;
   --status-warn: #f43f5e;
   --status-bad: #9f1239;
@@ -97,8 +97,8 @@
   --card-foreground: #0c1b2a;
   --popover: #ffffff;
   --popover-foreground: #0c1b2a;
-  --primary: #f59e0b;
-  --primary-foreground: #2a1500;
+  --primary: #10b981;
+  --primary-foreground: #022c22;
   --secondary: #eef1f5;
   --secondary-foreground: #0c1b2a;
   --muted: #eef1f5;
@@ -108,7 +108,7 @@
   --destructive: #9f1239;
   --border: #e3e7ed;
   --input: #dfe4ea;
-  --ring: #f59e0b;
+  --ring: #10b981;
   --sidebar: #0f2033;
   --sidebar-foreground: #f4f7fb;
   --sidebar-border: #1e4266;
@@ -126,8 +126,8 @@
   --card-foreground: #f4f7fb;
   --popover: #16304a;
   --popover-foreground: #f4f7fb;
-  --primary: #f59e0b;
-  --primary-foreground: #2a1500;
+  --primary: #10b981;
+  --primary-foreground: #022c22;
   --secondary: #16304a;
   --secondary-foreground: #f4f7fb;
   --muted: #16304a;
@@ -137,7 +137,7 @@
   --destructive: #f43f5e;
   --border: #1e4266;
   --input: #1e4266;
-  --ring: #f59e0b;
+  --ring: #10b981;
   --sidebar: #0f2033;
   --sidebar-foreground: #f4f7fb;
   --sidebar-border: #1e4266;
@@ -196,7 +196,7 @@
   animation-delay: var(--row-delay, 0ms);
 }
 
-/* Brief amber left-border flash on a row whose status just changed. */
+/* Brief emerald left-border flash on a row whose status just changed. */
 @keyframes natex-flash {
   0% {
     box-shadow: inset 3px 0 0 0 var(--brand);

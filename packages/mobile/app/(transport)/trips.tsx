@@ -5,6 +5,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiMessage, client, orpc } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { plural, since } from "../../lib/format";
+import {
+  BUS_OPERATORS,
+  VEHICLE_TYPES,
+  isLkPhone,
+  nextColomboTime,
+  vehicleLabel,
+  type BusOperator,
+  type VehicleType,
+} from "../../lib/vehicles";
 import { Screen, ScreenHeader, Section } from "../../components/natex/screen";
 import { Button } from "../../components/natex/button";
 import { Card, Empty, Panel, Stat, StatRow } from "../../components/natex/card";
@@ -31,6 +40,24 @@ export default function TransportTripsScreen() {
   const [vehicle, setVehicle] = React.useState("");
   const [route, setRoute] = React.useState("");
   const [destHubId, setDestHubId] = React.useState<string | null>(null);
+  const [vehicleType, setVehicleType] = React.useState<VehicleType | null>(null);
+  const [busOperator, setBusOperator] = React.useState<BusOperator | null>(null);
+  const [contactName, setContactName] = React.useState("");
+  const [contactPhone, setContactPhone] = React.useState("");
+  const [arrival, setArrival] = React.useState("");
+  const [station, setStation] = React.useState("");
+  const isBus = vehicleType === "bus";
+  const arrivalAt = nextColomboTime(arrival);
+  const missing = [
+    !vehicleType && "vehicle type",
+    isBus && !busOperator && "bus operator",
+    vehicle.trim().length < 3 && "vehicle number",
+    !destHubId && "destination hub",
+    contactName.trim().length < 2 && "contact person",
+    !isLkPhone(contactPhone) && "contact phone",
+    !arrivalAt && "arrival time",
+    isBus && station.trim().length < 2 && "arrival station",
+  ].filter((m): m is string => Boolean(m));
 
   const board = useQuery(orpc.transport.tripList.queryOptions({ input: {} }));
   const branches = useQuery(orpc.identity.listBranches.queryOptions({ input: {} }));
@@ -41,6 +68,12 @@ export default function TransportTripsScreen() {
         vehicleRegistration: vehicle.trim(),
         destHubId: destHubId!,
         route: route.trim() || null,
+        vehicleType,
+        busOperator: isBus ? busOperator : null,
+        contactName: contactName.trim(),
+        contactPhone: contactPhone.trim(),
+        expectedArrivalAt: arrivalAt,
+        arrivalStation: isBus ? station.trim() : null,
       }),
     onSuccess: (trip) => {
       void queryClient.invalidateQueries({ queryKey: orpc.transport.key() });
@@ -48,6 +81,12 @@ export default function TransportTripsScreen() {
       setVehicle("");
       setRoute("");
       setDestHubId(null);
+      setVehicleType(null);
+      setBusOperator(null);
+      setContactName("");
+      setContactPhone("");
+      setArrival("");
+      setStation("");
       router.push(`/(transport)/trip/${trip.id}`);
     },
   });
@@ -60,8 +99,8 @@ export default function TransportTripsScreen() {
       <Button
         title="Create trip"
         loading={create.isPending}
-        disabled={vehicle.trim().length < 3 || !destHubId}
-        hint={!destHubId ? "Choose a destination hub" : undefined}
+        disabled={missing.length > 0}
+        hint={missing.length > 0 ? `Still needed: ${missing.join(", ")}` : undefined}
         onPress={() => create.mutate()}
       />
       <Button
@@ -101,14 +140,80 @@ export default function TransportTripsScreen() {
 
       {creating ? (
         <Card>
+          <Label>Vehicle type</Label>
+          <View style={styles.chips}>
+            {VEHICLE_TYPES.map((v) => (
+              <Chip
+                key={v.value}
+                label={v.label}
+                accessibilityLabel={`Vehicle ${v.label}`}
+                selected={vehicleType === v.value}
+                onPress={() => {
+                  setVehicleType(v.value);
+                  if (v.value !== "bus") {
+                    setBusOperator(null);
+                    setStation("");
+                  }
+                }}
+              />
+            ))}
+          </View>
+          {isBus ? (
+            <>
+              <Label>Bus operator</Label>
+              <View style={styles.chips}>
+                {BUS_OPERATORS.map((o) => (
+                  <Chip
+                    key={o.value}
+                    label={o.label}
+                    accessibilityLabel={`Operator ${o.label}`}
+                    selected={busOperator === o.value}
+                    onPress={() => setBusOperator(o.value)}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
           <Input
-            label="Vehicle registration"
+            label="Vehicle number"
             code
             value={vehicle}
             onChangeText={setVehicle}
-            placeholder="WP-CAB-1234"
-            autoFocus
+            placeholder={isBus ? "NB-4821" : "WP-CAB-1234"}
           />
+          <Input
+            label="Contact person"
+            value={contactName}
+            onChangeText={setContactName}
+            placeholder={isBus ? "Conductor" : "Driver"}
+          />
+          <Input
+            label="Contact phone"
+            code
+            value={contactPhone}
+            onChangeText={setContactPhone}
+            placeholder="0771234567"
+            keyboardType="phone-pad"
+            error={contactPhone.trim() && !isLkPhone(contactPhone) ? "Not a Sri Lankan number" : null}
+          />
+          <Input
+            label="Arrival time (HH:MM)"
+            code
+            value={arrival}
+            onChangeText={setArrival}
+            placeholder="18:30"
+            keyboardType="numbers-and-punctuation"
+            hint={arrivalAt ? `Due ${arrivalAt.toLocaleString("en-GB", { timeZone: "Asia/Colombo", weekday: "short", hour: "2-digit", minute: "2-digit" })}` : "Sri Lanka time — the next time this clock comes round"}
+            error={arrival.trim() && !arrivalAt ? "Use 24-hour HH:MM" : null}
+          />
+          {isBus ? (
+            <Input
+              label="Bus arrival station / stop"
+              value={station}
+              onChangeText={setStation}
+              placeholder="Kandy Goods Shed bus stand"
+            />
+          ) : null}
           <Input
             label="Route (optional)"
             value={route}
@@ -183,6 +288,7 @@ export default function TransportTripsScreen() {
                 <LifecyclePill status={trip.status} />
               </View>
               <Mono>{trip.vehicleRegistration}</Mono>
+              {trip.vehicleType ? <Small>{vehicleLabel(trip.vehicleType, trip.busOperator)}</Small> : null}
               <View style={styles.cardBottom}>
                 <Badge>{`${plural(trip.bagCount, "bag")}`}</Badge>
                 <Badge>{`${plural(trip.parcelCount, "parcel")}`}</Badge>
@@ -204,6 +310,37 @@ export default function TransportTripsScreen() {
         })}
       </Section>
     </Screen>
+  );
+}
+
+function Chip({
+  label,
+  selected,
+  onPress,
+  accessibilityLabel,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  accessibilityLabel: string;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={accessibilityLabel}
+      style={[
+        styles.chip,
+        {
+          borderColor: selected ? colors.primary : colors.border,
+          backgroundColor: selected ? colors.primary : "transparent",
+        },
+      ]}
+    >
+      <Body color={selected ? colors.primaryForeground : colors.foreground}>{label}</Body>
+    </Pressable>
   );
 }
 

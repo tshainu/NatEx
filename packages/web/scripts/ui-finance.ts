@@ -1,7 +1,7 @@
 /**
  * Live UI proof of the finance portal (§10 M4: "Finance portal: dashboard, COD
  * ledger, remittances, invoices, disputes") in headless Chrome, signed in as
- * the seeded finance user (Dilani, the maker) and the admin (Rajitha, the
+ * the seeded finance user (Kavitha, the maker) and the admin (Arjun, the
  * checker) — plus the merchant's half of the dispute loop (Ceylon Threads).
  *
  * Every outcome is checked against the database or the API, never a toast:
@@ -682,7 +682,7 @@ await step("the fixture alert is acknowledged then resolved with a note → DB r
   await fin.locator("tr", { hasText: `UI fixture ${RUN}` }).click();
   const d = fin.getByRole("dialog").first();
   await d.getByRole("button", { name: /Acknowledge/ }).click();
-  await fin.waitForFunction(() => document.body.innerText.includes("Dilani"), undefined, { timeout: 20_000 });
+  await fin.waitForFunction(() => document.body.innerText.includes("Kavitha"), undefined, { timeout: 20_000 });
   await field(d, "Resolution note (at least 3 characters)").fill("Fixture: rider topped up the shortfall");
   await d.getByRole("button", { name: /^Resolve/ }).click();
   await confirm(fin, "Resolve this alert?", "Resolve");

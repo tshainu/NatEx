@@ -47,7 +47,13 @@ export function MetricTile({
         />
       ) : null}
       <p className="label-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 font-mono text-[26px] font-medium leading-none tracking-tight">
+      <p
+        className={cn(
+          "mt-1 font-mono font-medium leading-none tracking-tight",
+          // Money such as "Rs. 204,945.75" would wrap at 26px in a quarter-width tile.
+          typeof value === "string" && value.length > 11 ? "whitespace-nowrap text-[18px]" : "text-[26px]",
+        )}
+      >
         {value}
       </p>
       {delta ? (

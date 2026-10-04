@@ -8,15 +8,15 @@ Airline-operations-console energy. Dark, calm chrome; data in high contrast; col
 
 ## Colour
 
-Deep ink navy shell with amber as the single brand accent. Status colours are semantic and never reused for decoration.
+Deep ink navy shell with emerald as the single brand accent (changed from amber on 2026-10-03 at the client's request). Status colours are semantic and never reused for decoration.
 
 ```
 --ink-900   #0A1626   deepest shell / ops board background
 --ink-800   #0F2033   sidebar, table header
 --ink-700   #16304A   raised card on dark
 --ink-600   #1E4266   border on dark
---brand     #F59E0B   amber — NatEx accent, primary action, active nav
---brand-ink #7C3E00   amber text on light surfaces
+--brand     #10B981   emerald — NatEx accent, primary action, active nav
+--brand-ink #047857   emerald text on light surfaces
 --paper     #F7F8FA   light portal background (merchant/finance/admin)
 --paper-card#FFFFFF
 --line      #E3E7ED
@@ -30,10 +30,12 @@ Deep ink navy shell with amber as the single brand accent. Status colours are se
 | Meaning | Statuses | Colour |
 |---|---|---|
 | Created, not yet moving | Booked | slate `#64748B` |
-| In custody, moving | PickedUp, AtOriginHub, Bagged, InTransit, AtDestHub, OutForDelivery | amber `#F59E0B` |
+| In custody, moving | PickedUp, AtOriginHub, Bagged, InTransit, AtDestHub, OutForDelivery | sky `#0EA5E9` (was amber; moved off amber with the 2026-10-03 rebrand) |
 | Success / terminal good | Delivered, RTODelivered | emerald `#10B981` |
 | Attention / exception | DeliveryAttempted, OnHold, RTOInitiated, RTOInTransit | orange-red `#F43F5E` |
 | Failure / terminal bad | Lost, Damaged, Cancelled, ReturnedToMerchant | deep red `#9F1239` |
+
+Brand and "good" share emerald `#10B981` since the 2026-10-03 rebrand. They are kept apart by shape, not hue: brand appears only as filled buttons, the active-nav bar, focus rings and the row flash; "good" appears only as status dots/chips and chart series labelled Delivered. Never use a bare emerald dot or chip for anything that is not a terminal-good status.
 
 Money uses no status colour: positive amounts in `--text-dark`/`--text-hi`, variances and negatives in `#F43F5E`.
 
@@ -68,7 +70,7 @@ No Inter, no Space Grotesk, no Roboto.
 
 ## Motion
 
-One staggered reveal on portal load (rows fade+rise 8px, 24ms apart, capped at ~12 rows). After that: 120ms tint on hover, 200ms drawer slide, and a brief amber left-border flash on a table row whose status just changed on the live board. Nothing loops. Nothing pulses.
+One staggered reveal on portal load (rows fade+rise 8px, 24ms apart, capped at ~12 rows). After that: 120ms tint on hover, 200ms drawer slide, and a brief emerald left-border flash on a table row whose status just changed on the live board. Nothing loops. Nothing pulses.
 
 ## UX rules
 
@@ -80,7 +82,7 @@ One staggered reveal on portal load (rows fade+rise 8px, 24ms apart, capped at ~
 
 ## Mobile (Expo)
 
-- Dark-first, since riders work outdoors and in basements: `--ink-900` background, amber primary.
+- Dark-first, since riders work outdoors and in basements: `--ink-900` background, emerald primary.
 - **Thumb-first:** primary action is a full-width 56px button pinned to the bottom of the screen. Scan and confirm must be usable one-handed, in one tap, wearing a helmet.
 - AWB in 20px mono, centred, above everything else on scan/confirm screens.
 - Large touch targets (min 48px), high-contrast text, no thin weights below 14px.

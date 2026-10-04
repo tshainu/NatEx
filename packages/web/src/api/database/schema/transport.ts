@@ -47,6 +47,14 @@ export const bag = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
     createdByName: text("created_by_name"),
+    /**
+     * Optional photo of the bag as handed over (Round 6, 2026-10-03). Object
+     * key `s3:bag/<code>/<id>.<ext>`, never a presigned URL — it must stay
+     * resolvable for as long as a custody exception can be raised.
+     */
+    photoRef: text("photo_ref"),
+    photoAt: integer("photo_at", { mode: "timestamp" }),
+    photoByName: text("photo_by_name"),
   },
   (t) => [
     index("transport_bag_status_idx").on(t.status),
@@ -109,6 +117,22 @@ export const trip = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
     createdByName: text("created_by_name"),
+    /*
+     * Round 6 (2026-10-03) — what the hub records when it hands bags to a
+     * vehicle. All nullable: trips created before this change have none of it,
+     * and the API accepts a trip without them; the web form asks for them.
+     */
+    /** bus | van | lorry | car — see TRIP_VEHICLE_TYPES. */
+    vehicleType: text("vehicle_type"),
+    /** ctb | private | ac_bus — required when vehicle_type = bus, null otherwise. */
+    busOperator: text("bus_operator"),
+    /** Person on the vehicle to call (driver, conductor). */
+    contactName: text("contact_name"),
+    /** E.164, +94XXXXXXXXX. */
+    contactPhone: text("contact_phone"),
+    expectedArrivalAt: integer("expected_arrival_at", { mode: "timestamp" }),
+    /** Where the bus drops the bags — station or stop name, typed in. */
+    arrivalStation: text("arrival_station"),
   },
   (t) => [
     index("transport_trip_status_idx").on(t.status),

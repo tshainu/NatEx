@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Truck, PackagePlus, Send, MapPin } from "lucide-react";
+import { Truck, PackagePlus, Send, MapPin, Camera, ImageIcon } from "lucide-react";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -8,10 +8,13 @@ import { Drawer } from "@/components/ui/drawer";
 import { Page, Card, ErrorNote, SuccessNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { MetricTile } from "@/components/natex/metric-tile";
 import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
-import { dateTime, humanise } from "@/lib/format";
+import { colomboLocalToDate, dateTime, dateToColomboLocal, humanise } from "@/lib/format";
+import { BUS_OPERATORS, VEHICLE_TYPES, isLkPhone, vehicleLabel, type BusOperator, type VehicleType } from "@/lib/vehicles";
 import { useAuth } from "@/components/auth-provider";
 import { BagStatusBadge } from "./bagging";
 import {
+  useBagPhotoUpload,
+  useBagPhotoView,
   useBags,
   useBranches,
   useLinehaul,
@@ -48,6 +51,12 @@ interface TripRow {
   id: string;
   code: string;
   vehicleRegistration: string;
+  vehicleType: string | null;
+  busOperator: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  expectedArrivalAt: Date | string | null;
+  arrivalStation: string | null;
   driverName: string | null;
   route: string | null;
   status: string;
@@ -68,6 +77,12 @@ export default function OpsLinehaul() {
 
   const [openTripId, setOpenTripId] = React.useState<string | null>(null);
   const [vehicle, setVehicle] = React.useState("");
+  const [vehicleType, setVehicleType] = React.useState<VehicleType | "">("");
+  const [busOperator, setBusOperator] = React.useState<BusOperator | "">("");
+  const [contactName, setContactName] = React.useState("");
+  const [contactPhone, setContactPhone] = React.useState("");
+  const [arrival, setArrival] = React.useState("");
+  const [station, setStation] = React.useState("");
   const [destHubId, setDestHubId] = React.useState("");
   const [route, setRoute] = React.useState("");
   const [seal, setSeal] = React.useState("");
@@ -92,9 +107,29 @@ export default function OpsLinehaul() {
     setNotice(message);
   };
 
+  const isBus = vehicleType === "bus";
+  const arrivalAt = colomboLocalToDate(arrival);
+  const phoneBad = contactPhone.trim().length > 0 && !isLkPhone(contactPhone);
+  const arrivalBad = arrival.length > 0 && (!arrivalAt || arrivalAt.getTime() < Date.now() - 5 * 60_000);
+  const missing: string[] = [];
+  if (!vehicleType) missing.push("vehicle type");
+  if (isBus && !busOperator) missing.push("bus operator");
+  if (vehicle.trim().length < 3) missing.push("vehicle number");
+  if (!destHubId) missing.push("destination hub");
+  if (contactName.trim().length < 2) missing.push("contact person");
+  if (!isLkPhone(contactPhone)) missing.push("contact phone");
+  if (!arrivalAt || arrivalBad) missing.push("arrival time");
+  if (isBus && station.trim().length < 2) missing.push("arrival station");
+
   const create = useTripCreate({
     onSuccess: (row) => {
       setVehicle("");
+      setVehicleType("");
+      setBusOperator("");
+      setContactName("");
+      setContactPhone("");
+      setArrival("");
+      setStation("");
       setRoute("");
       setOpenTripId(row.id);
       ok(`Trip ${row.code} created. Load sealed bags onto it.`);
@@ -135,13 +170,20 @@ export default function OpsLinehaul() {
       key: "vehicle",
       header: "Vehicle",
       width: "w-[110px]",
-      cell: (r) => <MonoCell>{r.vehicleRegistration}</MonoCell>,
+      cell: (r) => (
+        <span className="block min-w-0">
+          <MonoCell className="whitespace-nowrap">{r.vehicleRegistration}</MonoCell>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {vehicleLabel(r.vehicleType, r.busOperator)}
+          </span>
+        </span>
+      ),
     },
     {
       key: "leg",
       header: "Leg",
       cell: (r) => (
-        <span className="truncate">
+        <span className="whitespace-nowrap">
           {r.originHubName} <span className="text-muted-foreground">→</span> {r.destHubName}
         </span>
       ),
@@ -152,7 +194,7 @@ export default function OpsLinehaul() {
       width: "w-[120px]",
       align: "right",
       cell: (r) => (
-        <MonoCell className="text-muted-foreground">
+        <MonoCell className="whitespace-nowrap text-muted-foreground">
           {r.bagCount} bag{r.bagCount === 1 ? "" : "s"} / {r.parcelCount}
         </MonoCell>
       ),
@@ -167,13 +209,17 @@ export default function OpsLinehaul() {
       key: "seal",
       header: "Seal",
       width: "w-[110px]",
-      cell: (r) => <MonoCell>{r.seal ?? "—"}</MonoCell>,
+      cell: (r) => <MonoCell className="whitespace-nowrap">{r.seal ?? "—"}</MonoCell>,
     },
     {
-      key: "departed",
-      header: "Departed",
+      key: "eta",
+      header: "Arrival due",
       width: "w-[150px]",
-      cell: (r) => <span className="text-muted-foreground">{dateTime(r.departedAt)}</span>,
+      cell: (r) => (
+        <span className="whitespace-nowrap text-muted-foreground">
+          {r.expectedArrivalAt ? dateTime(r.expectedArrivalAt) : "—"}
+        </span>
+      ),
     },
   ];
 
@@ -225,13 +271,61 @@ export default function OpsLinehaul() {
           {notice ? <SuccessNote>{notice}</SuccessNote> : null}
           {problem ? <ErrorNote>{problem}</ErrorNote> : null}
 
-          <Card title="Create a trip" description="One vehicle, one destination hub.">
+          <Card title="Create a trip" description="One vehicle, one destination hub. Times are Sri Lanka time.">
             <div className="flex flex-col gap-3">
-              <Field label="Vehicle registration">
+              <Field label="Vehicle type">
+                <Select
+                  value={vehicleType}
+                  onChange={(e) => {
+                    const next = e.target.value as VehicleType | "";
+                    setVehicleType(next);
+                    if (next !== "bus") {
+                      setBusOperator("");
+                      setStation("");
+                    }
+                  }}
+                >
+                  <option value="">Choose a vehicle…</option>
+                  {VEHICLE_TYPES.map((v) => (
+                    <option key={v.value} value={v.value}>
+                      {v.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {isBus ? (
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="label-xs mb-1.5 text-muted-foreground">Bus operator</legend>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {BUS_OPERATORS.map((o) => (
+                      <label
+                        key={o.value}
+                        className={
+                          busOperator === o.value
+                            ? "flex cursor-pointer items-center justify-center rounded-md border border-brand bg-brand/12 px-2 py-2 text-[13px] font-semibold text-brand-ink"
+                            : "flex cursor-pointer items-center justify-center rounded-md border border-input px-2 py-2 text-[13px] font-medium hover:bg-muted"
+                        }
+                      >
+                        <input
+                          type="radio"
+                          name="bus-operator"
+                          aria-label={o.label}
+                          value={o.value}
+                          checked={busOperator === o.value}
+                          onChange={() => setBusOperator(o.value)}
+                          className="sr-only"
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
+              <Field label="Vehicle number">
                 <Input
                   value={vehicle}
                   onChange={(e) => setVehicle(e.target.value.toUpperCase())}
-                  placeholder="WP-LM-4821"
+                  placeholder={isBus ? "NB-4821" : "WP-LM-4821"}
                   className="font-mono"
                 />
               </Field>
@@ -245,6 +339,46 @@ export default function OpsLinehaul() {
                   ))}
                 </Select>
               </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Contact person">
+                  <Input
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder={isBus ? "Conductor" : "Driver"}
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label="Contact phone" error={phoneBad ? "Not a Sri Lankan number." : null}>
+                  <Input
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    placeholder="0771234567"
+                    inputMode="tel"
+                    className="font-mono"
+                  />
+                </Field>
+              </div>
+              <Field
+                label="Expected arrival"
+                error={arrivalBad ? "That time is already past." : null}
+              >
+                <Input
+                  type="datetime-local"
+                  value={arrival}
+                  min={dateToColomboLocal(new Date())}
+                  onChange={(e) => setArrival(e.target.value)}
+                  className="font-mono"
+                />
+              </Field>
+              {isBus ? (
+                <Field label="Bus arrival station / stop" hint="Where the bags come off the bus.">
+                  <Input
+                    value={station}
+                    onChange={(e) => setStation(e.target.value)}
+                    placeholder="Kandy Goods Shed bus stand"
+                  />
+                </Field>
+              ) : null}
               <Field label="Route" hint="Optional free text, e.g. via A1.">
                 <Input
                   value={route}
@@ -252,14 +386,25 @@ export default function OpsLinehaul() {
                   placeholder="Colombo → Kandy via A1"
                 />
               </Field>
+              {missing.length > 0 && (vehicleType || vehicle || contactName || contactPhone || arrival) ? (
+                <p className="text-[12px] text-muted-foreground">
+                  Still needed: {missing.join(", ")}.
+                </p>
+              ) : null}
               <Button
-                disabled={vehicle.trim().length < 3 || !destHubId}
+                disabled={missing.length > 0}
                 pending={create.isPending}
                 onClick={() =>
                   create.mutate({
                     vehicleRegistration: vehicle.trim(),
                     destHubId,
                     route: route.trim() || null,
+                    vehicleType: vehicleType || null,
+                    busOperator: isBus && busOperator ? busOperator : null,
+                    contactName: contactName.trim(),
+                    contactPhone: contactPhone.trim(),
+                    expectedArrivalAt: arrivalAt,
+                    arrivalStation: isBus ? station.trim() : null,
                   })
                 }
               >
@@ -329,7 +474,26 @@ export default function OpsLinehaul() {
                 <KeyValue label="Vehicle seal" mono>
                   {detail.trip.seal ?? "Not sealed"}
                 </KeyValue>
-                <KeyValue label="Driver">{detail.trip.driverName ?? "Unassigned"}</KeyValue>
+                <KeyValue label="Vehicle">
+                  {vehicleLabel(detail.trip.vehicleType, detail.trip.busOperator)}
+                </KeyValue>
+                <KeyValue label="Contact">
+                  {detail.trip.contactName ?? detail.trip.driverName ?? "—"}
+                  {detail.trip.contactPhone ? (
+                    <a
+                      href={`tel:${detail.trip.contactPhone}`}
+                      className="ml-1.5 font-mono text-[12px] text-brand-ink hover:underline"
+                    >
+                      {detail.trip.contactPhone}
+                    </a>
+                  ) : null}
+                </KeyValue>
+                <KeyValue label="Arrival due">
+                  {detail.trip.expectedArrivalAt ? dateTime(detail.trip.expectedArrivalAt) : "—"}
+                </KeyValue>
+                {detail.trip.arrivalStation ? (
+                  <KeyValue label="Arrival station">{detail.trip.arrivalStation}</KeyValue>
+                ) : null}
                 <KeyValue label="Route">{detail.trip.route ?? "—"}</KeyValue>
                 <KeyValue label="Departed">{dateTime(detail.trip.departedAt)}</KeyValue>
                 <KeyValue label="Arrived">{dateTime(detail.trip.arrivedAt)}</KeyValue>
@@ -342,7 +506,9 @@ export default function OpsLinehaul() {
               </KeyValueGrid>
 
               <div>
-                <p className="label-xs mb-2 text-muted-foreground">Load</p>
+                <p className="label-xs mb-2 text-muted-foreground">
+                  Load <span className="normal-case tracking-normal">· a photo per bag is optional</span>
+                </p>
                 {detail.bags.length === 0 ? (
                   <p className="text-[13px] text-muted-foreground">
                     Nothing loaded. A trip cannot depart empty.
@@ -362,6 +528,13 @@ export default function OpsLinehaul() {
                         </span>
                         <span className="font-mono text-[13px]">{b.itemCount}</span>
                         <BagStatusBadge status={b.status} />
+                        <BagPhoto
+                          bagId={b.id}
+                          code={b.code}
+                          hasPhoto={Boolean(b.photoRef)}
+                          onDone={ok}
+                          onError={fail}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -450,5 +623,79 @@ export default function OpsLinehaul() {
         )}
       </Drawer>
     </Page>
+  );
+}
+
+/**
+ * Optional photo of one bag (Round 6). Upload goes straight to the bucket; the
+ * view link is minted on demand and expires after five minutes.
+ */
+function BagPhoto({
+  bagId,
+  code,
+  hasPhoto,
+  onDone,
+  onError,
+}: {
+  bagId: string;
+  code: string;
+  hasPhoto: boolean;
+  onDone: (message: string) => void;
+  onError: (message: string) => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [viewing, setViewing] = React.useState(false);
+  const view = useBagPhotoView(viewing && hasPhoto ? bagId : null);
+  const upload = useBagPhotoUpload({
+    onSuccess: () => onDone(`Photo saved for bag ${code}.`),
+    onError,
+  });
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        aria-label={`Photo for bag ${code}`}
+        className="sr-only"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) upload.mutate({ bagId, file });
+        }}
+      />
+      {hasPhoto ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`View photo of bag ${code}`}
+          onClick={() => setViewing((v) => !v)}
+        >
+          <ImageIcon aria-hidden />
+        </Button>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        pending={upload.isPending}
+        aria-label={hasPhoto ? `Replace photo of bag ${code}` : `Add photo of bag ${code}`}
+        onClick={() => inputRef.current?.click()}
+      >
+        <Camera aria-hidden />
+        {hasPhoto ? "Replace" : "Photo"}
+      </Button>
+      {viewing && view.data ? (
+        <a
+          href={view.data.url}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-1 block overflow-hidden rounded border border-border"
+        >
+          <img src={view.data.url} alt={`Bag ${code}`} className="size-10 object-cover" />
+        </a>
+      ) : null}
+    </span>
   );
 }

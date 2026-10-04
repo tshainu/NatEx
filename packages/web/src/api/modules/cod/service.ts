@@ -24,7 +24,7 @@ import {
 import { errors, isUniqueViolationOn, problem, fail } from "../../shared/errors";
 import { formatLkr } from "../../shared/money";
 import { enqueue } from "../../shared/outbox";
-import { colomboToday } from "../../shared/time";
+import { addDays, colomboToday } from "../../shared/time";
 import { prefixedId } from "../../shared/ulid";
 import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
 import { writeAudit } from "../../shared/audit";
@@ -1049,6 +1049,47 @@ export async function reconciliation(filter?: {
     /** Must be zero. Anything else means the ledger was written outside this module. */
     ledgerSumCents: ledgerSum(live),
   };
+}
+
+export interface FlowDay {
+  /** YYYY-MM-DD, Asia/Colombo. */
+  date: string;
+  collectedCents: number;
+  depositedCents: number;
+  bankedCents: number;
+  settledCents: number;
+}
+
+/**
+ * The four checkpoints per Asia/Colombo day — the finance flow chart.
+ *
+ * Read from the ledger itself and passed through `liveEntries`, so a reversed
+ * entry and its reversal both drop out exactly as they do in
+ * `reconciliation()`. Every day of the window is returned, empty or not.
+ */
+export async function dailyFlow(days: number, now: Date = new Date()): Promise<FlowDay[]> {
+  const span = Math.min(Math.max(Math.trunc(days), 1), 90);
+  const first = addDays(colomboToday(now), -(span - 1));
+  const since = new Date(`${first}T00:00:00+05:30`);
+  const rows = await db
+    .select()
+    .from(codEntry)
+    .where(sql`${codEntry.ts} >= ${Math.floor(since.getTime() / 1000)}`);
+
+  const byDay = new Map<string, FlowDay>();
+  for (let i = 0; i < span; i += 1) {
+    const date = addDays(first, i);
+    byDay.set(date, { date, collectedCents: 0, depositedCents: 0, bankedCents: 0, settledCents: 0 });
+  }
+  for (const entry of liveEntries(rows)) {
+    const day = byDay.get(colomboToday(entry.ts));
+    if (!day) continue;
+    if (entry.type === "COLLECT") day.collectedCents += entry.amountCents;
+    else if (entry.type === "DEPOSIT") day.depositedCents += entry.amountCents;
+    else if (entry.type === "BANK") day.bankedCents += entry.amountCents;
+    else if (entry.type === "SETTLE") day.settledCents += entry.amountCents;
+  }
+  return [...byDay.values()];
 }
 
 /** Paged ledger browser for the finance portal (§10 M4 "ledger browser"). */

@@ -35,7 +35,7 @@ const GROUPS: Record<string, StatusGroup> = {
 
 export const GROUP_COLOUR: Record<StatusGroup, string> = {
   created: "#64748B",
-  moving: "#F59E0B",
+  moving: "#0EA5E9",
   good: "#10B981",
   warn: "#F43F5E",
   bad: "#9F1239",

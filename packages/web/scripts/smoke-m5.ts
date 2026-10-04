@@ -239,7 +239,7 @@ const slaBefore = opsList.find((s) => s.key === "ndr_sla_hours")!.value;
 const setRes = await admin.settings.set({ key: "ndr_sla_hours", value: 36, reason: "smoke: SLA change" });
 check(setRes.before === slaBefore && setRes.after === 36, "admin changes the NDR SLA", `${setRes.before} → ${setRes.after}`);
 const after = (await ops.settings.list()).find((s) => s.key === "ndr_sla_hours")!;
-check(after.value === 36 && after.updatedByName === "Rajitha Silva" && after.note === "smoke: SLA change", "the change is visible with who and why");
+check(after.value === 36 && after.updatedByName === "Arjun Rajendran" && after.note === "smoke: SLA change", "the change is visible with who and why");
 await admin.settings.set({ key: "ndr_sla_hours", value: slaBefore, reason: "smoke: restore SLA" });
 
 // ── 4. Users & branches ─────────────────────────────────────────────────────

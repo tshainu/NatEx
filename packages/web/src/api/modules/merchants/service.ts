@@ -1,4 +1,4 @@
-import { and, count, eq, like, or } from "drizzle-orm";
+import { and, count, eq, inArray, like, or } from "drizzle-orm";
 import { db } from "../../database";
 import { merchant } from "../../database/schema/merchants";
 import { prefixedId } from "../../shared/ulid";
@@ -159,6 +159,21 @@ export async function updateMerchant(
   if (Object.keys(next).length === 0) return { before, after: before };
   const [after] = await db.update(merchant).set(next).where(eq(merchant.id, id)).returning();
   return { before, after: after! };
+}
+
+/** Merchants per account status — the admin dashboard tile. */
+export async function merchantStatusCounts(): Promise<{ status: string; count: number }[]> {
+  const rows = await db
+    .select({ status: merchant.status, value: count() })
+    .from(merchant)
+    .groupBy(merchant.status);
+  return rows.map((r) => ({ status: r.status, count: r.value }));
+}
+
+/** Names for a handful of merchant ids — the admin dashboard's leaderboard. */
+export async function merchantNames(ids: string[]): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return db.select({ id: merchant.id, name: merchant.name }).from(merchant).where(inArray(merchant.id, ids));
 }
 
 export async function merchantCount(): Promise<number> {

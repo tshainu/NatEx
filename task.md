@@ -447,3 +447,43 @@ Open, not invented:
 - Sentry DSN and Uptime Kuma host — not provided; wiring documented only.
 - Rider/transport app never run on a physical phone (Expo web in headless Chrome only).
 - Real-Turso restore not rehearsed (drill restores to local SQLite).
+
+## Round 6 — client UI requests (2026-10-03)
+
+Asked: (1) Tamil names, English letters, for staff users + consignees (merchant
+contacts unchanged); (2) split-screen login; (3) charts on ops board, merchant
+dashboard, finance overview + new admin dashboard; (4) theme dark blue + emerald
+#10B981 instead of amber; (6) bold menu group titles; (7) linehaul trip: vehicle
+type (Bus always asks CTB / Private / AC Bus), vehicle number, contact person,
+phone, arrival time, arrival bus station/stop, optional photo per bag.
+(5) "Scan place" — dropped by the user.
+
+- [x] theme — emerald #10B981 brand on buttons / active nav / focus / row flash;
+      `moving` status amber → sky #0EA5E9; mobile theme.ts matched
+- [x] bold nav titles — shell.tsx group headings; seen in admin/ops/finance screenshots
+- [x] names (seed + login lists + scripts) — 8 staff + 30 consignees; merchant
+      contacts unchanged; reseed wiped the dev audit log / events / probe fixtures
+- [x] login redesign — split brand panel (login-hub.jpg) + sign-in; viewed at
+      1440×900 and 390×844
+- [x] dashboards — ops board, merchant, finance overview, new admin
+      /admin/dashboard (company); parcels.trends, cod.dailyFlow, dashboard.company;
+      probe-dashboards 44/0; all four viewed in screenshots
+- [x] linehaul trip fields + bag photos — vehicle type (Bus → CTB/Private/AC bus),
+      number, contact + phone, expected arrival, arrival station; optional bag photo
+      (web + mobile); probe-trip-bag 39 pass; web form read back via API
+- [x] verify (2026-10-04): lint 0/0; tsc web + scripts + mobile + desktop clean;
+      `bun run test` 1426 pass / 0 fail; live: smoke 71, smoke-m3 93, smoke-m4 75,
+      smoke-m5 115, smoke-sync 66, security-review 100, probe-sync-conflicts 47,
+      probe-cod-wiring 35, probe-pod-photo 25, probe-dashboards 44, probe-trip-bag 39,
+      ui-check 58 routes, ui-finance 42, ui-ops-delivery 24, ui-rider 51,
+      ui-rider-queue 31. After the last UI polish (metric-tile money size, linehaul
+      nowrap cells, humanise): smoke 71, smoke-m5 115, ui-check 58, ui-finance 42,
+      ui-admin 29/0, ui-merchant 46/46. Single, non-repeating failures on the way:
+      ui-admin settings refresh check once, ui-admin Turso query + goto timeout once,
+      ui-merchant one bulk row rejected during a 53 s chunk once — each passed on rerun
+      while the sandbox connection was dropping.
+- Found + fixed: dev MFA code could be the TOTP step about to expire
+  (security-review failed twice) — `devCodeFor` skips a step with <5 s left;
+  regression test in mfa.db.test.ts. `humanise("RTOInitiated")` now "RTO Initiated".
+- Unexplained: ui-ops-delivery failed 5/24 once in the batch (Dispatch click
+  timeout + a console 409); not reproduced in two later runs.

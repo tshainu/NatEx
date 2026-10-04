@@ -14,11 +14,12 @@
  *
  * Run: `bun --env-file=../../.env test src/api/modules/parcels/transition.db.test.ts`
  */
-import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { ORPCError } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../database";
-import { parcelEvent } from "../../database/schema/parcels";
+import { parcel, parcelEvent } from "../../database/schema/parcels";
+import { merchant } from "../../database/schema/merchants";
 import type { Principal, Role } from "../../shared/auth";
 import { getMerchant, seedMerchant, setMerchantStatus } from "../merchants/service";
 import {
@@ -135,6 +136,22 @@ beforeAll(async () => {
   await ensureMerchant(M_SUSP, true);
   await setMerchantStatus(M_SUSP, "suspended", AS.admin);
   for (const s of PARCEL_STATUSES) atStatus.set(s, await parcelAt(s));
+});
+
+/**
+ * Leave the dev database as it was found (Round 6): the fixtures otherwise
+ * pile up as a "[§6 test]" merchant and an unnamed branch on the admin
+ * company dashboard. Only rows this file owns — its synthetic branch and its
+ * three test merchants — are removed. Nothing references a parcel by FK.
+ */
+afterAll(async () => {
+  const ids = (await db.select({ id: parcel.id }).from(parcel).where(eq(parcel.branchId, TEST_BRANCH))).map((r) => r.id);
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    await db.delete(parcelEvent).where(inArray(parcelEvent.parcelId, chunk));
+    await db.delete(parcel).where(inArray(parcel.id, chunk));
+  }
+  await db.delete(merchant).where(inArray(merchant.id, [M_COD, M_NOCOD, M_SUSP]));
 });
 
 // ── Every legal transition, written for real ─────────────────────────────────

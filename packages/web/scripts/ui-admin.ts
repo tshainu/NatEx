@@ -204,7 +204,7 @@ await step("admin: phone OTP → TOTP challenge (dev code pre-filled) → admin 
     await code.fill(c);
   }
   await lp.getByRole("button", { name: "Verify and sign in" }).click();
-  await lp.waitForURL(/\/admin\/users/, { timeout: 20_000 });
+  await lp.waitForURL(/\/admin\/dashboard/, { timeout: 20_000 });
   const stored = await lp.evaluate(() => JSON.parse(localStorage.getItem("natex.session") ?? "{}"));
   must(stored.user?.role === "admin" && !stored.mfa?.state?.match(/challenge|enrol/), `stored session ${JSON.stringify(stored.mfa)}`);
   return new URL(lp.url()).pathname;
@@ -654,6 +654,7 @@ await step("arrow keys move the monitor tab strip and mirror ?tab=", async () =>
 // ─────────────────────────────────────────────────────────────── 11. guards & sweep
 console.log("\n11. Role guards and route sweep");
 const ADMIN_ROUTES: [string, string][] = [
+  ["/admin/dashboard", "Company dashboard"],
   ["/admin/users", "Users"],
   ["/admin/branches", "Branches"],
   ["/admin/zones", "Serviceability zones"],
@@ -673,7 +674,7 @@ await step(`admin: ${ADMIN_ROUTES.length} screens render with their heading and 
     await noOverflow(adm);
   }
   const links = await adm.locator("nav a").allTextContents();
-  for (const want of ["Rate cards", "Settings", "Templates", "Audit log", "System monitor"]) must(links.some((l) => l.includes(want)), `nav lacks ${want}`);
+  for (const want of ["Company dashboard", "Rate cards", "Settings", "Templates", "Audit log", "System monitor"]) must(links.some((l) => l.includes(want)), `nav lacks ${want}`);
   must(!links.some((l) => /M5/.test(l)), "a nav item still carries an M5 milestone tag");
   return `${ADMIN_ROUTES.length} routes`;
 });

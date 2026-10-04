@@ -14,14 +14,16 @@ import { Platform } from "react-native";
  * design.md that mean exactly the same thing in both places.
  */
 
-/** The ink shell + amber accent from design.md "Colour". */
+/** The ink shell + emerald accent from design.md "Colour". */
 const ink = {
   ink900: "#0A1626",
   ink800: "#0F2033",
   ink700: "#16304A",
   ink600: "#1E4266",
-  brand: "#F59E0B",
-  brandInk: "#7C3E00",
+  brand: "#10B981",
+  brandInk: "#047857",
+  /** Text on a filled emerald surface (buttons, selected chips). */
+  onBrand: "#022C22",
   textHi: "#F4F7FB",
   textLo: "#8FA3B8",
 } as const;
@@ -35,7 +37,7 @@ const status = {
   /** Booked — created, not yet moving. */
   statusIdle: "#64748B",
   /** In custody and moving — PickedUp through OutForDelivery. */
-  statusMoving: "#F59E0B",
+  statusMoving: "#0EA5E9",
   /** Terminal good — Delivered, RTODelivered. */
   statusGood: "#10B981",
   /** Needs attention — DeliveryAttempted, OnHold, RTO*. */
@@ -52,7 +54,7 @@ const shell = {
   /** Raised-but-quieter surface: sheet headers, table header rows. */
   surface: ink.ink800,
   primary: ink.brand,
-  primaryForeground: ink.brandInk,
+  primaryForeground: ink.onBrand,
   secondary: ink.ink800,
   secondaryForeground: ink.textHi,
   muted: ink.ink800,
@@ -62,7 +64,7 @@ const shell = {
   border: ink.ink600,
   destructive: status.statusWarn,
   success: status.statusGood,
-  warning: ink.brand,
+  warning: status.statusWarn,
   ...status,
 } as const;
 

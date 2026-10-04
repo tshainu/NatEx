@@ -8,7 +8,6 @@ import { portalFor, mayVisit } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/natex/page";
-import { Badge } from "@/components/ui/badge";
 import { MfaStep } from "@/components/natex/mfa-step";
 
 /**
@@ -22,11 +21,11 @@ import { MfaStep } from "@/components/natex/mfa-step";
  */
 
 const DEMO_LOGINS = [
-  { role: "Operations", phone: "+94772345678", name: "Nimali Perera" },
-  { role: "Administrator", phone: "+94773456789", name: "Rajitha Silva" },
+  { role: "Operations", phone: "+94772345678", name: "Priya Shanmugam" },
+  { role: "Administrator", phone: "+94773456789", name: "Arjun Rajendran" },
   { role: "Merchant", phone: "+94775678901", name: "Sanjay Kumar" },
-  { role: "Finance", phone: "+94774567890", name: "Dilani Jayawardena" },
-  { role: "Rider", phone: "+94771234567", name: "Pradeep Fernando" },
+  { role: "Finance", phone: "+94774567890", name: "Kavitha Sivakumar" },
+  { role: "Rider", phone: "+94771234567", name: "Karthik Selvaraj" },
 ];
 
 export default function Login() {
@@ -91,62 +90,76 @@ export default function Login() {
   }
 
   return (
-    <div className="dark flex min-h-screen items-center bg-ink-900 text-text-hi">
-      <div className="mx-auto grid w-full max-w-5xl gap-10 px-6 py-12 lg:grid-cols-[1fr_360px]">
-        <div className="flex flex-col justify-center">
-          <div className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-md bg-brand font-display text-[16px] font-bold text-brand-ink">
+    <div className="dark grid min-h-screen bg-ink-900 text-text-hi lg:grid-cols-[minmax(0,1.15fr)_minmax(420px,1fr)]">
+      {/* ── Brand panel ─────────────────────────────────────────────── */}
+      <section
+        aria-label="NatEx"
+        className="relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between"
+      >
+        <img
+          src="/images/login-hub.jpg"
+          alt=""
+          aria-hidden
+          className="absolute inset-0 size-full object-cover"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,22,38,0.55)_0%,rgba(10,22,38,0.15)_35%,rgba(10,22,38,0.75)_70%,#0a1626_100%)]"
+        />
+        <div aria-hidden className="absolute inset-y-0 right-0 w-px bg-ink-600" />
+
+        <div className="relative flex items-center gap-2.5 px-12 pt-10">
+          <span className="grid size-10 place-items-center rounded-lg bg-brand font-display text-[18px] font-bold text-primary-foreground shadow-[0_0_0_4px_rgba(16,185,129,0.18)]">
+            N
+          </span>
+          <span className="font-display text-[24px] font-bold tracking-tight">NatEx</span>
+        </div>
+
+        <div className="relative px-12 pb-12">
+          <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brand">
+            Island-wide courier network
+          </p>
+          <h1 className="mt-3 max-w-xl font-display text-[40px] font-extrabold leading-[1.08] tracking-tight">
+            Every parcel, every hand-off, accounted for.
+          </h1>
+          <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-text-hi/80">
+            Booking, pickup, hub-to-hub linehaul, last-mile delivery with proof, COD
+            and settlements — one platform for merchants, riders, operations and
+            finance across Sri Lanka.
+          </p>
+          <dl className="mt-8 grid max-w-xl grid-cols-3 gap-px overflow-hidden rounded-lg border border-white/10 bg-white/10 backdrop-blur-sm">
+            {[
+              ["Custody", "Signed at every hand-off"],
+              ["Proof", "OTP, photo, signature"],
+              ["Cash", "COD tracked to the cent"],
+            ].map(([term, detail]) => (
+              <div key={term} className="bg-ink-900/70 px-4 py-3">
+                <dt className="font-display text-[14px] font-bold text-text-hi">{term}</dt>
+                <dd className="mt-0.5 text-[12px] text-text-lo">{detail}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* ── Sign-in panel ───────────────────────────────────────────── */}
+      <section className="flex flex-col justify-center px-6 py-10 sm:px-12">
+        <div className="mx-auto w-full max-w-[400px]">
+          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+            <span className="grid size-9 place-items-center rounded-md bg-brand font-display text-[16px] font-bold text-primary-foreground">
               N
             </span>
             <span className="font-display text-[22px] font-bold tracking-tight">NatEx</span>
           </div>
-          <h1 className="mt-7 max-w-lg font-display text-[30px] font-bold leading-[1.15]">
-            Courier &amp; logistics operations, Sri Lanka
-          </h1>
-          <p className="mt-3 max-w-md text-[14px] leading-relaxed text-text-lo">
-            Parcel booking with the full state machine, pickup collection,
-            hub-to-hub custody, last-mile runsheets with proof of delivery, NDR and
-            returns, a merchant portal with bulk booking, and the finance desk —
-            COD ledger, settlements, invoicing, disputes and payouts — and the admin
-            portal. Sign in with your registered phone number — a six-digit code is
-            sent by SMS. Operations, finance and admin also confirm with an
-            authenticator app.
+          <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-text-lo">
+            Welcome back
           </p>
-          <Badge variant="dark" className="mt-6 w-fit">
-            Milestones 1–5 · Collection, Custody, Delivery, Money &amp; Admin
-          </Badge>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-text-lo">
+            Sign in with your registered phone number — a six-digit code is sent by
+            SMS. Operations, finance and admin also confirm with an authenticator app.
+          </p>
 
-          <div className="mt-8 max-w-md rounded-lg border border-ink-600 bg-ink-800 p-4">
-            <p className="label-xs text-text-lo">Seeded accounts</p>
-            <p className="mt-1.5 text-[12px] text-text-lo">
-              No SMS gateway is configured in this environment, so the code is returned
-              in the response and filled in for you.
-            </p>
-            <ul className="mt-3 space-y-1">
-              {DEMO_LOGINS.map((account) => (
-                <li key={account.phone}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPhone(account.phone);
-                      startOver();
-                    }}
-                    className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-ink-700"
-                  >
-                    <span className="text-[13px]">{account.name}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-[12px] text-text-lo">{account.role}</span>
-                      <span className="font-mono text-[12px] text-brand">{account.phone}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="flex items-center">
-          <div className="w-full rounded-lg border border-ink-600 bg-ink-800 p-6">
+          <div className="mt-6 rounded-xl border border-ink-600 bg-ink-800 p-6 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.6)]">
             {pending ? (
               <MfaStep pending={pending} onDone={finish} onCancel={startOver} />
             ) : !challenge ? (
@@ -158,7 +171,7 @@ export default function Login() {
                 className="space-y-4"
               >
                 <div>
-                  <h2 className="font-display text-[18px] font-semibold">Sign in</h2>
+                  <h2 className="font-display text-[20px] font-bold">Sign in</h2>
                   <p className="mt-1 text-[13px] text-text-lo">
                     Enter the phone number on your NatEx account.
                   </p>
@@ -249,8 +262,48 @@ export default function Login() {
               </form>
             )}
           </div>
+
+          <SeededAccounts
+            onPick={(value) => {
+              setPhone(value);
+              startOver();
+            }}
+          />
+          <p className="mt-6 text-center text-[11px] text-text-lo/70">
+            Milestones 1–5 · Collection, Custody, Delivery, Money &amp; Admin
+          </p>
         </div>
-      </div>
+      </section>
+    </div>
+  );
+}
+
+/** Dev-only shortcut list. No SMS gateway here, so the code comes back in the response. */
+function SeededAccounts({ onPick }: { onPick: (phone: string) => void }) {
+  return (
+    <div className="mt-5 rounded-xl border border-ink-600/70 bg-ink-900 p-4">
+      <p className="label-xs text-text-lo">Seeded accounts</p>
+      <p className="mt-1.5 text-[12px] text-text-lo">
+        No SMS gateway is configured in this environment, so the code is returned in
+        the response and filled in for you.
+      </p>
+      <ul className="mt-3 space-y-0.5">
+        {DEMO_LOGINS.map((account) => (
+          <li key={account.phone}>
+            <button
+              type="button"
+              onClick={() => onPick(account.phone)}
+              className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-120 hover:bg-ink-700 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/40"
+            >
+              <span className="text-[13px] font-medium">{account.name}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-[12px] text-text-lo">{account.role}</span>
+                <span className="font-mono text-[12px] text-brand">{account.phone}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { Image, Platform, StyleSheet, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiMessage, client, orpc } from "../../../lib/api";
@@ -83,6 +84,35 @@ export default function BagScreen() {
 
   const data = detail.data;
   const bag = data?.bag;
+
+  // Optional bag photo (Round 6): slot → PUT straight to the bucket → attach.
+  const photo = useMutation({
+    mutationFn: async () => {
+      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], quality: 0.6 };
+      if (Platform.OS !== "web") {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) throw new Error("Camera permission is needed for a bag photo.");
+      }
+      const shot =
+        Platform.OS === "web"
+          ? await ImagePicker.launchImageLibraryAsync(opts)
+          : await ImagePicker.launchCameraAsync(opts);
+      if (shot.canceled || !shot.assets[0]) return null;
+      const asset = shot.assets[0];
+      const contentType = (asset.mimeType ?? "image/jpeg") as "image/jpeg" | "image/png" | "image/webp";
+      const slot = await client.transport.bagPhotoUpload({ bagId, contentType });
+      const blob = await (await fetch(asset.uri)).blob();
+      const put = await fetch(slot.uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": contentType } });
+      if (!put.ok) throw new Error(`Photo upload failed (${put.status}). Try again with signal.`);
+      return client.transport.bagPhotoAttach({ bagId, storageRef: slot.storageRef });
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: orpc.transport.key() }),
+  });
+  const photoView = useQuery({
+    ...orpc.transport.bagPhotoView.queryOptions({ input: { bagId } }),
+    enabled: Boolean(bag?.photoRef),
+    staleTime: 4 * 60_000,
+  });
   const items = (data?.items ?? []).filter((item) => item.removedAt === null);
 
   function add() {
@@ -191,6 +221,24 @@ export default function BagScreen() {
           />
         </View>
         {bag?.sealedAt ? <Field label="Sealed at" value={dateTime(bag.sealedAt)} /> : null}
+        {photoView.data ? (
+          <Image
+            source={{ uri: photoView.data.url }}
+            accessibilityLabel={`Photo of bag ${bag?.code ?? ""}`}
+            style={styles.photo}
+          />
+        ) : null}
+        {bag && bag.status !== "cancelled" ? (
+          <Button
+            title={bag.photoRef ? "Replace bag photo" : "Add bag photo (optional)"}
+            variant="ghost"
+            loading={photo.isPending}
+            onPress={() => photo.mutate()}
+          />
+        ) : null}
+        {photo.isError ? (
+          <Small color={colors.statusWarn}>{apiMessage(photo.error, "The photo was not saved.")}</Small>
+        ) : null}
         {data?.trip ? (
           <Card onPress={() => router.push(`/(transport)/trip/${data.trip!.id}`)}>
             <Label>On trip</Label>
@@ -349,6 +397,7 @@ export default function BagScreen() {
 }
 
 const styles = StyleSheet.create({
+  photo: { width: "100%", aspectRatio: 4 / 3, borderRadius: Space.radius },
   flex: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit * 1.5 },
 });

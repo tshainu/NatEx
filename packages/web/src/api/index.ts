@@ -5,6 +5,7 @@ import { startNightly } from "./jobs/nightly";
 import { recordDeliveryReceipt, startWorker } from "./jobs/worker";
 import { cod } from "./routes/cod";
 import { collection } from "./routes/collection";
+import { dashboard } from "./routes/dashboard";
 import { delivery } from "./routes/delivery";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
@@ -63,6 +64,8 @@ export const router = {
   settings,
   audit,
   monitor,
+  // Round 6 — admin company dashboard.
+  dashboard,
 };
 
 export type AppRouter = typeof router;

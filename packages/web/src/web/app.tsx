@@ -24,6 +24,7 @@ import OpsServiceability from "./pages/ops/serviceability";
 import OpsMerchants from "./pages/ops/merchants";
 import OpsRunsheets from "./pages/ops/runsheets";
 import OpsNdr from "./pages/ops/ndr";
+import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
 import AdminBranches from "./pages/admin/branches";
 import AdminZones from "./pages/admin/zones";
@@ -178,7 +179,10 @@ function Routes() {
 
       {/* Administration — identity and routing reference data */}
       <Portal path="/admin">
-        <Redirect to="/admin/users" replace />
+        <Redirect to="/admin/dashboard" replace />
+      </Portal>
+      <Portal path="/admin/dashboard">
+        <AdminDashboard />
       </Portal>
       <Portal path="/admin/users">
         <AdminUsers />
