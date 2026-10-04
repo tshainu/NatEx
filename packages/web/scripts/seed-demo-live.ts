@@ -22,6 +22,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { AppRouterClient } from "../src/api";
+import { inArray, eq } from "drizzle-orm";
 import { isDevelopment } from "../src/api/shared/env";
 import { bankRiderCash } from "./lib/cash";
 import { finishMfa } from "./lib/mfa";
@@ -219,11 +220,36 @@ const cmbAtHub = cmb.slice(8, 11);
 const cmbPicked = cmb.slice(11, 14);
 await move([...cmbRun, ...cmbAtHub, ...cmbPicked].map((p) => p.awb), "PickedUp", "cmb");
 await move([...cmbRun, ...cmbAtHub].map((p) => p.awb), "AtOriginHub", "cmb");
-// Colombo-local stops ride no linehaul, but a run only takes AtDestHub
-// parcels — walk today's run through the legal custody chain at the hub.
-await move(cmbRun.map((p) => p.awb), "Bagged", "cmb-local");
-await move(cmbRun.map((p) => p.awb), "InTransit", "cmb-local");
-await move(cmbRun.map((p) => p.awb), "AtDestHub", "cmb-local");
+// Colombo-local stops ride no linehaul: they are processed at their own
+// branch and stay accountable to it, so no bag/trip rows exist for them
+// (a bag's origin and destination must differ). A run only takes AtDestHub
+// parcels, so — exactly as the base seed and seed-demo-history stage custody
+// — write the legal chain (AtOriginHub → Bagged → InTransit → AtDestHub)
+// straight to the ledger and set the status.
+{
+  const { parcel, parcelEvent } = await import("../src/api/database/schema/parcels");
+  const { prefixedId } = await import("../src/api/shared/ulid");
+  const rows = await db.select().from(parcel).where(inArray(parcel.awb, cmbRun.map((p) => p.awb)));
+  let t = Date.now() - 3_600_000;
+  for (const r of rows) {
+    for (const [fromStatus, toStatus] of [["AtOriginHub", "Bagged"], ["Bagged", "InTransit"], ["InTransit", "AtDestHub"]] as const) {
+      await db.insert(parcelEvent).values({
+        id: prefixedId("evt"),
+        parcelId: r.id,
+        fromStatus,
+        toStatus,
+        actorId: admin.user.id,
+        actorName: admin.user.name,
+        actorRole: "admin",
+        notes: "local hub processing",
+        ts: new Date(t),
+      });
+      t += 60_000;
+    }
+    await db.update(parcel).set({ status: "AtDestHub", updatedAt: new Date() }).where(eq(parcel.id, r.id));
+  }
+  console.log(`cmb-local: ${rows.length} stops walked to AtDestHub`);
+}
 await runFor(cmbOps, cmbRider, cmbRun.map((p) => p.awb), CMB_BRANCH, "cmb");
 await deliver(cmbRider, cmbRun[0]!, 6.8931, 79.8636);
 await deliver(cmbRider, cmbRun[1]!, 6.9093, 79.8664);
