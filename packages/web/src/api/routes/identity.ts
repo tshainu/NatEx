@@ -14,6 +14,7 @@ import { getMerchant } from "../modules/merchants/service";
 import { errors } from "../shared/errors";
 import { ROLES } from "../shared/auth";
 import { toE6 } from "../shared/geo";
+import { isDevelopment } from "../shared/env";
 
 /**
  * identity routes — auth, users, branches.
@@ -21,6 +22,13 @@ import { toE6 } from "../shared/geo";
  * OTP request/verify/refresh are public but rate limited hard (they are the
  * brute-force surface). Everything else runs the full chain.
  */
+
+/**
+ * Public: is this a demo/development deployment? The login page shows the
+ * seeded demo accounts only when it is. It reveals nothing a visitor could not
+ * learn from requestOtp (which returns devCode in exactly the same case).
+ */
+export const environment = publicProc.handler(() => ({ demo: isDevelopment() }));
 
 export const requestOtp = publicProc
   .input(z.object({ phone: z.string().min(9).max(20) }))
@@ -198,6 +206,7 @@ export const sessionCounts = adminProc.handler(() => identityService.sessionCoun
 
 /** Router namespace — composed into the root router in api/index.ts. */
 export const identity = {
+  environment,
   requestOtp,
   verifyOtp,
   refresh,

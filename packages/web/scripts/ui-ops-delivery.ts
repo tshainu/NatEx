@@ -108,6 +108,53 @@ for (const r of liveOpen) {
   if (p?.status === "DeliveryAttempted") withParcel.push(r);
   if (withParcel.length === 3) break;
 }
+if (withParcel.length < 3) {
+  // A fresh database (a new demo, a restored backup) has no live Kandy NDRs.
+  // Raise the missing ones the way the street does: book at Colombo, rail to
+  // Kandy, put them on the Kandy rider's van, dispatch, and record a missed
+  // delivery on each stop. The run is then closed so the runsheet proof below
+  // can open the rider's next run.
+  const need = 3 - withParcel.length;
+  const ndrAwbs: string[] = [];
+  for (let i = 0; i < need; i += 1) {
+    const created = await clientFor(admin.accessToken, key(`ndr-stage-${i}`)).parcels.create({
+      merchantId: "mch_ceylon_threads",
+      branchId: CMB_BRANCH,
+      weightGrams: 700,
+      declaredValueCents: 90_000,
+      codAmountCents: 0,
+      originAddress: "12 Dharmapala Mawatha, Kandy",
+      consigneeName: `UI NDR Fixture ${i + 1}`,
+      consigneePhone: "+94761112244",
+      destAddress: `${i + 10} Katugastota Road, Kandy`,
+    });
+    ndrAwbs.push(created.parcel.awb);
+  }
+  await railToKandyHub({ clientFor, login, adminToken: admin.accessToken, awbs: ndrAwbs, key, label: "ui-ops-ndr" });
+  const run = await clientFor(kdyOps.accessToken, key("ndr-run")).delivery.runsheetCreate({ riderId: kdyRider.user.id });
+  const added = await clientFor(kdyOps.accessToken, key("ndr-add")).delivery.runsheetAdd({ runsheetId: run.id, awbs: ndrAwbs });
+  if (added.added !== need) throw new Error(`NDR fixture run: added ${added.added}/${need} ${JSON.stringify(added.lines)}`);
+  const out = await clientFor(kdyOps.accessToken, key("ndr-dispatch")).delivery.runsheetDispatch({
+    runsheetId: run.id,
+    notes: "UI proof NDR fixtures.",
+  });
+  if (out.movedOut.length !== need) throw new Error(`NDR fixture run: dispatched ${out.movedOut.length}/${need}`);
+  for (const awb of ndrAwbs) {
+    const failed = await clientFor(kdyRider.accessToken, key(`ndr-fail-${awb}`)).delivery.recordFailure({
+      awb,
+      reasonCode: "CONSIGNEE_NOT_AT_HOME",
+      notes: "Nobody home, gate locked.",
+      lat: 7.2801,
+      lng: 80.6412,
+    });
+    if (failed.parcel.status !== "DeliveryAttempted" || !failed.ndrId) {
+      throw new Error(`NDR fixture ${awb}: ${failed.parcel.status}, ndr ${failed.ndrId}`);
+    }
+    const [r] = await db.select().from(ndr).where(eq(ndr.id, failed.ndrId));
+    if (r?.state === "open") withParcel.push(r);
+  }
+  await retireRun(clientFor(kdyOps.accessToken, key("ndr-retire")), out.runsheet, "NDR fixture run, every stop attempted");
+}
 if (withParcel.length < 3) throw new Error(`need 3 open Kandy NDRs on DeliveryAttempted parcels, found ${withParcel.length}`);
 
 // Runsheet stops: two parcels booked and railed for this run alone — fresh
@@ -275,6 +322,7 @@ await step("force-close behind its confirm: DB closed, stops written off", async
 // still the top layer goes to it, not to the drawer. Wait for it to be gone,
 // then Escape must close the drawer (the next step asserts the detach).
 await dialog("Force-close this run?").waitFor({ state: "detached" });
+await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length === 1, null, { timeout: 10_000 });
 await page.keyboard.press("Escape");
 
 let draftId = "";

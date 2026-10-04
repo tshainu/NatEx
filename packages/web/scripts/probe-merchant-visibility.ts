@@ -15,7 +15,7 @@ import { like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { finishMfa } from "./lib/mfa";
 
-const BASE = "http://localhost:4200";
+const BASE = process.env.SMOKE_BASE ?? "http://localhost:4200";
 const MCH = "mch_ceylon_threads";
 const { db } = await import("../src/api/database");
 const { cleanupWithRetry, hardenScriptReads } = await import("./lib/db-retry");

@@ -28,6 +28,30 @@
 	}
 }
 
+# DEMO site: same app, separate dummy database (natex-demo), demo logins on.
+# Never point this at production data. Kept out of search engines.
+demo.204-13-236-153.sslip.io {
+	encode zstd gzip
+
+	header Strict-Transport-Security "max-age=31536000"
+	header X-Robots-Tag "noindex, nofollow"
+	header -Server
+
+	@html not path /api/*
+	header @html {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), geolocation=(self), microphone=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://t3.storage.dev https://*.t3.storage.dev; connect-src 'self' https://t3.storage.dev https://*.t3.storage.dev; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+	}
+
+	reverse_proxy 127.0.0.1:4201 {
+		header_up -Cf-Connecting-Ip
+		header_up X-Real-IP {remote_host}
+	}
+}
+
 # Uptime Kuma, behind its own login.
 status.204-13-236-153.sslip.io {
 	encode zstd gzip

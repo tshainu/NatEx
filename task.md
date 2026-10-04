@@ -487,3 +487,35 @@ phone, arrival time, arrival bus station/stop, optional photo per bag.
   regression test in mfa.db.test.ts. `humanise("RTOInitiated")` now "RTO Initiated".
 - Unexplained: ui-ops-delivery failed 5/24 once in the batch (Dispatch click
   timeout + a console 409); not reproduced in two later runs.
+
+## VPS deployment + demo site (2026-10-04)
+
+Asked: host on VPS 204.13.236.153 (production, login blocked until an SMS gateway
+exists), then a demo site with dummy data and demo logins like the dev preview.
+Layout, region move and recipes: RUNBOOK §1 "Production host" and "Demo data".
+
+- [x] production: `https://204-13-236-153.sslip.io`, `natex.service` :4200, Caddy,
+      ufw, Turso `natex-prod-us`, bootstrap-prod admin "Shainu"; readiness ok
+- [x] auto-deploy timer: deployed 70b07cc by itself (`live: 70b07cc`)
+- [x] Turso moved Mumbai → Virginia (`useast`): ~1 s → 0.06–0.1 s per round trip;
+      the first test pass's ECONNRESET/timeouts cleared after the move
+- [x] demo: `https://demo.204-13-236-153.sslip.io`, `natex-demo.service` :4201,
+      NODE_ENV=development, Turso `natex-demo-us`, noindex; login page lists the
+      demo accounts when the server says `identity.environment().demo`
+- [x] demo data scripts: `seed-demo-history.ts` (30 days, 444 parcels),
+      `seed-demo-live.ts` (today's live work through the API)
+- [x] `ui-ops-delivery` precondition fixed: it raises its own open Kandy NDRs when the
+      DB has none (failed identically twice on a fresh DB before the fix; 24/24 after).
+      Also fixed a real UI glitch it exposed: the close-run confirm's title/body
+      flipped from "Force-close" to "Close" while fading out (refetch emptied the
+      pending list) — now frozen when the confirm opens.
+- [x] RUNBOOK repaired: commit 70b07cc had truncated §5 (Sentry/Job monitor),
+      dropped §6 and duplicated §7–§9; rebuilt from 917d024 + the VPS section
+- [ ] Uptime Kuma admin + 3 monitors + `KUMA_PUSH_URL` (user creates the admin)
+- [ ] SSH hardening (key only), nightly off-host backups + a Turso restore rehearsal
+- [ ] SMS gateway → first real sign-in for Shainu (authenticator + recovery codes)
+- [ ] separate S3 bucket for production; mobile/desktop apps still point at the dev preview
+- [ ] delete the unused Mumbai DBs `natex-prod` / `natex-demo`
+- Preconditions, not bugs: `probe-nightly` needs a server started with
+  NIGHTLY_INVARIANT_HOUR=0 (the demo runs the default 23); `probe-sync-conflicts`
+  needs `smoke-sync` to have run first.

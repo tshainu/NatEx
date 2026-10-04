@@ -3,7 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import { like } from "drizzle-orm";
 import type { AppRouterClient } from "../src/api";
 import { finishMfa } from "./lib/mfa";
-const BASE = "http://localhost:4200";
+const BASE = process.env.SMOKE_BASE ?? "http://localhost:4200";
 const { db } = await import("../src/api/database");
 const { hardenScriptReads } = await import("./lib/db-retry");
 hardenScriptReads(db);

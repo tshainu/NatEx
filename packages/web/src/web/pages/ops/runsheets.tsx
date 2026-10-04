@@ -355,6 +355,10 @@ function RunsheetDrawer({
   const [force, setForce] = React.useState(false);
   const [closeNotes, setCloseNotes] = React.useState("");
   const [cancelReason, setCancelReason] = React.useState("");
+  // Frozen when the confirm opens: the refetch after a force-close empties the
+  // pending list while the dialog is still fading out, and the title must not
+  // flip under the user (or a screen reader) mid-animation.
+  const [closeWritesOff, setCloseWritesOff] = React.useState(0);
 
   React.useEffect(() => {
     setError(null);
@@ -649,7 +653,10 @@ function RunsheetDrawer({
                   placeholder="Heavy rain from 15:00, rider back at hub 18:20."
                 />
               </Field>
-              <Button size="sm" variant={pendingStops.length > 0 ? "destructive" : "default"} disabled={closeBlocked} onClick={() => setConfirm("close")}>
+              <Button size="sm" variant={pendingStops.length > 0 ? "destructive" : "default"} disabled={closeBlocked} onClick={() => {
+                  setCloseWritesOff(pendingStops.length);
+                  setConfirm("close");
+                }}>
                 <Lock aria-hidden />
                 Close the run
               </Button>
@@ -680,13 +687,13 @@ function RunsheetDrawer({
           <ConfirmDialog
             open={confirm === "close"}
             onOpenChange={(o) => !o && setConfirm(null)}
-            title={pendingStops.length > 0 ? "Force-close this run?" : "Close this run?"}
+            title={closeWritesOff > 0 ? "Force-close this run?" : "Close this run?"}
             objectName={sheet.code}
             confirmLabel="Close the run"
             pending={close.isPending}
             body={
-              pendingStops.length > 0
-                ? `${pendingStops.length} stop(s) will be written off as ran out of time and go back to stock. The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}.`
+              closeWritesOff > 0
+                ? `${closeWritesOff} stop(s) will be written off as ran out of time and go back to stock. The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}.`
                 : `The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}. A closed run is never reopened.`
             }
             onConfirm={() =>

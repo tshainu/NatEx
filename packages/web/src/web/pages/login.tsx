@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { client, apiMessage } from "@/lib/api";
 import { deviceId, isPendingMfa, storeApiSession, type ApiSession } from "@/lib/session";
@@ -26,6 +26,8 @@ const DEMO_LOGINS = [
   { role: "Merchant", phone: "+94775678901", name: "Sanjay Kumar" },
   { role: "Finance", phone: "+94774567890", name: "Kavitha Sivakumar" },
   { role: "Rider", phone: "+94771234567", name: "Karthik Selvaraj" },
+  { role: "Transport", phone: "+94776789012", name: "Murugan Thevarajah" },
+  { role: "Operations (Kandy)", phone: "+94779012345", name: "Lakshmi Nadarajah" },
 ];
 
 export default function Login() {
@@ -52,6 +54,12 @@ export default function Login() {
     const target = step === "code" ? codeRef.current : phoneRef.current;
     target?.focus();
   }, [step]);
+
+  const envInfo = useQuery({
+    queryKey: ["identity", "environment"],
+    queryFn: () => client.identity.environment(),
+    staleTime: Infinity,
+  });
 
   const request = useMutation({
     mutationFn: (value: string) => client.identity.requestOtp({ phone: value }),
@@ -263,8 +271,8 @@ export default function Login() {
             )}
           </div>
 
-          {/* Dev builds only: production has no seeded accounts and a real SMS gateway. */}
-          {import.meta.env.DEV ? (
+          {/* Demo and dev deployments only: production has no seeded accounts. */}
+          {import.meta.env.DEV || envInfo.data?.demo ? (
             <>
               <SeededAccounts
                 onPick={(value) => {

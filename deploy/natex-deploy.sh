@@ -9,12 +9,14 @@
 # A commit that touches the Drizzle schema is HELD: the live database is never
 # altered unattended. Take the decision, then run `natex-deploy --with-schema`.
 # A release that fails its readiness check is rolled back to the last good commit.
+# The demo site (natex-demo, port 4201) shares the checkout and restarts with it.
 set -euo pipefail
 
 APP=/opt/natex
 STATE=/var/lib/natex
 BUN=/home/natex/.bun/bin/bun
 HEALTH=http://127.0.0.1:4200/api/health/ready
+DEMO_ENV=/etc/natex/natex-demo.env
 MODE="${1:-}"
 mkdir -p "$STATE"
 
@@ -80,10 +82,21 @@ if [ "$MODE" = "--with-schema" ]; then
     || { say "BACKUP FAILED; schema not pushed, still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
   as_natex bash -c "set -a; . /etc/natex/natex.env; set +a; cd $APP/packages/web && $BUN x drizzle-kit push --force" >> "$STATE/deploy.log" 2>&1 \
     || { say "SCHEMA PUSH FAILED; still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
+  # The demo site (RUNBOOK §1) runs the same checkout on its own dummy DB.
+  if [ -f "$DEMO_ENV" ]; then
+    as_natex bash -c "set -a; . $DEMO_ENV; set +a; cd $APP/packages/web && $BUN x drizzle-kit push --force" >> "$STATE/deploy.log" 2>&1 \
+      || say "demo schema push failed (production unaffected)"
+  fi
   rm -f "$STATE/held"
 fi
 
-systemctl restart natex
+restart_all() {
+  systemctl restart natex
+  # try-restart: only if the demo site is running; it never blocks a release.
+  systemctl try-restart natex-demo || say "demo restart failed (production unaffected)"
+}
+
+restart_all
 if healthy; then
   say "live: ${NEW:0:7}"
   echo "$NEW" > "$STATE/good"
@@ -93,6 +106,6 @@ fi
 
 GOOD=$(cat "$STATE/good" 2>/dev/null || echo "$OLD")
 say "READINESS FAILED for ${NEW:0:7}; rolling back to ${GOOD:0:7}"
-build "$GOOD" && systemctl restart natex
+build "$GOOD" && restart_all
 healthy && say "rolled back: ${GOOD:0:7} live" || say "ROLLBACK ALSO UNHEALTHY — check: journalctl -u natex"
 exit 1
