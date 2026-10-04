@@ -303,7 +303,7 @@ export async function verifyOtp(params: {
     account!.deviceId = deviceId;
   }
 
-  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none" });
+  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "verified" });
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
 }
