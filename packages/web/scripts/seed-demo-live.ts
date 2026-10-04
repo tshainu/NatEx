@@ -129,7 +129,7 @@ async function book(list: Booking[], label: string) {
   console.log(`booked ${out.length} (${label})`);
   return out;
 }
-async function move(awbs: string[], to: "PickedUp" | "AtOriginHub", label: string) {
+async function move(awbs: string[], to: "PickedUp" | "AtOriginHub" | "Bagged" | "InTransit" | "AtDestHub", label: string) {
   if (awbs.length === 0) return;
   const r = await clientFor(admin.accessToken, key(`${label}-${to}`)).parcels.transitionMany({ awbs, to, notes: null });
   if (r.rejected.length) throw new Error(`${label} → ${to}: ${JSON.stringify(r.rejected)}`);
@@ -219,6 +219,11 @@ const cmbAtHub = cmb.slice(8, 11);
 const cmbPicked = cmb.slice(11, 14);
 await move([...cmbRun, ...cmbAtHub, ...cmbPicked].map((p) => p.awb), "PickedUp", "cmb");
 await move([...cmbRun, ...cmbAtHub].map((p) => p.awb), "AtOriginHub", "cmb");
+// Colombo-local stops ride no linehaul, but a run only takes AtDestHub
+// parcels — walk today's run through the legal custody chain at the hub.
+await move(cmbRun.map((p) => p.awb), "Bagged", "cmb-local");
+await move(cmbRun.map((p) => p.awb), "InTransit", "cmb-local");
+await move(cmbRun.map((p) => p.awb), "AtDestHub", "cmb-local");
 await runFor(cmbOps, cmbRider, cmbRun.map((p) => p.awb), CMB_BRANCH, "cmb");
 await deliver(cmbRider, cmbRun[0]!, 6.8931, 79.8636);
 await deliver(cmbRider, cmbRun[1]!, 6.9093, 79.8664);
