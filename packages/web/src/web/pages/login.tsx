@@ -263,15 +263,20 @@ export default function Login() {
             )}
           </div>
 
-          <SeededAccounts
-            onPick={(value) => {
-              setPhone(value);
-              startOver();
-            }}
-          />
-          <p className="mt-6 text-center text-[11px] text-text-lo/70">
-            Milestones 1–5 · Collection, Custody, Delivery, Money &amp; Admin
-          </p>
+          {/* Dev builds only: production has no seeded accounts and a real SMS gateway. */}
+          {import.meta.env.DEV ? (
+            <>
+              <SeededAccounts
+                onPick={(value) => {
+                  setPhone(value);
+                  startOver();
+                }}
+              />
+              <p className="mt-6 text-center text-[11px] text-text-lo/70">
+                Milestones 1–5 · Collection, Custody, Delivery, Money &amp; Admin
+              </p>
+            </>
+          ) : null}
         </div>
       </section>
     </div>

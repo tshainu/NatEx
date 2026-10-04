@@ -1,0 +1,8 @@
+[Unit]
+Description=NatEx auto-deploy from GitHub main
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/natex-deploy
+TimeoutStartSec=1200

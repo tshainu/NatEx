@@ -1,0 +1,41 @@
+# NatEx edge (RUNBOOK §1 "Proxy / edge"). Caddy gets and renews the
+# Let's Encrypt certificates on its own.
+#
+# Until a domain sits behind Cloudflare, Caddy IS the edge: it drops any
+# client-sent Cf-Connecting-Ip and sets X-Real-IP to the real peer address,
+# which is what the per-IP rate limits read (middleware/rate-limit.ts).
+
+204-13-236-153.sslip.io {
+	encode zstd gzip
+
+	header Strict-Transport-Security "max-age=31536000"
+	header -Server
+
+	# The app sets its own strict headers on /api/*. HTML gets these here,
+	# because the template's static server sets none.
+	@html not path /api/*
+	header @html {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), geolocation=(self), microphone=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://t3.storage.dev https://*.t3.storage.dev; connect-src 'self' https://t3.storage.dev https://*.t3.storage.dev; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+	}
+
+	reverse_proxy 127.0.0.1:4200 {
+		header_up -Cf-Connecting-Ip
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Uptime Kuma, behind its own login.
+status.204-13-236-153.sslip.io {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy 127.0.0.1:3001
+}
+
+# The bare IP has no certificate; send it to the HTTPS name.
+http://204.13.236.153 {
+	redir https://204-13-236-153.sslip.io{uri} permanent
+}

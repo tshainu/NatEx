@@ -1,0 +1,9 @@
+[Unit]
+Description=Check GitHub main for a new NatEx release every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+
+[Install]
+WantedBy=timers.target

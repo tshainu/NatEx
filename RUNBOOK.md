@@ -28,6 +28,42 @@ build (2026-10-03) unless it says otherwise.
 4. `bun run build`, then start (`bun run start`, pm2).
 5. Check `GET /api/health/ready` returns 200 `{"status":"ok"}` (section 5).
 6. **Never** run `bun run db:seed` against production: it is destructive and creates dev MFA factors.
+   A fresh production DB is set up with `scripts/bootstrap-prod.ts` instead. It is idempotent,
+   creates reference data and the first admin only, and loads no demo data.
+
+### Production host (VPS, live since 2026-10-04)
+
+- **Host:** InterServer VPS `204.13.236.153` (Ubuntu 26.04, 1 vCPU, 1.6 GB RAM, 2 GB swap,
+  TZ Asia/Colombo). Public URL `https://204-13-236-153.sslip.io` (sslip.io name, Let's
+  Encrypt cert from Caddy). No domain or Cloudflare yet.
+- **Database:** Turso `natex-prod` (group `default`, `aws-ap-south-1`), separate from dev.
+- **Layout** (files kept in `deploy/` in this repo):
+
+  | What | Where |
+  | --- | --- |
+  | App checkout (user `natex`) | `/opt/natex` |
+  | Environment (root:natex 640) | `/etc/natex/natex.env` |
+  | App service, port 4200 | `natex.service` (systemd, `Restart=always`) |
+  | Edge, TLS, HTML security headers | Caddy, `/etc/caddy/Caddyfile` (= `deploy/Caddyfile`) |
+  | Uptime Kuma | docker `uptime-kuma`, `127.0.0.1:3001`, `https://status.204-13-236-153.sslip.io` |
+  | Deploy script | `/usr/local/bin/natex-deploy` (= `deploy/natex-deploy.sh`) |
+  | Deploy state and log | `/var/lib/natex/{good,held,deploy.log}` |
+
+- **Firewall:** ufw denies all incoming except 22/tcp, 80/tcp, 443/tcp+udp. Port 4200 listens
+  on all interfaces but is not reachable from outside (checked 2026-10-04); Caddy is the only
+  way in, so the client-IP headers below cannot be forged.
+- **Auto-deploy:** `natex-deploy.timer` runs `natex-deploy` 2 minutes after each run finishes.
+  It fetches `origin/main` and does nothing if the commit is already live. Otherwise it
+  resets the checkout, runs `bun install --frozen-lockfile` (3 tries) and `vite build`, then
+  restarts `natex`. It then polls `/api/health/ready` for 60 s and **rolls back** to the last
+  good commit if readiness fails. The repo must stay public, or the VPS needs a read-only
+  deploy key.
+- **Schema changes are held:** a commit that touches `src/api/database/schema*` is not
+  deployed. The log says `HELD <sha>`. An operator then takes the decision by hand:
+  `sudo natex-deploy --with-schema` (backup drill, `drizzle-kit push --force`, build, restart).
+  `sudo natex-deploy --force` redeploys the current `main` without a schema push.
+- **Watch a deploy:** `journalctl -u natex-deploy -f` or `tail -f /var/lib/natex/deploy.log`.
+- **App logs:** `journalctl -u natex -f`.
 
 ### Proxy / edge (required)
 
@@ -170,45 +206,7 @@ readiness failure means: check DB status at Turso first, then the worker
 ### Sentry — **not wired, blocked on a DSN**
 
 - **One hook point:** `src/api/shared/report-error.ts` `reportError(err,
-  {route, requestId})`. It is called from `middleware/request-id.ts` for every
-  unhandled (5xx) API error, and currently does `console.error`.
-- **To wire it:**
-  1. `bun add @sentry/bun` in `packages/web`.
-  2. Initialise once with `SENTRY_DSN` and `environment: process.env.NODE_ENV`.
-  3. In `reportError`, call `Sentry.captureException(err, { tags: { route },
-     extra: { requestId } })`.
-  4. Do **not** send request bodies: they carry phone numbers and bank details
-     (§9 PDPA). Set `sendDefaultPii: false`.
-- **Web client:** use `@sentry/react` in `src/web/main.tsx` with the same
-  rule. This is optional for the pilot.
-- `src/api` must not import `node:*` (mobile and desktop typecheck it).
-  `@sentry/bun` is imported only inside `report-error.ts`. If that breaks the
-  mobile typecheck, load it with a dynamic `import()`.
-
-### Job monitor (Admin → System monitor)
-
-- **Health:** DB latency, uptime, worker (running, last tick, last OK, last
-  error), nightly scheduler, outbox summary and the last 7 invariant runs.
-- **Jobs:** outbox rows by topic and state. A **failed** job can be retried
-  (`monitor.retryJob`, audited). Before retrying a job that sends SMS,
-  check `notify_message` and `shared_sms_log`: a job that failed *after* the
-  gateway accepted the message would send it twice.
-- **Invariants:** nightly COD invariant runs and their findings.
-
----
-
-## 6. Nightly COD invariant (§8)
-
-- An in-process scheduler (`jobs/nightly.ts`) replaces BullMQ's repeatable job.
-  It runs once per Colombo day at the first tick on or after
-  `NIGHTLY_INVARIANT_HOUR` (default 23). It checks that the ledger,
-  rider-cash, deposit and settlement totals agree to the cent, and raises a
-  COD alert on any break.
-- **Manual run:** Finance → COD ledger → *Invariant* tab → *Run now*.
-- **A break is a money incident:** freeze settlement approvals for the affected
-  merchants (place a hold), then reconcile from Finance → COD ledger →
-  *Reconciliation* tab.
-- Because it is in-process, **it only runs while the web server is up**. If the
+  {route, requns while the web server is up**. If the
   server is down at 23:00, the run happens at the next tick after restart
   (same day only). Uptime Kuma's push monitor (section 5) is how a missed night
   becomes visible.
@@ -230,6 +228,52 @@ readiness failure means: check DB status at Turso first, then the worker
 4. **Suspected account compromise:** suspend the user (immediate), then
    reset their authenticator. Review Admin → Audit log filtered by actor.
 5. **Suspected token-secret leak:** rotate both JWT secrets and restart.
+   Everyone signs in again.
+6. **Bad data change:** the audit log is append-only and shows before/after
+   (bank accounts masked to the last 4). Correct with a new, reasoned change,
+   never by editing history.
+7. **Restore** only after the above. Follow section 2.
+
+---
+
+## 8. Capacity (load test, 2026-10-03)
+
+`scripts/load-test.ts` (`--stage-seconds`, `--levels`) — authenticated
+**read** mix (boards, lists, finance pages, quote), 20 s per stage, against
+the Vite dev server and hosted Turso:
+
+| Concurrent users | req/s | p95 | errors |
+| --- | --- | --- | --- |
+| 5 | 25.4 | 286 ms | 0 |
+| 20 | 81.2 | 368 ms | 0 |
+| 50 | 83.0 | 937 ms | 0 |
+| 100 | 85.4 | 1 858 ms | 0 |
+
+- Throughput levels off at about 85 req/s from 20 users up. Extra users only
+  add queueing latency.
+- **Probable cause (not confirmed):** the libsql HTTP client's default
+  concurrency of 20. Baseline latency (~150–210 ms per call) is Turso
+  round-trip from this sandbox.
+- **Caveats:** this was the dev server, not the production build. Reads only
+  (writes were not load-tested). One sandbox generated the load. Re-run
+  against the production deploy before go-live.
+- For the pilot (3 branches): the field apps sync in batches, so ~85 req/s is
+  well above expected load. That is an estimate, not a measurement.
+
+---
+
+## 9. Security review (2026-10-03)
+
+- `scripts/security-review.ts`: 100 live probes covering tokens (alg:none,
+  HS512 header, dev-key forgery, tampered body, expired, no-exp), the
+  pending-MFA lockdown, the role matrix, merchant and branch scoping, rate
+  limits, idempotency, suspended users, and surface checks (headers,
+  readiness body, public tracking body, error bodies, webhook secret).
+- `src/api/middleware/route-guards.test.ts` statically lists the guard on
+  every one of the 219 procedures. The public surface is allow-listed at 5,
+  and pending-MFA tokens at 4.
+- Findings and fixes are listed in `task.md` → M5 → Security review.
+n-secret leak:** rotate both JWT secrets and restart.
    Everyone signs in again.
 6. **Bad data change:** the audit log is append-only and shows before/after
    (bank accounts masked to the last 4). Correct with a new, reasoned change,

@@ -55,9 +55,31 @@ export async function nightlyTick(now: Date = new Date()): Promise<NightlyOutcom
     if (await hasScheduledInvariantRun(runDate)) return { ran: false, runDate, reason: "already-ran" };
     const out = await runBalanceInvariant(now, "scheduled");
     console.log(`[nightly] balance invariant for ${runDate}: ${out.result} (${out.runId})`);
+    pushHeartbeat(out.result, runDate);
     return { ran: true, runDate, runId: out.runId, result: out.result };
   } finally {
     g.__natexNightlyBusy = false;
+  }
+}
+
+/**
+ * Uptime Kuma push monitor (RUNBOOK §5): one heartbeat per completed nightly
+ * run. A clean run reports up; a breached invariant reports down, so Kuma
+ * alerts on a breach as well as on a missed night (heartbeat interval 26 h).
+ * Optional: without KUMA_PUSH_URL nothing is sent. Never throws.
+ */
+function pushHeartbeat(result: "ok" | "breached", runDate: string): void {
+  const base = process.env.KUMA_PUSH_URL;
+  if (!base) return;
+  try {
+    const url = new URL(base);
+    url.searchParams.set("status", result === "ok" ? "up" : "down");
+    url.searchParams.set("msg", `COD invariant ${runDate}: ${result}`);
+    void fetch(url, { signal: AbortSignal.timeout(10_000) }).catch((err: unknown) => {
+      console.error("[nightly] Kuma heartbeat failed:", err);
+    });
+  } catch (err) {
+    console.error("[nightly] KUMA_PUSH_URL is not a valid URL:", err);
   }
 }
 

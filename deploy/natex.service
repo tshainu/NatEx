@@ -1,0 +1,19 @@
+[Unit]
+Description=NatEx web + API (Bun)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=natex
+Group=natex
+WorkingDirectory=/opt/natex
+EnvironmentFile=/etc/natex/natex.env
+ExecStart=/home/natex/.bun/bin/bun packages/web/src/__server.ts
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
