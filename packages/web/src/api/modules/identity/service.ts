@@ -9,6 +9,7 @@ import {
   signAccessToken,
   verifySecret,
   PENDING_MFA,
+  ROLES,
   type MfaLevel,
   type Principal,
   type Role,
@@ -19,7 +20,7 @@ import { normaliseLkPhone, sendSms } from "../../shared/sms";
 import { writeAudit } from "../../shared/audit";
 import { distanceMetres } from "../../shared/geo";
 import { SETTING_KEYS, settingValue } from "../settings/service";
-import { devCodeFor, getFactor, MFA_ROLES, mfaRequiredFor } from "./mfa";
+import { devCodeFor, getFactor, MFA_ROLES, mfaRequiredForAny } from "./mfa";
 import { isDevelopment } from "../../shared/env";
 
 /**
@@ -34,21 +35,51 @@ export interface IdentityUser {
   id: string;
   branchId: string;
   role: Role;
+  /** Every role the user holds (roles[0] === role). */
+  roles: Role[];
   name: string;
   phone: string;
+  username: string | null;
   deviceId: string | null;
   status: string;
   merchantId: string | null;
 }
 
+/** A user's full role set. Legacy rows carry an empty `roles` — read as [role]. */
+export function rolesOf(account: { role: string; roles?: string | Role[] | null }): Role[] {
+  const raw = account.roles;
+  if (Array.isArray(raw) && raw.length) return raw as Role[];
+  if (typeof raw === "string" && raw.length) {
+    try {
+      const parsed = JSON.parse(raw) as Role[];
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch { /* fall through to primary role */ }
+  }
+  return [account.role as Role];
+}
+
+function toIdentityUser(row: typeof user.$inferSelect): IdentityUser {
+  return { ...row, username: row.username ?? null, roles: rolesOf(row) } as IdentityUser;
+}
+
 export async function getUserById(id: string): Promise<IdentityUser | null> {
   const [row] = await db.select().from(user).where(eq(user.id, id));
-  return row ? (row as IdentityUser) : null;
+  return row ? toIdentityUser(row) : null;
 }
 
 export async function getUserByPhone(phone: string): Promise<IdentityUser | null> {
   const [row] = await db.select().from(user).where(eq(user.phone, normaliseLkPhone(phone)));
-  return row ? (row as IdentityUser) : null;
+  return row ? toIdentityUser(row) : null;
+}
+
+/** Usernames compare case-insensitively and are stored lowercased. */
+export function normaliseUsername(input: string): string {
+  return input.trim().toLowerCase();
+}
+
+export async function getUserByUsername(username: string): Promise<(IdentityUser & { passwordHash: string | null }) | null> {
+  const [row] = await db.select().from(user).where(eq(user.username, normaliseUsername(username)));
+  return row ? ({ ...toIdentityUser(row), passwordHash: row.passwordHash ?? null }) : null;
 }
 
 /** Fixed demo login: this phone always signs in with this code, no MFA. Admin role. */
@@ -63,8 +94,11 @@ async function ensureDemoAccount(): Promise<void> {
     id: "usr_demo_admin",
     branchId: anyAdmin.branchId,
     role: "admin",
+    roles: JSON.stringify(["admin"]),
     name: "Demo Admin",
     phone: DEMO_PHONE,
+    username: "demo",
+    passwordHash: await hashSecret("demo123"),
     status: "active",
   } as never);
 }
@@ -129,6 +163,8 @@ export interface Session {
     id: string;
     name: string;
     role: Role;
+    roles: Role[];
+    username: string | null;
     branchId: string;
     branchName: string;
     merchantId: string | null;
@@ -161,6 +197,7 @@ async function issueSession(
   const { token: accessToken, expiresIn } = await signAccessToken({
     sub: account.id,
     role: account.role,
+    roles: account.roles,
     branchId: account.branchId,
     merchantId: account.merchantId,
     deviceId,
@@ -188,6 +225,8 @@ async function issueSession(
       id: account.id,
       name: account.name,
       role: account.role,
+      roles: account.roles,
+      username: account.username,
       branchId: account.branchId,
       branchName: homeBranch?.name ?? "—",
       merchantId: account.merchantId,
@@ -199,12 +238,12 @@ async function issueSession(
 
 /** What a fresh sign-in must still prove, for this account, right now. */
 async function signInLevel(account: IdentityUser): Promise<{ level: MfaLevel; devCode: string | null }> {
-  if (!(MFA_ROLES as readonly string[]).includes(account.role)) return { level: "none", devCode: null };
+  if (!account.roles.some((r) => (MFA_ROLES as readonly string[]).includes(r))) return { level: "none", devCode: null };
   // An enrolled authenticator is always asked for, even with enforcement off:
   // a user who chose MFA keeps it.
   const factor = await getFactor(account.id);
   if (factor?.confirmedAt) return { level: "challenge", devCode: await devCodeFor(factor) };
-  if (await mfaRequiredFor(account.role)) return { level: "enrol", devCode: null };
+  if (await mfaRequiredForAny(account.roles)) return { level: "enrol", devCode: null };
   return { level: "none", devCode: null };
 }
 
@@ -275,34 +314,70 @@ export async function verifyOtp(params: {
   if (!account) errors.notFound("Account");
 
   const deviceId = params.deviceId ?? null;
-  if (account!.role === "rider" && deviceId && account!.deviceId !== deviceId) {
-    const previous = account!.deviceId;
-    await db.update(user).set({ deviceId }).where(eq(user.id, account!.id));
+  await bindDevice(account!, deviceId);
+
+  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "verified" });
+  const { level, devCode } = await signInLevel(account!);
+  return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
+}
+
+/**
+ * "One active device per rider" (§5): a rider signing in from a new device
+ * re-binds it, the previous device's refresh tokens are revoked, and the
+ * re-bind is audited.
+ */
+async function bindDevice(account: IdentityUser, deviceId: string | null): Promise<void> {
+  if (account.roles.includes("rider") && deviceId && account.deviceId !== deviceId) {
+    const previous = account.deviceId;
+    await db.update(user).set({ deviceId }).where(eq(user.id, account.id));
     // Revoke every session bound to the old device.
     await db
       .update(refreshToken)
       .set({ revokedAt: new Date() })
-      .where(and(eq(refreshToken.userId, account!.id), isNull(refreshToken.revokedAt)));
+      .where(and(eq(refreshToken.userId, account.id), isNull(refreshToken.revokedAt)));
     await writeAudit({
       entity: "identity_user",
-      entityId: account!.id,
+      entityId: account.id,
       action: "device.rebound",
       actor: {
-        userId: account!.id,
-        name: account!.name,
-        role: account!.role,
-        branchId: account!.branchId,
+        userId: account.id,
+        name: account.name,
+        role: account.role,
+        roles: account.roles,
+        branchId: account.branchId,
       },
       before: { deviceId: previous },
       after: { deviceId },
       deviceId,
     });
-    account!.deviceId = deviceId;
-  } else if (deviceId && !account!.deviceId) {
-    await db.update(user).set({ deviceId }).where(eq(user.id, account!.id));
-    account!.deviceId = deviceId;
+    account.deviceId = deviceId;
+  } else if (deviceId && !account.deviceId) {
+    await db.update(user).set({ deviceId }).where(eq(user.id, account.id));
+    account.deviceId = deviceId;
   }
+}
 
+/**
+ * Username + password sign-in (the rider app's primary method; the web login
+ * offers it beside phone OTP). Passwords are argon2id-hashed, exactly like OTP
+ * codes. The MFA step afterwards is unchanged: any account holding an
+ * ops/admin/finance role still proves the authenticator.
+ */
+export async function loginWithPassword(params: {
+  username: string;
+  password: string;
+  deviceId?: string | null;
+}): Promise<Session> {
+  const account = await getUserByUsername(params.username);
+  // One message for every failure — no account enumeration.
+  const bad = () => errors.unauthenticated("Incorrect username or password.");
+  if (!account || !account.passwordHash) bad();
+  if (account!.status !== "active") errors.forbidden("This account is suspended.");
+  const ok = await verifySecret(params.password, account!.passwordHash!);
+  if (!ok) bad();
+
+  const deviceId = params.deviceId ?? null;
+  await bindDevice(account!, deviceId);
   if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "verified" });
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
@@ -342,7 +417,7 @@ export async function rotateRefresh(presented: string): Promise<Session> {
     await revokeFamily(account!.id, row!.id);
     errors.unauthenticated("Finish signing in: this session has not passed the authenticator step.");
   }
-  if (level !== "verified" && (await mfaRequiredFor(account!.role))) {
+  if (level !== "verified" && (await mfaRequiredForAny(account!.roles))) {
     await revokeFamily(account!.id, row!.id);
     errors.unauthenticated("Sign in again: your role now requires an authenticator code.");
   }
@@ -354,7 +429,7 @@ export async function rotateRefresh(presented: string): Promise<Session> {
     await revokeFamily(account!.id, row!.id);
     errors.unauthenticated(`Session ended: sessions last at most ${maxDays} days. Sign in again.`);
   }
-  if (!IDLE_EXEMPT.has(account!.role)) {
+  if (!account!.roles.every((r) => IDLE_EXEMPT.has(r))) {
     const idleMinutes = await settingValue(SETTING_KEYS.SESSION_IDLE_MINUTES);
     if (now - row!.createdAt.getTime() > idleMinutes * 60_000) {
       await revokeFamily(account!.id, row!.id);
@@ -413,6 +488,8 @@ export async function listUsers(scope: Principal) {
       name: user.name,
       phone: user.phone,
       role: user.role,
+      roles: user.roles,
+      username: user.username,
       status: user.status,
       deviceId: user.deviceId,
       branchId: user.branchId,
@@ -424,8 +501,9 @@ export async function listUsers(scope: Principal) {
     .leftJoin(branch, eq(branch.id, user.branchId))
     .orderBy(user.name);
 
-  if (scope.role === "admin" || scope.role === "finance") return rows;
-  return rows.filter((r) => r.branchId === scope.branchId);
+  const shaped = rows.map((r) => ({ ...r, roles: rolesOf(r) }));
+  if (scope.roles.includes("admin") || scope.roles.includes("finance")) return shaped;
+  return shaped.filter((r) => r.branchId === scope.branchId);
 }
 
 export async function listRiders(branchId: string) {
@@ -439,34 +517,58 @@ export async function listRiders(branchId: string) {
 export async function createUser(input: {
   branchId: string;
   role: Role;
+  /** Full role set; defaults to [role]. roles[0] is the primary role. */
+  roles?: Role[];
   name: string;
   phone: string;
+  username?: string | null;
+  password?: string | null;
   merchantId?: string | null;
 }): Promise<IdentityUser> {
   const phone = normaliseLkPhone(input.phone);
   const existing = await getUserByPhone(phone);
   if (existing) errors.conflict(`A user with phone ${phone} already exists.`);
 
+  const roles = dedupeRoles(input.roles?.length ? input.roles : [input.role]);
+  let username: string | null = null;
+  if (input.username) {
+    username = normaliseUsername(input.username);
+    if (await getUserByUsername(username)) errors.conflict(`Username ${username} is already taken.`);
+  }
+  const passwordHash = input.password ? await hashSecret(input.password) : null;
+
   const [row] = await db
     .insert(user)
     .values({
       id: prefixedId("usr"),
       branchId: input.branchId,
-      role: input.role,
+      role: roles[0]!,
+      roles: JSON.stringify(roles),
       name: input.name,
       phone,
+      username,
+      passwordHash,
       merchantId: input.merchantId ?? null,
       status: "active",
     })
     .returning();
-  return row as IdentityUser;
+  return toIdentityUser(row!);
+}
+
+/** Dedupe and drop anything that is not a real role. roles[0] stays primary. */
+export function dedupeRoles(roles: readonly string[]): Role[] {
+  const out: Role[] = [];
+  for (const r of roles) {
+    if ((ROLES as readonly string[]).includes(r) && !out.includes(r as Role)) out.push(r as Role);
+  }
+  return out;
 }
 
 export async function setUserStatus(userId: string, status: "active" | "suspended") {
   const [row] = await db.update(user).set({ status }).where(eq(user.id, userId)).returning();
   if (!row) errors.notFound("User");
   if (status === "suspended") await revokeAllSessions(userId);
-  return row as IdentityUser;
+  return toIdentityUser(row!);
 }
 
 export async function createBranch(input: {

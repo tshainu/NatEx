@@ -241,7 +241,7 @@ for (const [i, amount] of [450_000, 275_000, 180_000].entries()) {
     amountCents: amount,
     mode: "cash",
     clientId: `m4smoke-${stamp}-${i + 1}`,
-    actor: { userId: rider.user.id, name: rider.user.name, role: "rider", branchId: BRANCH },
+    actor: { userId: rider.user.id, name: rider.user.name, role: "rider", roles: ["rider"], branchId: BRANCH },
   });
   collected.push(res.entry.id);
   collectedCents += amount;

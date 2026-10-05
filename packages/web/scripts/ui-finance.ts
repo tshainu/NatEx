@@ -161,7 +161,7 @@ for (const [i, amountCents] of amounts.entries()) {
     amountCents,
     mode: "cash",
     clientId: `${SRC}-${RUN}-${i + 1}`,
-    actor: { userId: riderS.user.id, name: riderS.user.name, role: "rider", branchId: BRANCH },
+    actor: { userId: riderS.user.id, name: riderS.user.name, role: "rider", roles: ["rider"], branchId: BRANCH },
   });
   collected.push(r.entry.id);
 }

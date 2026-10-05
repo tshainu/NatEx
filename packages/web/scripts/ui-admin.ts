@@ -234,7 +234,7 @@ await step("merchant: phone OTP alone lands in the merchant portal (no MFA step)
 const adminS = await login(ADMIN_PHONE, `ui-admin-api-${RUN}`);
 const admin = clientFor(adminS.accessToken);
 const newPhone = `+9477${DIGITS}`;
-const newOps = await admin.identity.createUser({ name: `UIA Ops ${RUN}`, phone: newPhone, role: "ops", branchId: BRANCH });
+const newOps = await admin.identity.createUser({ name: `UIA Ops ${RUN}`, phone: newPhone, roles: ["ops"], branchId: BRANCH });
 created.users.push(newOps.id);
 let enrolSecret = "";
 let recoveryCodes: string[] = [];

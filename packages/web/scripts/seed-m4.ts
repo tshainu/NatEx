@@ -127,7 +127,7 @@ async function collect(amounts: number[], batch: string): Promise<{ ids: string[
       amountCents,
       mode: "cash",
       clientId: `${SRC}-${RUN}-${batch}-${i + 1}`,
-      actor: { userId: rider.user.id, name: rider.user.name, role: "rider", branchId: BRANCH },
+      actor: { userId: rider.user.id, name: rider.user.name, role: "rider", roles: ["rider"], branchId: BRANCH },
     });
     ids.push(r.entry.id);
   }

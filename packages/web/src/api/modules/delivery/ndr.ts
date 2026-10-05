@@ -55,6 +55,7 @@ function systemActor(branchId: string): Principal {
     userId: "system",
     name: "NatEx system (automatic)",
     role: "ops",
+    roles: ["ops"],
     branchId,
     merchantId: null,
   };

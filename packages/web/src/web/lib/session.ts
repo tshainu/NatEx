@@ -13,6 +13,9 @@ export interface SessionUser {
   id: string;
   name: string;
   role: Role;
+  /** Every role the user holds (role === roles[0]); absent on sessions stored before multi-role. */
+  roles?: Role[];
+  username?: string | null;
   branchId: string;
   branchName: string;
   merchantId: string | null;

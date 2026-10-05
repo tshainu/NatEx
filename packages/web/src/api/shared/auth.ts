@@ -43,6 +43,8 @@ export interface AccessClaims {
   /** Absent on tokens minted before M5 — treated as `none`. */
   mfa?: MfaLevel;
   role: Role;
+  /** Every role the user holds (absent on pre-multi-role tokens: read as [role]). */
+  roles?: Role[];
   branchId: string;
   merchantId?: string | null;
   deviceId?: string | null;
@@ -56,6 +58,8 @@ export interface Principal {
   userId: string;
   name: string;
   role: Role;
+  /** Every role the user holds; `role` is roles[0]. */
+  roles: Role[];
   /** Branch scope — every operational query filters by this unless the role is global. */
   branchId: string;
   merchantId?: string | null;

@@ -5,7 +5,7 @@ import { AgentFeedback } from "@runablehq/website-runtime";
 import { AuthProvider, useAuth } from "./components/auth-provider";
 import { Shell } from "./components/natex/shell";
 import { Page, Card } from "./components/natex/page";
-import { mayVisit, portalFor } from "./lib/permissions";
+import { mayVisitAny, portalForRoles, rolesOfUser } from "./lib/permissions";
 
 import Login from "./pages/login";
 import Track from "./pages/track";
@@ -70,9 +70,9 @@ function Authenticated({ children }: { children: React.ReactNode }) {
     return <Redirect to={`/login${next}`} replace />;
   }
 
-  const role = session.user.role;
-  if (!mayVisit(role, location)) {
-    return <Redirect to={portalFor(role).home} replace />;
+  const roles = rolesOfUser(session.user);
+  if (!mayVisitAny(roles, location)) {
+    return <Redirect to={portalForRoles(roles).home} replace />;
   }
 
   return <Shell>{children}</Shell>;
@@ -96,7 +96,7 @@ function Portal({
 function Landing() {
   const { session } = useAuth();
   if (!session) return <Redirect to="/login" replace />;
-  return <Redirect to={portalFor(session.user.role).home} replace />;
+  return <Redirect to={portalForRoles(rolesOfUser(session.user)).home} replace />;
 }
 
 function NotFound() {

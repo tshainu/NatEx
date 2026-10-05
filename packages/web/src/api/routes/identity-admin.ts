@@ -21,8 +21,13 @@ export const updateUser = adminProc
       name: z.string().trim().min(2).max(120).optional(),
       phone: z.string().min(9).max(20).optional(),
       role: role.optional(),
+      /** Full role set; when present it replaces `role`. */
+      roles: z.array(role).min(1).optional(),
       branchId: z.string().min(1).optional(),
       merchantId: z.string().min(1).nullish(),
+      /** Username/password sign-in credentials; empty string clears. */
+      username: z.string().max(60).nullish(),
+      password: z.string().max(200).nullish(),
     }),
   )
   .handler(async ({ input, context }) => {

@@ -31,8 +31,17 @@ export const user = sqliteTable(
     branchId: text("branch_id")
       .notNull()
       .references(() => branch.id),
-    /** rider | transport | ops | finance | admin | merchant */
+    /** rider | transport | ops | finance | admin | merchant — the PRIMARY role (roles[0]). */
     role: text("role").notNull(),
+    /**
+     * Every role the user holds, as a JSON array. Empty string = legacy row:
+     * read it as [role]. roles[0] is always mirrored into `role`, so single-role
+     * code paths (branch scope, "last admin" counts) keep working.
+     */
+    roles: text("roles").notNull().default(""),
+    /** Username/password sign-in, set by an admin. Either may be null. */
+    username: text("username").unique(),
+    passwordHash: text("password_hash"),
     name: text("name").notNull(),
     phone: text("phone").notNull().unique(),
     /** One active device per rider (PROJECT.md §5). */

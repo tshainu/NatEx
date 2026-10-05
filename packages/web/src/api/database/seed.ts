@@ -36,7 +36,7 @@ import {
 import { notifyMessage, notifyTemplate } from "./schema/notifications";
 import { auditLog, idempotencyKey, outbox, rateLimit, smsLog } from "./schema/shared";
 import { toE6 } from "../shared/geo";
-import type { Principal } from "../shared/auth";
+import { hashSecret, type Principal } from "../shared/auth";
 import { prefixedId } from "../shared/ulid";
 import { seedParcel } from "../modules/parcels/service";
 import { seedManifest } from "../modules/collection/service";
@@ -63,6 +63,8 @@ const M2_ID = "mch_lanka_gadgets";
 const RIDER_ID = "usr_rider_pradeep";
 const OPS_ID = "usr_ops_nimali";
 const ADMIN_ID = "usr_admin_rajitha";
+/** Dev password for every seeded username/password login (see README logins). */
+const SEED_PASSWORD = "natex123";
 const FINANCE_ID = "usr_finance_dilani";
 const MERCHANT_USER_ID = "usr_merchant_sanjay";
 const TRANSPORT_ID = "usr_transport_suresh";
@@ -167,13 +169,16 @@ async function seedBranches() {
 }
 
 async function seedUsers() {
-  await db.insert(user).values([
+  const SEED_PASSWORD_HASH = await hashSecret(SEED_PASSWORD);
+  const rows = await db.insert(user).values([
     {
       id: RIDER_ID,
       branchId: BRANCH_ID,
       role: "rider",
       name: "Karthik Selvaraj",
       phone: "+94771234567",
+      username: "karthik",
+      passwordHash: SEED_PASSWORD_HASH,
       deviceId: null,
       status: "active",
     },
@@ -183,6 +188,8 @@ async function seedUsers() {
       role: "ops",
       name: "Priya Shanmugam",
       phone: "+94772345678",
+      username: "priya",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -191,6 +198,8 @@ async function seedUsers() {
       role: "admin",
       name: "Arjun Rajendran",
       phone: "+94773456789",
+      username: "arjun",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -199,6 +208,8 @@ async function seedUsers() {
       role: "finance",
       name: "Kavitha Sivakumar",
       phone: "+94774567890",
+      username: "kavitha",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -207,6 +218,8 @@ async function seedUsers() {
       role: "transport",
       name: "Murugan Thevarajah",
       phone: "+94776789012",
+      username: "murugan",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -217,6 +230,8 @@ async function seedUsers() {
       role: "transport",
       name: "Vignesh Balasubramaniam",
       phone: "+94777890123",
+      username: "vignesh",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -228,6 +243,8 @@ async function seedUsers() {
       role: "ops",
       name: "Lakshmi Nadarajah",
       phone: "+94779012345",
+      username: "lakshmi",
+      passwordHash: SEED_PASSWORD_HASH,
       status: "active",
     },
     {
@@ -236,6 +253,8 @@ async function seedUsers() {
       role: "rider",
       name: "Senthil Kumaran",
       phone: "+94778901234",
+      username: "senthil",
+      passwordHash: SEED_PASSWORD_HASH,
       deviceId: null,
       status: "active",
     },
@@ -245,10 +264,13 @@ async function seedUsers() {
       role: "merchant",
       name: "Sanjay Kumar",
       phone: "+94775678901",
+      username: "sanjay",
+      passwordHash: SEED_PASSWORD_HASH,
       merchantId: M1_ID,
       status: "active",
     },
-  ]);
+  ].map((row) => ({ ...row, roles: JSON.stringify([row.role]) })));
+  return rows;
 }
 
 async function seedMerchants() {
@@ -741,7 +763,7 @@ export async function seed() {
     rateCards,
     mfaSeeded: mfa.seeded.length,
     logins: [
-      { role: "rider", phone: "+94771234567", name: "Karthik Selvaraj" },
+      { role: "rider", phone: "+94771234567", username: "karthik", name: "Karthik Selvaraj" },
       { role: "ops", phone: "+94772345678", name: "Priya Shanmugam" },
       { role: "admin", phone: "+94773456789", name: "Arjun Rajendran" },
       { role: "finance", phone: "+94774567890", name: "Kavitha Sivakumar" },

@@ -18,8 +18,8 @@ import { errors } from "../shared/errors";
 const CODE_BUCKET = { capacity: 5, refillPerMinute: 2 };
 const code = z.string().trim().min(6).max(16);
 
-function requireMfaRole(role: string): void {
-  if (!(mfaService.MFA_ROLES as readonly string[]).includes(role)) {
+function requireMfaRole(roles: readonly string[]): void {
+  if (!roles.some((r) => (mfaService.MFA_ROLES as readonly string[]).includes(r))) {
     errors.forbidden(`An authenticator is for ${mfaService.MFA_ROLES.join(", ")} accounts.`);
   }
 }
@@ -32,7 +32,7 @@ export const status = mfaProc.handler(async ({ context }) => ({
 
 /** Start enrolment: a fresh secret and its otpauth:// URI (the web client draws the QR). */
 export const enrolStart = mfaProc.handler(async ({ context }) => {
-  requireMfaRole(context.principal.role);
+  requireMfaRole(context.principal.roles);
   if (context.principal.mfa === "challenge") errors.conflict("An authenticator is already enrolled. Enter its code.");
   const account = await getUserById(context.principal.userId);
   return mutate(
@@ -55,7 +55,7 @@ export const enrolStart = mfaProc.handler(async ({ context }) => {
  * once, never again — and, when this was the pending sign-in, the full session.
  */
 export const enrolConfirm = mfaProc.input(z.object({ code })).handler(async ({ input, context }) => {
-  requireMfaRole(context.principal.role);
+  requireMfaRole(context.principal.roles);
   return mutate(
     context,
     {},

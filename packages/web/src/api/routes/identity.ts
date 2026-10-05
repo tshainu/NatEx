@@ -47,6 +47,33 @@ export const requestOtp = publicProc
     ),
   );
 
+export const loginPassword = publicProc
+  .input(
+    z.object({
+      username: z.string().min(2).max(60),
+      password: z.string().min(1).max(200),
+      deviceId: z.string().nullish(),
+    }),
+  )
+  .handler(({ input, context }) =>
+    publicMutate(
+      context,
+      {
+        route: "identity.loginPassword",
+        bucket: { capacity: 5, refillPerMinute: 1 },
+        // Per username as well as per IP: credential stuffing one account must
+        // not ride on fresh IPs.
+        subject: { key: input.username.trim().toLowerCase(), bucket: { capacity: 5, refillPerMinute: 1 } },
+      },
+      () =>
+        identityService.loginWithPassword({
+          username: input.username,
+          password: input.password,
+          deviceId: input.deviceId ?? null,
+        }),
+    ),
+  );
+
 export const verifyOtp = publicProc
   .input(
     z.object({
@@ -78,6 +105,7 @@ export const me = authedProc.handler(({ context }) => ({
   userId: context.principal.userId,
   name: context.principal.name,
   role: context.principal.role,
+  roles: context.principal.roles,
   branchId: context.principal.branchId,
   merchantId: context.principal.merchantId,
   deviceId: context.principal.deviceId,
@@ -116,14 +144,18 @@ export const createUser = adminProc
     z.object({
       name: z.string().min(2).max(120),
       phone: z.string().min(9).max(20),
-      role: z.enum(ROLES as unknown as [string, ...string[]]),
+      /** One or more roles. The first is the primary role (branch scope, home portal). */
+      roles: z.array(z.enum(ROLES as unknown as [string, ...string[]])).min(1),
       branchId: z.string().min(1),
       merchantId: z.string().nullish(),
+      /** Optional username/password sign-in credentials (rider app). */
+      username: z.string().min(2).max(60).nullish(),
+      password: z.string().min(6).max(200).nullish(),
     }),
   )
   .handler(async ({ input, context }) => {
     if (!(await identityService.getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
-    if (input.role === "merchant") {
+    if (input.roles.includes("merchant")) {
       if (!input.merchantId) errors.badRequest("A merchant user needs a merchant.");
       if (!(await getMerchant(input.merchantId!))) errors.badRequest(`Merchant ${input.merchantId} does not exist.`);
     }
@@ -140,9 +172,12 @@ export const createUser = adminProc
         identityService.createUser({
           name: input.name,
           phone: input.phone,
-          role: input.role as (typeof ROLES)[number],
+          role: input.roles[0] as (typeof ROLES)[number],
+          roles: input.roles as (typeof ROLES)[number][],
           branchId: input.branchId,
-          merchantId: input.role === "merchant" ? (input.merchantId ?? null) : null,
+          username: input.username ?? null,
+          password: input.password ?? null,
+          merchantId: input.roles.includes("merchant") ? (input.merchantId ?? null) : null,
         }),
     );
   });
@@ -207,6 +242,7 @@ export const sessionCounts = adminProc.handler(() => identityService.sessionCoun
 /** Router namespace — composed into the root router in api/index.ts. */
 export const identity = {
   environment,
+  loginPassword,
   requestOtp,
   verifyOtp,
   refresh,

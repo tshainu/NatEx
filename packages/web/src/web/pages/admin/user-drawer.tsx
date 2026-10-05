@@ -12,6 +12,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { ErrorNote, SuccessNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { useUserSessions } from "@/queries/admin";
+import { CredentialsFields, orderRoles, RoleCheckboxGroup } from "./user-fields";
 
 /**
  * One user, managed (§10 M5 "admin portal: users, roles"): edit identity and
@@ -25,13 +26,14 @@ export interface ManagedUser {
   name: string;
   phone: string;
   role: string;
+  roles?: string[];
+  username?: string | null;
   status: string;
   branchId: string;
   branchName: string | null;
   merchantId?: string | null;
 }
 
-const ROLES: Role[] = ["rider", "transport", "ops", "finance", "admin", "merchant"];
 const MFA_ROLES = new Set(["ops", "admin", "finance"]);
 
 export function UserDrawer({
@@ -54,7 +56,7 @@ export function UserDrawer({
   React.useEffect(() => setNote(null), [user?.id]);
 
   const isSelf = user?.id === selfId;
-  const mfaRole = user ? MFA_ROLES.has(user.role) : false;
+  const mfaRole = user ? (user.roles?.length ? user.roles : [user.role]).some((r) => MFA_ROLES.has(r)) : false;
 
   return (
     <>
@@ -62,7 +64,7 @@ export function UserDrawer({
         open={Boolean(user)}
         onOpenChange={onOpenChange}
         title={user?.name ?? "User"}
-        subtitle={user ? `${ROLE_LABEL[user.role as Role] ?? user.role} · ${user.branchName ?? user.branchId}` : undefined}
+        subtitle={user ? `${(user.roles?.length ? user.roles : [user.role]).map((r) => ROLE_LABEL[r as Role] ?? r).join(" + ")} · ${user.branchName ?? user.branchId}` : undefined}
         footer={
           user ? (
             <Button className="w-full" onClick={() => setEditing(true)}>
@@ -77,6 +79,9 @@ export function UserDrawer({
             <KeyValueGrid>
               <KeyValue label="Phone" mono>
                 {user.phone}
+              </KeyValue>
+              <KeyValue label="Username" mono>
+                {user.username ?? "—"}
               </KeyValue>
               <KeyValue label="Status">{humanise(user.status)}</KeyValue>
               <KeyValue label="User id" mono className="col-span-2">
@@ -207,16 +212,19 @@ function EditUserDialog({
   onSaved: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const initialRoles = orderRoles((user.roles?.length ? user.roles : [user.role]) as Role[]);
   const [name, setName] = React.useState(user.name);
   const [phone, setPhone] = React.useState(user.phone);
-  const [role, setRole] = React.useState(user.role as Role);
+  const [roles, setRoles] = React.useState<Role[]>(initialRoles);
   const [branchId, setBranchId] = React.useState(user.branchId);
   const [merchantId, setMerchantId] = React.useState(user.merchantId ?? "");
+  const [username, setUsername] = React.useState(user.username ?? "");
+  const [password, setPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
 
   const merchants = useQuery({
     ...orpc.merchants.options.queryOptions(),
-    enabled: open && role === "merchant",
+    enabled: open && roles.includes("merchant"),
     staleTime: 5 * 60_000,
   });
 
@@ -224,7 +232,7 @@ function EditUserDialog({
     ...orpc.identity.updateUser.mutationOptions(),
     onSuccess: () => {
       void queryClient.invalidateQueries();
-      const revokes = role !== user.role || branchId !== user.branchId || phone.trim() !== user.phone || (merchantId || null) !== (user.merchantId ?? null);
+      const revokes = JSON.stringify(roles) !== JSON.stringify(initialRoles) || branchId !== user.branchId || phone.trim() !== user.phone || (merchantId || null) !== (user.merchantId ?? null) || password.length > 0;
       onSaved(revokes ? "Saved. The user's sessions were revoked — they sign in again." : "Saved.");
     },
     onError: (error) => setProblem(apiMessage(error, "This change could not be saved.")),
@@ -233,12 +241,14 @@ function EditUserDialog({
   const patch: Parameters<typeof save.mutate>[0] = { userId: user.id };
   if (name.trim() !== user.name) patch.name = name.trim();
   if (phone.trim() !== user.phone) patch.phone = phone.trim();
-  if (role !== user.role) patch.role = role;
+  if (JSON.stringify(roles) !== JSON.stringify(initialRoles)) patch.roles = roles;
   if (branchId !== user.branchId) patch.branchId = branchId;
-  if (role === "merchant" && merchantId && merchantId !== (user.merchantId ?? "")) patch.merchantId = merchantId;
-  if (role !== "merchant" && user.merchantId) patch.merchantId = null;
+  if (roles.includes("merchant") && merchantId && merchantId !== (user.merchantId ?? "")) patch.merchantId = merchantId;
+  if (!roles.includes("merchant") && user.merchantId) patch.merchantId = null;
+  if (username.trim() !== (user.username ?? "")) patch.username = username.trim();
+  if (password) patch.password = password;
   const changed = Object.keys(patch).length > 1;
-  const sensitive = patch.role !== undefined || patch.branchId !== undefined || patch.phone !== undefined || patch.merchantId !== undefined;
+  const sensitive = patch.roles !== undefined || patch.branchId !== undefined || patch.phone !== undefined || patch.merchantId !== undefined || patch.password !== undefined;
 
   return (
     <Dialog
@@ -252,7 +262,7 @@ function EditUserDialog({
             Cancel
           </Button>
           <Button
-            disabled={!changed || name.trim().length < 2 || (role === "merchant" && !merchantId)}
+            disabled={!changed || name.trim().length < 2 || roles.length === 0 || (roles.includes("merchant") && !merchantId) || (password.length > 0 && password.length < 6)}
             pending={save.isPending}
             onClick={() => {
               setProblem(null);
@@ -268,30 +278,23 @@ function EditUserDialog({
         <Field label="Full name">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Phone number" hint="This is the login.">
+        <Field label="Phone number" hint="Used for OTP sign-in and SMS notifications.">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Role" hint={isSelf ? "You cannot change your own role." : undefined}>
-            <Select value={role} disabled={isSelf} onChange={(e) => setRole(e.target.value as Role)}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Branch">
-            <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        {role === "merchant" ? (
+        <RoleCheckboxGroup value={roles} onChange={setRoles} disabled={isSelf} />
+        {isSelf ? (
+          <p className="-mt-2 text-[12px] text-muted-foreground">You cannot change your own roles — another admin does it.</p>
+        ) : null}
+        <Field label="Branch">
+          <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {roles.includes("merchant") ? (
           <Field label="Merchant account">
             <Select value={merchantId} onChange={(e) => setMerchantId(e.target.value)}>
               <option value="">Choose a merchant</option>
@@ -303,6 +306,13 @@ function EditUserDialog({
             </Select>
           </Field>
         ) : null}
+        <CredentialsFields
+          username={username}
+          password={password}
+          onUsername={setUsername}
+          onPassword={setPassword}
+          editing
+        />
         {sensitive ? (
           <p className="rounded-md border border-status-warn/40 bg-status-warn/10 px-3 py-2 text-[12px] text-status-warn">
             Saving signs this user out on every device.

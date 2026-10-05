@@ -207,3 +207,43 @@ export function mayVisit(role: Role, path: string): boolean {
   if (path.startsWith("/field")) return role === "rider" || role === "transport";
   return true;
 }
+
+/** Every role a user holds, oldest sessions fall back to [role]. */
+export function rolesOfUser(user: { role: Role; roles?: Role[] }): Role[] {
+  return user.roles?.length ? user.roles : [user.role];
+}
+
+/** Priority order for choosing a multi-role user's home portal. */
+const PORTAL_PRIORITY: Role[] = ["admin", "finance", "ops", "merchant", "transport", "rider"];
+
+/** Home portal for a role set: the highest-privilege portal the user holds. */
+export function portalForRoles(roles: readonly Role[]): PortalConfig {
+  const primary = PORTAL_PRIORITY.find((r) => roles.includes(r)) ?? roles[0]!;
+  return portalFor(primary);
+}
+
+/** May ANY of the user's roles reach this path? */
+export function mayVisitAny(roles: readonly Role[], path: string): boolean {
+  return roles.some((r) => mayVisit(r, path));
+}
+
+/**
+ * The sidebar for a role set: each role's groups, merged by title with
+ * duplicate items dropped. Highest-privilege portal first.
+ */
+export function navForRoles(roles: readonly Role[]): { title: string; items: NavItem[] }[] {
+  const ordered = [...roles].sort(
+    (a, b) => PORTAL_PRIORITY.indexOf(a) - PORTAL_PRIORITY.indexOf(b),
+  );
+  const byTitle = new Map<string, NavItem[]>();
+  for (const role of ordered) {
+    for (const group of navFor(role)) {
+      const items = byTitle.get(group.title) ?? [];
+      for (const item of group.items) {
+        if (!items.some((i) => i.to === item.to)) items.push(item);
+      }
+      byTitle.set(group.title, items);
+    }
+  }
+  return [...byTitle.entries()].map(([title, items]) => ({ title, items }));
+}

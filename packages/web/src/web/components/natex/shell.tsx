@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LogOut, Building2, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orpc } from "@/lib/api";
-import { navFor, ROLE_LABEL } from "@/lib/permissions";
+import { navForRoles, rolesOfUser, ROLE_LABEL } from "@/lib/permissions";
 import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { session, signOut } = useAuth();
   const [location] = useLocation();
   const user = session!.user;
-  const groups = navFor(user.role);
+  const userRoles = rolesOfUser(user);
+  const groups = navForRoles(userRoles);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -39,7 +40,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </Link>
           <p className="mt-2.5 text-[12px] text-text-lo">{user.name}</p>
           <Badge variant="brand" className="mt-1.5 border-brand/40 bg-brand/15 text-brand">
-            {ROLE_LABEL[user.role]}
+            {userRoles.map((r) => ROLE_LABEL[r]).join(" + ")}
           </Badge>
         </div>
 

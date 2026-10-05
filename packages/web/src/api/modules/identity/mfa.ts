@@ -36,6 +36,12 @@ export const RECOVERY_CODE_COUNT = 10;
 /** Fail-closed: anything that is not an explicit dev/test process counts as production (shared/env.ts). */
 const isProduction = () => !isDevelopment();
 
+/** MFA is required when ANY of the user's roles requires it. */
+export async function mfaRequiredForAny(roles: readonly (Role | string)[]): Promise<boolean> {
+  for (const r of roles) if (await mfaRequiredFor(r)) return true;
+  return false;
+}
+
 export async function mfaRequiredFor(role: Role | string): Promise<boolean> {
   if (!(MFA_ROLES as readonly string[]).includes(role)) return false;
   return settingFlag(SETTING_KEYS.MFA_ENFORCED);

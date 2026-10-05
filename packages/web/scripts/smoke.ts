@@ -133,7 +133,7 @@ await expectFail("rider cannot create a user", 403, () =>
   clientFor(rider.accessToken).identity.createUser({
     name: "Nope",
     phone: "+94770000000",
-    role: "ops",
+    roles: ["ops"],
     branchId: branches[0]!.id,
     merchantId: null,
   }),

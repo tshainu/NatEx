@@ -145,7 +145,7 @@ await expectFail("ops cannot list MFA factors (admin only)", 403, () => ops.mfa.
 
 // A brand-new ops user enrols from nothing.
 const phoneNew = `+9477${String(Date.now()).slice(-7)}`;
-const newOps = await admin.identity.createUser({ name: `SMK5 Ops ${RUN}`, phone: phoneNew, role: "ops", branchId: BRANCH });
+const newOps = await admin.identity.createUser({ name: `SMK5 Ops ${RUN}`, phone: phoneNew, roles: ["ops"], branchId: BRANCH });
 created.users.push(newOps.id);
 const pendingN = await otpOnly(phoneNew, `smk5-${RUN}`);
 check(pendingN.mfa.state === "enrol" && !pendingN.mfa.devCode, "a new ops user must ENROL, and no dev code is offered for a real factor");
@@ -250,7 +250,7 @@ await expectFail("ops cannot edit users", 403, () => ops.identity.updateUser({ u
 const fixtureMerchantUser = await admin.identity.createUser({
   name: `SMK5 Shop ${RUN}`,
   phone: `+9476${String(Date.now()).slice(-7)}`,
-  role: "merchant",
+  roles: ["merchant"],
   branchId: BRANCH,
   merchantId: "mch_ceylon_threads",
 });

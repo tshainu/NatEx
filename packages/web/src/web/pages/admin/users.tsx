@@ -15,11 +15,12 @@ import { DataTable, MonoCell, type Column } from "@/components/natex/data-table"
 import { useAuth } from "@/components/auth-provider";
 import { useMfaFactors } from "@/queries/admin";
 import { UserDrawer } from "./user-drawer";
+import { ALL_ROLES, CredentialsFields, RoleCheckboxGroup } from "./user-fields";
 
 /**
- * Staff register (§5 identity). Admin writes; ops reads. There is no password
- * field anywhere: identity is phone + OTP, and a rider is additionally bound to
- * one device (§2), which is shown here rather than being invisible state.
+ * Staff register (§5 identity). Admin writes; ops reads. A user signs in with
+ * phone + OTP, or with a username and password an admin sets here; a rider is
+ * additionally bound to one device (§2), shown here rather than invisible.
  */
 
 interface UserRow {
@@ -27,6 +28,8 @@ interface UserRow {
   name: string;
   phone: string;
   role: string;
+  roles?: string[];
+  username?: string | null;
   status: string;
   deviceId: string | null;
   branchId: string;
@@ -35,11 +38,9 @@ interface UserRow {
   createdAt: string | Date;
 }
 
-const ROLES: Role[] = ["rider", "transport", "ops", "finance", "admin", "merchant"];
-
 export default function AdminUsers() {
   const { session } = useAuth();
-  const isAdmin = session!.user.role === "admin";
+  const isAdmin = (session!.user.roles ?? [session!.user.role]).includes("admin");
 
   const [search, setSearch] = React.useState("");
   const [role, setRole] = React.useState("");
@@ -88,7 +89,7 @@ export default function AdminUsers() {
     const all = (users.data ?? []) as unknown as UserRow[];
     const term = search.trim().toLowerCase();
     return all.filter((u) => {
-      if (role && u.role !== role) return false;
+      if (role && !(u.roles?.length ? u.roles : [u.role]).includes(role)) return false;
       if (!term) return true;
       return (
         u.name.toLowerCase().includes(term) || u.phone.toLowerCase().includes(term)
@@ -106,9 +107,22 @@ export default function AdminUsers() {
     },
     {
       key: "role",
-      header: "Role",
-      width: "w-[140px]",
-      cell: (r) => <Badge variant="outline">{ROLE_LABEL[r.role as Role] ?? r.role}</Badge>,
+      header: "Roles",
+      width: "w-[190px]",
+      cell: (r) => (
+        <span className="flex flex-wrap gap-1">
+          {(r.roles?.length ? r.roles : [r.role]).map((x) => (
+            <Badge key={x} variant="outline">{ROLE_LABEL[x as Role] ?? x}</Badge>
+          ))}
+        </span>
+      ),
+    },
+    {
+      key: "username",
+      header: "Username",
+      width: "w-[130px]",
+      className: "font-mono text-[12px] text-muted-foreground",
+      cell: (r) => r.username ?? "—",
     },
     {
       key: "branch",
@@ -145,7 +159,8 @@ export default function AdminUsers() {
       header: "MFA",
       width: "w-[110px]",
       cell: (r) => {
-        if (!["ops", "admin", "finance"].includes(r.role)) return <span className="text-muted-foreground">n/a</span>;
+        if (!["ops", "admin", "finance"].some((x) => (r.roles?.length ? r.roles : [r.role]).includes(x)))
+          return <span className="text-muted-foreground">n/a</span>;
         if (!isAdmin) return <span className="text-muted-foreground">—</span>;
         const f = factorFor(r.id);
         return f?.enrolled ? (
@@ -231,7 +246,7 @@ export default function AdminUsers() {
             <Field label="Role" className="w-48">
               <Select value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="">All roles</option>
-                {ROLES.map((r) => (
+                {ALL_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
@@ -305,14 +320,16 @@ function CreateUserDialog({
   const queryClient = useQueryClient();
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
-  const [role, setRole] = React.useState<Role>("rider");
+  const [roles, setRoles] = React.useState<Role[]>(["rider"]);
   const [branchId, setBranchId] = React.useState(defaultBranchId);
   const [merchantId, setMerchantId] = React.useState("");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
 
   const merchants = useQuery({
     ...orpc.merchants.options.queryOptions(),
-    enabled: role === "merchant",
+    enabled: roles.includes("merchant"),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -327,23 +344,28 @@ function CreateUserDialog({
       setName("");
       setPhone("");
       setMerchantId("");
+      setUsername("");
+      setPassword("");
       onOpenChange(false);
     },
     onError: (error) => setProblem(apiMessage(error, "This user could not be created.")),
   });
 
+  const wantsPassword = username.trim().length > 0 || password.length > 0;
   const ready =
     name.trim().length >= 2 &&
     phone.trim().length >= 9 &&
+    roles.length >= 1 &&
     branchId &&
-    (role !== "merchant" || merchantId);
+    (!roles.includes("merchant") || merchantId) &&
+    (!wantsPassword || (username.trim().length >= 2 && password.length >= 6));
 
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title="Add a user"
-      description="The phone number is the login. Sri Lankan numbers are normalised to +94 on the server, so 0771234567 and +94771234567 are the same user."
+      description="The phone number is one way in — Sri Lankan numbers are normalised to +94 on the server. Add a username and password and the user can also sign in without an SMS code."
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -356,9 +378,11 @@ function CreateUserDialog({
               create.mutate({
                 name: name.trim(),
                 phone: phone.trim(),
-                role,
+                roles,
                 branchId,
-                merchantId: role === "merchant" ? merchantId : null,
+                merchantId: roles.includes("merchant") ? merchantId : null,
+                username: username.trim() || null,
+                password: password || null,
               })
             }
           >
@@ -379,16 +403,8 @@ function CreateUserDialog({
             className="font-mono"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Role">
-            <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </Select>
-          </Field>
+        <RoleCheckboxGroup value={roles} onChange={setRoles} />
+        <div className="grid grid-cols-1 gap-4">
           <Field label="Branch">
             <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
               {branches.map((b) => (
@@ -399,7 +415,7 @@ function CreateUserDialog({
             </Select>
           </Field>
         </div>
-        {role === "merchant" ? (
+        {roles.includes("merchant") ? (
           <Field
             label="Merchant account"
             hint="A merchant-portal user must be attached to exactly one merchant."
@@ -414,7 +430,13 @@ function CreateUserDialog({
             </Select>
           </Field>
         ) : null}
-        {role === "rider" ? (
+        <CredentialsFields
+          username={username}
+          password={password}
+          onUsername={setUsername}
+          onPassword={setPassword}
+        />
+        {roles.includes("rider") ? (
           <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
             A rider's device is bound on their first sign-in from the mobile app, not here.
           </p>

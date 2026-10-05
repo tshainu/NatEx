@@ -54,7 +54,15 @@ const guards = inventory();
 const byPath = new Map(guards.map((g) => [g.path, g]));
 
 /** The whole unauthenticated surface. Adding to it is a security decision. */
-const PUBLIC = ["identity.refresh", "identity.requestOtp", "identity.verifyOtp", "parcels.track", "ping"];
+const PUBLIC = [
+  "identity.environment",
+  "identity.loginPassword",
+  "identity.refresh",
+  "identity.requestOtp",
+  "identity.verifyOtp",
+  "parcels.track",
+  "ping",
+];
 
 /** The only routes a half-signed-in (phone OTP passed, TOTP not yet) token may reach. */
 const PENDING_MFA_OK = ["mfa.enrolConfirm", "mfa.enrolStart", "mfa.status", "mfa.verify"];

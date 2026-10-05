@@ -14,13 +14,14 @@ import { Space } from "../constants/theme";
 import { useColors } from "../hooks/use-colors";
 
 /**
- * Phone + OTP sign-in (§2), two steps: request a challenge, then verify the
- * six-digit code.
+ * Username + password sign-in — the field app's primary method (§2). Phone +
+ * OTP stays available behind a toggle for accounts without credentials.
  *
- * The device id goes up with the verify, not as a separate call — the API folds
- * device binding into `identity.verifyOtp`, and for a rider a new device id
- * revokes the previous device's sessions (§5, "one active device per rider").
- * That is why `lib/session.ts` mints the id once per install and never again.
+ * The device id goes up with the sign-in, not as a separate call — the API folds
+ * device binding into `identity.loginPassword` / `identity.verifyOtp`, and for a
+ * rider a new device id revokes the previous device's sessions (§5, "one active
+ * device per rider"). That is why `lib/session.ts` mints the id once per install
+ * and never again.
  */
 
 const FIELD_LOGINS = [
@@ -29,9 +30,22 @@ const FIELD_LOGINS = [
   { role: "Transport · Kandy", phone: "+94777890123", name: "Vignesh Balasubramaniam" },
 ];
 
+function gateSession<T extends { mfa: { state: string } }>(session: T): T {
+  // §2 TOTP MFA (M5): ops, admin and finance finish sign-in with an
+  // authenticator code. That step lives in the web portal; the field app
+  // is for riders and transport, so a pending session is not stored here.
+  if (session.mfa.state === "enrol" || session.mfa.state === "challenge") {
+    throw new Error("This account signs in with an authenticator code. Use the NatEx web portal.");
+  }
+  return session;
+}
+
 export default function LoginScreen() {
   const colors = useColors();
   const { signIn } = useAuth();
+  const [method, setMethod] = React.useState<"password" | "phone">("password");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
   const [challenge, setChallenge] = React.useState<{
@@ -52,16 +66,8 @@ export default function LoginScreen() {
   });
 
   const verify = useMutation({
-    mutationFn: async (input: { challengeId: string; code: string }) => {
-      const session = await client.identity.verifyOtp({ ...input, deviceId: deviceId() });
-      // §2 TOTP MFA (M5): ops, admin and finance finish sign-in with an
-      // authenticator code. That step lives in the web portal; the field app
-      // is for riders and transport, so a pending session is not stored here.
-      if (session.mfa.state === "enrol" || session.mfa.state === "challenge") {
-        throw new Error("This account signs in with an authenticator code. Use the NatEx web portal.");
-      }
-      return session;
-    },
+    mutationFn: async (input: { challengeId: string; code: string }) =>
+      gateSession(await client.identity.verifyOtp({ ...input, deviceId: deviceId() })),
     onSuccess: async (session) => {
       const api = session as ApiSession;
       await signIn(api);
@@ -69,12 +75,24 @@ export default function LoginScreen() {
     },
   });
 
-  const busy = request.isPending || verify.isPending;
+  const passwordLogin = useMutation({
+    mutationFn: async (input: { username: string; password: string }) =>
+      gateSession(await client.identity.loginPassword({ ...input, deviceId: deviceId() })),
+    onSuccess: async (session) => {
+      const api = session as ApiSession;
+      await signIn(api);
+      router.replace(homeRouteFor(api.user.role));
+    },
+  });
+
+  const busy = request.isPending || verify.isPending || passwordLogin.isPending;
   const error = request.error
     ? apiMessage(request.error, "Could not send the code.")
     : verify.error
       ? apiMessage(verify.error, "That code was not accepted.")
-      : null;
+      : passwordLogin.error
+        ? apiMessage(passwordLogin.error, "Sign-in failed.")
+        : null;
 
   function reset(nextPhone: string) {
     setPhone(nextPhone);
@@ -84,29 +102,62 @@ export default function LoginScreen() {
     verify.reset();
   }
 
-  const footer = challenge ? (
-    <>
-      <Button
-        title="Verify and sign in"
-        loading={verify.isPending}
-        disabled={code.trim().length < 4}
-        onPress={() => verify.mutate({ challengeId: challenge.challengeId, code: code.trim() })}
-      />
-      <Button
-        title="Use a different number"
-        variant="ghost"
-        disabled={busy}
-        onPress={() => reset(phone)}
-      />
-    </>
-  ) : (
-    <Button
-      title="Send code"
-      loading={request.isPending}
-      disabled={phone.trim().length < 9}
-      onPress={() => request.mutate(phone)}
-    />
-  );
+  const footer =
+    method === "password" ? (
+      <>
+        <Button
+          title="Sign in"
+          loading={passwordLogin.isPending}
+          disabled={username.trim().length < 2 || password.length === 0}
+          onPress={() => passwordLogin.mutate({ username: username.trim(), password })}
+        />
+        <Button
+          title="Use phone + SMS code instead"
+          variant="ghost"
+          disabled={busy}
+          onPress={() => setMethod("phone")}
+        />
+      </>
+    ) : challenge ? (
+      <>
+        <Button
+          title="Verify and sign in"
+          loading={verify.isPending}
+          disabled={code.trim().length < 4}
+          onPress={() => verify.mutate({ challengeId: challenge.challengeId, code: code.trim() })}
+        />
+        <Button
+          title="Use a different number"
+          variant="ghost"
+          disabled={busy}
+          onPress={() => reset(phone)}
+        />
+        <Button
+          title="Use username + password instead"
+          variant="ghost"
+          disabled={busy}
+          onPress={() => {
+            reset(phone);
+            setMethod("password");
+          }}
+        />
+      </>
+    ) : (
+      <>
+        <Button
+          title="Send code"
+          loading={request.isPending}
+          disabled={phone.trim().length < 9}
+          onPress={() => request.mutate(phone)}
+        />
+        <Button
+          title="Use username + password instead"
+          variant="ghost"
+          disabled={busy}
+          onPress={() => setMethod("password")}
+        />
+      </>
+    );
 
   return (
     <Screen footer={footer}>
@@ -118,11 +169,30 @@ export default function LoginScreen() {
       </View>
 
       <Small style={styles.tagline}>
-        Field app for riders and transport staff. Sign in with your registered phone
-        number — a six-digit code is sent by SMS.
+        Field app for riders and transport staff. Sign in with the username and
+        password your branch gave you.
       </Small>
 
-      {challenge ? (
+      {method === "password" ? (
+        <Card>
+          <Input
+            label="Username"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="e.g. karthik"
+            autoFocus
+          />
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholder="•••••���••"
+          />
+        </Card>
+      ) : challenge ? (
         <Card>
           <Label>Code sent to</Label>
           <Mono>{phone.trim()}</Mono>
@@ -163,6 +233,7 @@ export default function LoginScreen() {
         </Panel>
       ) : null}
 
+      {method === "phone" ? (
       <Panel>
         <Label>Seeded field accounts</Label>
         {FIELD_LOGINS.map((account) => (
@@ -181,6 +252,7 @@ export default function LoginScreen() {
           </Pressable>
         ))}
       </Panel>
+      ) : null}
 
       <Small style={styles.device}>Device {deviceId()}</Small>
     </Screen>

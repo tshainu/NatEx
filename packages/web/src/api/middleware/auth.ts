@@ -1,8 +1,8 @@
 import { base } from "../__core/app";
 import { bearerFrom, PENDING_MFA, verifyAccessToken, type MfaLevel, type Principal, type Role } from "../shared/auth";
 import { errors, fail, problem } from "../shared/errors";
-import { getUserById } from "../modules/identity/service";
-import { mfaRequiredFor } from "../modules/identity/mfa";
+import { getUserById, rolesOf } from "../modules/identity/service";
+import { mfaRequiredForAny } from "../modules/identity/mfa";
 
 /**
  * STEP 2 of the chain (PROJECT.md §4): auth guard — JWT → role + branch scope
@@ -36,9 +36,10 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
     if (!user) errors.unauthenticated("User no longer exists.");
     if (user!.status !== "active") errors.forbidden("This account is suspended.");
 
+    const roles = rolesOf(user!);
     // One active device per rider (PROJECT.md §5): a token minted for a device
     // that is no longer the bound one is refused.
-    if (user!.role === "rider" && claims!.deviceId && user!.deviceId !== claims!.deviceId) {
+    if (roles.includes("rider") && claims!.deviceId && user!.deviceId !== claims!.deviceId) {
       errors.forbidden("This device is no longer the active device for this rider.", {
         boundDeviceId: user!.deviceId,
       });
@@ -58,7 +59,7 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
             { mfa }),
         );
       }
-    } else if (mfa !== "verified" && (await mfaRequiredFor(user!.role))) {
+    } else if (mfa !== "verified" && (await mfaRequiredForAny(roles))) {
       // A session that began before enforcement (or before a role change) and
       // never passed MFA. 401, so the client's refresh runs — and refresh
       // refuses it too (identity/service.ts rotateRefresh): sign in again.
@@ -69,6 +70,7 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
       userId: user!.id,
       name: user!.name,
       role: user!.role as Role,
+      roles,
       branchId: user!.branchId,
       merchantId: user!.merchantId,
       deviceId: claims!.deviceId ?? user!.deviceId,
@@ -92,9 +94,9 @@ export function requireRole(...allowed: Role[]) {
   return tag(base.middleware(async ({ context, next }) => {
     const principal = (context as { principal?: Principal }).principal;
     if (!principal) errors.unauthenticated();
-    if (!allowed.includes(principal!.role)) {
+    if (!principal!.roles.some((r) => allowed.includes(r))) {
       errors.forbidden(
-        `Role ${principal!.role} may not perform this action. Allowed: ${allowed.join(", ")}.`,
+        `Role ${principal!.roles.join("+")} may not perform this action. Allowed: ${allowed.join(", ")}.`,
         { requiredRoles: allowed },
       );
     }

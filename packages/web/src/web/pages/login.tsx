@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { client, apiMessage } from "@/lib/api";
 import { deviceId, isPendingMfa, storeApiSession, type ApiSession } from "@/lib/session";
-import { portalFor, mayVisit } from "@/lib/permissions";
+import { portalForRoles, mayVisitAny, rolesOfUser } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/natex/page";
@@ -34,6 +34,9 @@ export default function Login() {
   const [, navigate] = useLocation();
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
+  const [method, setMethod] = React.useState<"phone" | "password">("phone");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [challenge, setChallenge] = React.useState<{
     challengeId: string;
     expiresInSeconds: number;
@@ -78,22 +81,33 @@ export default function Login() {
     },
   });
 
+  const passwordLogin = useMutation({
+    mutationFn: (input: { username: string; password: string }) =>
+      client.identity.loginPassword({ ...input, deviceId: deviceId() }),
+    onSuccess: (session) => {
+      if (isPendingMfa(session as ApiSession)) setPending(session as ApiSession);
+      else finish(session as ApiSession);
+    },
+  });
+
   function startOver() {
     setPending(null);
     setChallenge(null);
     setCode("");
     request.reset();
     verify.reset();
+    passwordLogin.reset();
   }
 
   function finish(session: ApiSession) {
     const stored = storeApiSession(session);
     // Honour the screen the guard bounced us off, but only if this role may
     // actually reach it — otherwise land in the role's own portal.
+    const roles = rolesOfUser(stored.user);
     const next = new URLSearchParams(window.location.search).get("next");
-    const home = portalFor(stored.user.role).home;
+    const home = portalForRoles(roles).home;
     const target =
-      next && next.startsWith("/") && mayVisit(stored.user.role, next) ? next : home;
+      next && next.startsWith("/") && mayVisitAny(roles, next) ? next : home;
     navigate(target, { replace: true });
   }
 
@@ -163,13 +177,71 @@ export default function Login() {
             Welcome back
           </p>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-lo">
-            Sign in with your registered phone number — a six-digit code is sent by
-            SMS. Operations, finance and admin also confirm with an authenticator app.
+            Sign in with your username and password, or with your registered phone
+            number — a six-digit code is sent by SMS. Operations, finance and admin
+            also confirm with an authenticator app.
           </p>
 
           <div className="mt-6 rounded-xl border border-ink-600 bg-ink-800 p-6 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.6)]">
             {pending ? (
               <MfaStep pending={pending} onDone={finish} onCancel={startOver} />
+            ) : method === "password" ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (username.trim().length >= 2 && password.length > 0)
+                    passwordLogin.mutate({ username: username.trim(), password });
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <h2 className="font-display text-[20px] font-bold">Sign in</h2>
+                  <p className="mt-1 text-[13px] text-text-lo">
+                    Username and password, as set by your administrator.
+                  </p>
+                </div>
+                <Field label="Username">
+                  <Input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="e.g. karthik"
+                    autoComplete="username"
+                    className="border-ink-600 bg-ink-900 font-mono text-text-hi"
+                  />
+                </Field>
+                <Field label="Password">
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    className="border-ink-600 bg-ink-900 font-mono text-text-hi"
+                  />
+                </Field>
+                {passwordLogin.error ? (
+                  <ErrorNote>{apiMessage(passwordLogin.error, "Sign-in failed.")}</ErrorNote>
+                ) : null}
+                <Button
+                  type="submit"
+                  className="w-full"
+                  pending={passwordLogin.isPending}
+                  disabled={username.trim().length < 2 || password.length === 0}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  type="button"
+                  variant="dark"
+                  className="w-full"
+                  onClick={() => {
+                    setMethod("phone");
+                    passwordLogin.reset();
+                  }}
+                >
+                  <ArrowLeft aria-hidden />
+                  Sign in with phone instead
+                </Button>
+              </form>
             ) : !challenge ? (
               <form
                 onSubmit={(event) => {
@@ -205,6 +277,14 @@ export default function Login() {
                   disabled={phone.trim().length < 9}
                 >
                   Send code
+                </Button>
+                <Button
+                  type="button"
+                  variant="dark"
+                  className="w-full"
+                  onClick={() => setMethod("password")}
+                >
+                  Sign in with username instead
                 </Button>
               </form>
             ) : (
