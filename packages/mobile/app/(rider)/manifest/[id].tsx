@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, router } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiMessage, client, orpc } from "../../../lib/api";
@@ -8,6 +9,7 @@ import { Screen, ScreenHeader, Section } from "../../../components/natex/screen"
 import { Button } from "../../../components/natex/button";
 import { Card, Empty, Field, Panel } from "../../../components/natex/card";
 import { Input } from "../../../components/natex/input";
+import { BarcodeScanner } from "../../../components/natex/barcode-scanner";
 import { Badge, LifecyclePill, StatusPill } from "../../../components/natex/pill";
 import { Awb, Body, Label, Mono, Small, Title } from "../../../components/natex/text";
 import { Space } from "../../../constants/theme";
@@ -35,6 +37,7 @@ export default function ManifestScreen() {
   const [handoverBy, setHandoverBy] = React.useState("");
   const [confirmingHandover, setConfirmingHandover] = React.useState(false);
   const inputRef = React.useRef<React.ComponentRef<typeof Input>>(null);
+  const [scannerOpen, setScannerOpen] = React.useState(false);
 
   const detail = useQuery(orpc.collection.get.queryOptions({ input: { id: manifestId } }));
 
@@ -189,6 +192,13 @@ export default function ManifestScreen() {
             editable={!scan.isPending}
           />
           <Button
+            title="Scan with camera"
+            variant="secondary"
+            icon={<Ionicons name="barcode-outline" size={18} color={colors.foreground} />}
+            disabled={scan.isPending}
+            onPress={() => setScannerOpen(true)}
+          />
+          <Button
             title="Scan label"
             variant="secondary"
             loading={scan.isPending}
@@ -260,6 +270,15 @@ export default function ManifestScreen() {
           </Small>
         </Panel>
       ) : null}
+      <BarcodeScanner
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={(value) => {
+          setScannerOpen(false);
+          const awb = normaliseAwb(value);
+          if (awb) scan.mutate(awb);
+        }}
+      />
     </Screen>
   );
 }

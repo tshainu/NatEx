@@ -237,7 +237,7 @@ export default function OpsLinehaul() {
           hint="Created or loading, not yet away."
         />
         <MetricTile
-          label="In flight"
+          label="In transit vehicle"
           value={board.data?.counts.inFlight ?? "—"}
           hint="Departed, not yet arrived."
         />

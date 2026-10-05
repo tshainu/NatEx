@@ -222,14 +222,6 @@ export default function OpsServiceability() {
                       : "no zone matched"}
                 </KeyValue>
               </KeyValueGrid>
-              <p className="mt-4 border-t border-border pt-3 text-[12px] leading-relaxed text-muted-foreground">
-                PROJECT.md §5 specifies PostGIS <span className="font-mono">ST_Contains</span>{" "}
-                over a GiST index. This stack has no PostGIS, so containment runs as a
-                bounding-box pre-filter plus JS ray-casting, and distance is Haversine
-                instead of the <span className="font-mono">&lt;-&gt;</span> geography
-                operator. Exact for the rectangular pilot zones; not equivalent for complex
-                boundaries.
-              </p>
             </Card>
           ) : null}
 

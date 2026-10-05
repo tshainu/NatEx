@@ -191,7 +191,6 @@ export default function OpsBook() {
             <div className="grid grid-cols-2 gap-3">
               <Field
                 label="Declared value (Rs.)"
-                hint={"error" in declared ? undefined : `Stored as ${declared.cents} cents`}
                 error={"error" in declared ? declared.error : null}
               >
                 <Input

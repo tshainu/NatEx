@@ -44,6 +44,13 @@
           "cameraPermission": "NatEx uses the camera to photograph parcels at the doorstep as proof of delivery.",
           "photosPermission": false
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "NatEx uses the camera to scan parcel barcodes.",
+          "recordAudioAndroid": false
+        }
       ]
     ]
   }
