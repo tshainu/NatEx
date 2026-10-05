@@ -85,9 +85,21 @@ export async function getUserByUsername(username: string): Promise<(IdentityUser
 /** Fixed demo login: this phone always signs in with this code, no MFA. Admin role. */
 const DEMO_PHONE = "+94711336666";
 const DEMO_CODE = "121212";
+const DEMO_USERNAME = "demo";
 
 async function ensureDemoAccount(): Promise<void> {
-  if (await getUserByPhone(DEMO_PHONE)) return;
+  const [existing] = await db.select().from(user).where(eq(user.phone, DEMO_PHONE));
+  if (existing) {
+    // Rows predating username/password sign-in get the demo credentials
+    // backfilled on first use; an admin-renamed account is left alone.
+    if (existing.username !== DEMO_USERNAME || !existing.passwordHash) {
+      await db
+        .update(user)
+        .set({ username: DEMO_USERNAME, passwordHash: await hashSecret("demo123") })
+        .where(eq(user.id, existing.id));
+    }
+    return;
+  }
   const [anyAdmin] = await db.select().from(user).where(eq(user.role, "admin"));
   if (!anyAdmin) return;
   await db.insert(user).values({
@@ -97,7 +109,7 @@ async function ensureDemoAccount(): Promise<void> {
     roles: JSON.stringify(["admin"]),
     name: "Demo Admin",
     phone: DEMO_PHONE,
-    username: "demo",
+    username: DEMO_USERNAME,
     passwordHash: await hashSecret("demo123"),
     status: "active",
   } as never);
@@ -368,6 +380,7 @@ export async function loginWithPassword(params: {
   password: string;
   deviceId?: string | null;
 }): Promise<Session> {
+  if (normaliseUsername(params.username) === DEMO_USERNAME) await ensureDemoAccount();
   const account = await getUserByUsername(params.username);
   // One message for every failure — no account enumeration.
   const bad = () => errors.unauthenticated("Incorrect username or password.");
