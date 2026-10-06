@@ -3,11 +3,12 @@ import { Platform } from "react-native";
 /**
  * NatEx field-app color tokens (design.md "Mobile (Expo)").
  *
- * The mobile app is **dark-first on purpose**: riders work outdoors in glare and
- * in apartment basements, and a white screen at 2pm in Colombo is unreadable.
- * So `light` and `dark` deliberately carry the same deep-ink values — the app
- * does not follow the system theme, because a courier app that turns white
- * mid-shift is a usability bug, not a feature.
+ * The app is **dark-first by default**: riders work outdoors in glare and in
+ * apartment basements, and a white screen at 2pm in Colombo is unreadable —
+ * that stays the default. But a rider who prefers a day screen gets one: the
+ * Me tab carries a Dark / Day / System picker (`lib/theme.ts`), and the day
+ * palette below mirrors the web portal's light theme (styles.css) so both
+ * platforms share one vocabulary in both modes.
  *
  * Token names mirror the web app's (`packages/web/src/web/styles.css`) so the
  * two platforms share one vocabulary, plus the five locked status tokens from
@@ -46,7 +47,7 @@ const status = {
   statusBad: "#9F1239",
 } as const;
 
-const shell = {
+const dark = {
   background: ink.ink900,
   foreground: ink.textHi,
   card: ink.ink700,
@@ -68,9 +69,35 @@ const shell = {
   ...status,
 } as const;
 
+/**
+ * Day mode — the web portal's light theme (styles.css :root) translated into
+ * the same token names. Status colours are locked by design.md and stay
+ * identical in both schemes; only the ink shell inverts.
+ */
+const light = {
+  background: "#F7F8FA",
+  foreground: "#0C1B2A",
+  card: "#FFFFFF",
+  cardForeground: "#0C1B2A",
+  surface: "#EEF1F5",
+  primary: ink.brand,
+  primaryForeground: ink.onBrand,
+  secondary: "#EEF1F5",
+  secondaryForeground: "#0C1B2A",
+  muted: "#EEF1F5",
+  mutedForeground: "#5C6B7D",
+  accent: "#EEF1F5",
+  accentForeground: "#0C1B2A",
+  border: "#E3E7ED",
+  destructive: status.statusWarn,
+  success: status.statusGood,
+  warning: status.statusWarn,
+  ...status,
+} as const;
+
 export const Colors = {
-  light: shell,
-  dark: shell,
+  light,
+  dark,
 } as const;
 
 export type ColorScheme = keyof typeof Colors;

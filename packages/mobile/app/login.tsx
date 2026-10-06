@@ -162,12 +162,16 @@ export default function LoginScreen() {
   return (
     <Screen footer={footer}>
       <View style={styles.brand}>
-        <Image
-          source={require("../assets/natex-logo.png")}
-          style={styles.logo}
-          resizeMode="contain"
-          accessibilityLabel="NatEx"
-        />
+        {/* The logo mark is white-on-transparent, so it sits on an ink badge
+            that reads the same in Dark and Day mode. */}
+        <View style={styles.logoBadge}>
+          <Image
+            source={require("../assets/natex-logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityLabel="NatEx"
+          />
+        </View>
         <Small color={colors.mutedForeground} style={styles.tagline}>
           Field app for riders and transport staff. Sign in with the username and
           password your branch gave you.
@@ -264,7 +268,14 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   brand: { alignItems: "center", paddingTop: Space.unit * 3, paddingBottom: Space.unit * 2 },
   // Logo art is 2016×648 (~3.1:1).
-  logo: { width: 216, height: 70 },
+  // The mark is white-on-transparent — the ink badge keeps it readable in Day mode.
+  logoBadge: {
+    backgroundColor: "#0A1626",
+    borderRadius: Space.radius,
+    paddingHorizontal: Space.unit * 2,
+    paddingVertical: 6,
+  },
+  logo: { width: 180, height: 58 },
   tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
   accountRow: {
     flexDirection: "row",

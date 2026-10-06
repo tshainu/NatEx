@@ -2,7 +2,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { homeRouteFor } from "../lib/session";
-import { Colors } from "../constants/theme";
+import { useColors } from "../hooks/use-colors";
 
 /**
  * Launch gate. Nothing decides where the app opens except the role on the
@@ -15,11 +15,12 @@ import { Colors } from "../constants/theme";
  */
 export default function Index() {
   const { ready, role } = useAuth();
+  const colors = useColors();
 
   if (!ready) {
     return (
-      <View style={[styles.splash, { backgroundColor: Colors.dark.background }]}>
-        <ActivityIndicator color={Colors.dark.primary} />
+      <View style={[styles.splash, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }

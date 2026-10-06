@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { homeRouteFor, type Role } from "../../lib/session";
-import { Colors } from "../../constants/theme";
+import { useColors } from "../../hooks/use-colors";
 
 /**
  * Guards a role's tab group. The server enforces role on every procedure
@@ -19,11 +19,12 @@ export function RoleGate({
   children: React.ReactNode;
 }) {
   const { ready, role } = useAuth();
+  const colors = useColors();
 
   if (!ready) {
     return (
-      <View style={[styles.splash, { backgroundColor: Colors.dark.background }]}>
-        <ActivityIndicator color={Colors.dark.primary} />
+      <View style={[styles.splash, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }

@@ -79,11 +79,11 @@ export default function RiderLayout() {
           }}
         />
         <Tabs.Screen
-          name="me"
+          name="settings"
           options={{
-            title: "Me",
+            title: "Settings",
             tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "person" : "person-outline"} size={size} color={color} />
+              <Ionicons name={focused ? "settings" : "settings-outline"} size={size} color={color} />
             ),
           }}
         />

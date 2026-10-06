@@ -15,6 +15,8 @@ import { ErrorBoundary } from "../components/__ErrorBoundary";
 import { OneDollarStatsProvider } from "../lib/__analytics";
 import { isWeb, startWebSafeArea } from "../lib/__web-safe-area";
 import { AuthProvider } from "../lib/auth";
+import { hydrateTheme, useResolvedScheme } from "../lib/theme";
+import { hydrateSettings } from "../lib/settings";
 import { Colors } from "../constants/theme";
 import appJson from "../app.json";
 
@@ -35,7 +37,12 @@ const hostname = applicationId ? `${applicationId}-mobile` : "localhost";
 export default function RootLayout() {
   useEffect(() => {
     if (isWeb) startWebSafeArea();
+    void hydrateTheme();
+    void hydrateSettings();
   }, []);
+
+  const scheme = useResolvedScheme();
+  const shell = Colors[scheme];
 
   const [fontsLoaded] = useFonts({
     PlusJakartaSans_700Bold,
@@ -58,14 +65,14 @@ export default function RootLayout() {
       >
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
-            {/* Dark-first shell (design.md): light status-bar glyphs always. */}
-            <StatusBar style="light" />
+            {/* Status-bar glyphs invert with the rider's Dark/Day choice. */}
+            <StatusBar style={scheme === "dark" ? "light" : "dark"} />
             {fontsLoaded ? (
               <AuthProvider>
                 <Stack
                   screenOptions={{
                     headerShown: false,
-                    contentStyle: { backgroundColor: Colors.dark.background },
+                    contentStyle: { backgroundColor: shell.background },
                     animation: "fade",
                   }}
                 />
@@ -74,7 +81,7 @@ export default function RootLayout() {
               // Fonts are part of the design contract (mono AWBs are how a
               // mistyped digit gets caught), so the shell holds rather than
               // flashing a system-font frame.
-              <View style={{ flex: 1, backgroundColor: Colors.dark.background }} />
+              <View style={{ flex: 1, backgroundColor: shell.background }} />
             )}
           </QueryClientProvider>
         </SafeAreaProvider>

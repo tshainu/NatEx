@@ -1,8 +1,10 @@
 import { Colors, type ThemeColors } from "../constants/theme";
-import { useColorScheme } from "./use-color-scheme";
+import { useResolvedScheme } from "../lib/theme";
 
 /**
- * Returns the color palette for the active system color scheme (light/dark).
+ * Returns the color palette for the active appearance — the rider's Dark /
+ * Day / System choice from the Me tab (lib/theme.ts), resolved against the OS
+ * scheme when set to System.
  *
  * ```tsx
  * const colors = useColors();
@@ -12,6 +14,6 @@ import { useColorScheme } from "./use-color-scheme";
  * ```
  */
 export function useColors(): ThemeColors {
-  const scheme = useColorScheme() ?? "light";
+  const scheme = useResolvedScheme();
   return Colors[scheme];
 }
