@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import { apiMessage, client } from "../lib/api";
@@ -161,17 +161,18 @@ export default function LoginScreen() {
 
   return (
     <Screen footer={footer}>
-      <View style={styles.brandRow}>
-        <View style={[styles.mark, { backgroundColor: colors.primary }]}>
-          <Title color={colors.primaryForeground}>N</Title>
-        </View>
-        <Display>NatEx</Display>
+      <View style={styles.brand}>
+        <Image
+          source={require("../assets/natex-logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+          accessibilityLabel="NatEx"
+        />
+        <Small color={colors.mutedForeground} style={styles.tagline}>
+          Field app for riders and transport staff. Sign in with the username and
+          password your branch gave you.
+        </Small>
       </View>
-
-      <Small style={styles.tagline}>
-        Field app for riders and transport staff. Sign in with the username and
-        password your branch gave you.
-      </Small>
 
       {method === "password" ? (
         <Card>
@@ -261,15 +262,10 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: Space.unit * 1.5 },
-  mark: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tagline: { marginTop: -Space.unit },
+  brand: { alignItems: "center", paddingTop: Space.unit * 3, paddingBottom: Space.unit * 2 },
+  // Logo art is 2016×648 (~3.1:1).
+  logo: { width: 216, height: 70 },
+  tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
   accountRow: {
     flexDirection: "row",
     alignItems: "center",

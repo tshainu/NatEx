@@ -168,10 +168,7 @@ export default function Login() {
       <section className="flex flex-col justify-center px-6 py-10 sm:px-12">
         <div className="mx-auto w-full max-w-[400px]">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="grid size-9 place-items-center rounded-md bg-brand font-display text-[16px] font-bold text-primary-foreground">
-              N
-            </span>
-            <span className="font-display text-[22px] font-bold tracking-tight">NatEx</span>
+            <img src="/natex-logo.png" alt="NatEx" className="h-9 w-auto" />
           </div>
           <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-text-lo">
             Welcome back
