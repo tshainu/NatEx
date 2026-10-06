@@ -131,10 +131,7 @@ export default function Login() {
         <div aria-hidden className="absolute inset-y-0 right-0 w-px bg-ink-600" />
 
         <div className="relative flex items-center gap-2.5 px-12 pt-10">
-          <span className="grid size-10 place-items-center rounded-lg bg-brand font-display text-[18px] font-bold text-primary-foreground shadow-[0_0_0_4px_rgba(16,185,129,0.18)]">
-            N
-          </span>
-          <span className="font-display text-[24px] font-bold tracking-tight">NatEx</span>
+          <img src="/natex-logo.png" alt="NatEx" className="h-12 w-auto" />
         </div>
 
         <div className="relative px-12 pb-12">
