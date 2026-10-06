@@ -8,6 +8,7 @@ import { Page, Card, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { CountRow } from "@/components/natex/metric-tile";
 import { GROUP_COLOUR } from "@/lib/status";
 import { Drawer } from "@/components/ui/drawer";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
 import { dateTime, humanise, since } from "@/lib/format";
 import { useCustodyChain, useScanLog } from "@/queries/transport";
@@ -246,16 +247,25 @@ export default function OpsScanLog() {
 function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => void }) {
   const chain = useCustodyChain(awb);
   const data = chain.data as
+    // transportService.custodyChain: getParcelDetail + bags + scans + exceptions.
     | {
         parcel: { awb: string; status: string; codAmountCents?: number | null };
-        bagLegs: {
+        bags: {
           bagId: string;
           bagCode: string;
           bagStatus: string;
           seal: string | null;
-          item: { scannedAt: string | Date; scannedByName?: string | null };
+          originHubName: string;
+          destHubName: string;
+          scannedAt: string | Date;
+          scannedByName: string | null;
+          removedAt: string | Date | null;
+          tripCode: string | null;
+          tripVehicle: string | null;
+          tripSeal: string | null;
+          departedAt: string | Date | null;
+          arrivedAt: string | Date | null;
         }[];
-        trips: { id: string; code: string; status: string; vehicleReg: string | null }[];
         scans: ScanRow[];
         exceptions: { id: string; kind: string; status: string; detail: string }[];
       }
@@ -270,8 +280,13 @@ function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => vo
       title={awb ? `Custody of ${awb}` : "Custody"}
       subtitle="Physical custody, not just status changes."
     >
+      <ErrorBoundary key={awb ?? "closed"}>
       {chain.isPending ? (
         <p className="text-[13px] text-muted-foreground">Loading the chain…</p>
+      ) : chain.isError ? (
+        <p className="text-[13px] text-muted-foreground">
+          The custody chain could not be loaded for this AWB.
+        </p>
       ) : !data ? (
         <p className="text-[13px] text-muted-foreground">Nothing recorded against this AWB.</p>
       ) : (
@@ -287,39 +302,36 @@ function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => vo
             <h4 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
               Bag legs
             </h4>
-            {data.bagLegs.length === 0 ? (
+            {data.bags.length === 0 ? (
               <p className="text-[13px] text-muted-foreground">Never bagged.</p>
             ) : (
-              data.bagLegs.map((leg) => (
-                <div key={`${leg.bagId}-${String(leg.item.scannedAt)}`} className="rounded-md border p-2.5">
+              data.bags.map((leg) => (
+                <div key={`${leg.bagId}-${String(leg.scannedAt)}`} className="rounded-md border p-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[13px]">{leg.bagCode}</span>
                     <Badge variant="muted">{humanise(leg.bagStatus)}</Badge>
                   </div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    scanned in {dateTime(leg.item.scannedAt)}
-                    {leg.item.scannedByName ? ` by ${leg.item.scannedByName}` : ""}
+                    {leg.originHubName} → {leg.destHubName}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    scanned in {dateTime(leg.scannedAt)}
+                    {leg.scannedByName ? ` by ${leg.scannedByName}` : ""}
                     {leg.seal ? ` · seal ${leg.seal}` : ""}
                   </div>
-                </div>
-              ))
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <h4 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Trips
-            </h4>
-            {data.trips.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">Never on a linehaul trip.</p>
-            ) : (
-              data.trips.map((trip) => (
-                <div key={trip.id} className="flex items-center justify-between gap-2 rounded-md border p-2.5">
-                  <div>
-                    <div className="font-mono text-[13px]">{trip.code}</div>
-                    <div className="text-[11px] text-muted-foreground">{trip.vehicleReg ?? "—"}</div>
-                  </div>
-                  <Badge variant="muted">{humanise(trip.status)}</Badge>
+                  {leg.tripCode ? (
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      trip {leg.tripCode}
+                      {leg.tripVehicle ? ` · ${leg.tripVehicle}` : ""}
+                      {leg.departedAt ? ` · departed ${dateTime(leg.departedAt)}` : ""}
+                      {leg.arrivedAt ? ` · arrived ${dateTime(leg.arrivedAt)}` : ""}
+                    </div>
+                  ) : null}
+                  {leg.removedAt ? (
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      taken out {dateTime(leg.removedAt)}
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}
@@ -374,6 +386,7 @@ function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => vo
           ) : null}
         </div>
       )}
+      </ErrorBoundary>
     </Drawer>
   );
 }

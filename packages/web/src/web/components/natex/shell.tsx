@@ -39,9 +39,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
             />
           </Link>
           <p className="mt-2.5 text-[12px] text-text-lo">{user.name}</p>
-          <Badge variant="brand" className="mt-1.5 border-brand/40 bg-brand/15 text-brand">
-            {userRoles.map((r) => ROLE_LABEL[r]).join(" + ")}
-          </Badge>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {userRoles.map((r) => (
+              <Badge key={r} variant="brand" className="border-brand/40 bg-brand/15 text-brand">
+                {ROLE_LABEL[r]}
+              </Badge>
+            ))}
+          </div>
         </div>
 
         <nav className="natex-scroll flex-1 overflow-y-auto px-3 py-4">
