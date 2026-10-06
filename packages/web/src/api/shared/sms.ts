@@ -86,19 +86,21 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   }
 
   // The gateway is a black box reached by HTTP. Destination, sender id and body
-  // are sent both as query params and as a JSON body so either convention works
-  // without assuming a provider.
+  // are sent both as query params and as a form body so either convention works
+  // without assuming a provider. Param names match the urbanpos.lk gateway.
+  // Local gateways expect 9477… rather than +9477…, so strip the leading plus.
+  const gatewayTo = to.replace(/^\+/, "");
   const target = new URL(url);
-  target.searchParams.set("to", to);
-  target.searchParams.set("sender_id", senderId);
+  target.searchParams.set("phone_no", gatewayTo);
   target.searchParams.set("message", input.body);
+  target.searchParams.set("sender_id", senderId);
 
   let raw = "";
   try {
     const res = await fetch(target, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ to, senderId, message: input.body }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ phone_no: gatewayTo, message: input.body, sender_id: senderId }),
       signal: AbortSignal.timeout(10_000),
     });
     raw = await res.text();
