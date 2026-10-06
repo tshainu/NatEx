@@ -19,7 +19,7 @@ import { db } from "./__client";
 import { branch, mfaFactor, mfaRecoveryCode, otpChallenge, refreshToken, user } from "./schema/identity";
 import { merchant, rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "./schema/merchants";
 import { settingValue } from "./schema/settings";
-import { parcel, parcelEvent } from "./schema/parcels";
+import { awbBatch, awbBatchLabel, parcel, parcelEvent } from "./schema/parcels";
 import { manifest, manifestItem } from "./schema/collection";
 import { geocodeCache, zone } from "./schema/routing";
 import { bag, bagItem, custodyException, hubScan, trip } from "./schema/transport";
@@ -108,6 +108,8 @@ async function clear() {
   await db.delete(trip);
   await db.delete(manifestItem);
   await db.delete(manifest);
+  await db.delete(awbBatchLabel);
+  await db.delete(awbBatch);
   await db.delete(parcelEvent);
   await db.delete(parcel);
   await db.delete(merchant);
@@ -659,6 +661,7 @@ async function seedTransport(parcels: SeededParcel[]) {
     userId: TRANSPORT_ID,
     name: "Murugan Thevarajah",
     role: "transport",
+    roles: ["transport"],
     branchId: BRANCH_ID,
     deviceId: "seed-hub-scanner-cmb",
   };
@@ -666,6 +669,7 @@ async function seedTransport(parcels: SeededParcel[]) {
     userId: KANDY_TRANSPORT_ID,
     name: "Vignesh Balasubramaniam",
     role: "transport",
+    roles: ["transport"],
     branchId: KANDY_HUB_ID,
     deviceId: "seed-hub-scanner-kdy",
   };

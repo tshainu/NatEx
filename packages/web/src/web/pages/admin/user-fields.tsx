@@ -58,6 +58,7 @@ export function RoleCheckboxGroup({
             >
               <input
                 type="checkbox"
+                aria-label={`${ROLE_LABEL[role]} role`}
                 className="size-3.5 accent-emerald-500"
                 checked={checked}
                 disabled={disabled || (checked && value.length === 1)}

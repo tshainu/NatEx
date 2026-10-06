@@ -9,7 +9,7 @@ import { Screen } from "../components/natex/screen";
 import { Button } from "../components/natex/button";
 import { Card, Panel } from "../components/natex/card";
 import { Input } from "../components/natex/input";
-import { Body, Display, Label, Mono, Small, Title } from "../components/natex/text";
+import { Body, Label, Mono, Small } from "../components/natex/text";
 import { Space } from "../constants/theme";
 import { useColors } from "../hooks/use-colors";
 

@@ -53,6 +53,7 @@ const principal = (role: Role, extra: Partial<Principal> = {}): Principal => ({
   userId: `usr_sm6_${role}`,
   name: `§6 test ${role}`,
   role,
+  roles: [role],
   branchId: TEST_BRANCH,
   merchantId: role === "merchant" ? M_COD : null,
   deviceId: null,

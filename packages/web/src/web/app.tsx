@@ -33,6 +33,7 @@ import AdminSettings from "./pages/admin/settings";
 import AdminTemplates from "./pages/admin/templates";
 import AdminAudit from "./pages/admin/audit";
 import AdminMonitor from "./pages/admin/monitor";
+import AdminAwbBatches from "./pages/admin/awb-batches";
 import SecurityPage from "./pages/security";
 import FinanceOverview from "./pages/finance/overview";
 import FinanceCod from "./pages/finance/cod-page";
@@ -208,6 +209,9 @@ function Routes() {
       </Portal>
       <Portal path="/admin/monitor">
         <AdminMonitor />
+      </Portal>
+      <Portal path="/admin/awb-batches">
+        <AdminAwbBatches />
       </Portal>
 
       {/* Every signed-in role: own MFA state and sessions (§2) */}

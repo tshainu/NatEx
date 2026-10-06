@@ -26,6 +26,7 @@ import { routing } from "./routes/routing";
 import { settings } from "./routes/settings";
 import { sync } from "./routes/sync";
 import { transport } from "./routes/transport";
+import { awbBatches } from "./routes/awb-batches";
 import { problemResponse, problem } from "./shared/errors";
 import { securityHeaders } from "./middleware/security-headers";
 
@@ -66,6 +67,7 @@ export const router = {
   monitor,
   // Round 6 — admin company dashboard.
   dashboard,
+  awbBatches,
 };
 
 export type AppRouter = typeof router;

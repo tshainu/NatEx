@@ -58,7 +58,42 @@ export const parcel = sqliteTable(
   ],
 );
 
-/** APPEND-ONLY. Never updated, never deleted (PROJECT.md §5). */
+/** A fixed, merchant-owned range of physical AWB stickers issued by an admin. */
+export const awbBatch = sqliteTable(
+  "parcels_awb_batch",
+  {
+    id: text("id").primaryKey(),
+    batchCode: text("batch_code").notNull().unique(),
+    merchantId: text("merchant_id").notNull(),
+    /** Snapshot for batch history if the merchant is renamed later. */
+    merchantName: text("merchant_name").notNull(),
+    awbStart: text("awb_start").notNull(),
+    awbEnd: text("awb_end").notNull(),
+    labelCount: integer("label_count").notNull().default(1000),
+    createdById: text("created_by_id").notNull(),
+    createdByName: text("created_by_name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("parcels_awb_batch_merchant_idx").on(t.merchantId, t.createdAt),
+    index("parcels_awb_batch_range_idx").on(t.awbStart, t.awbEnd),
+  ],
+);
+/** Each AWB is reserved globally at issue time; a parcel row marks it as used. */
+export const awbBatchLabel = sqliteTable(
+  "parcels_awb_batch_label",
+  {
+    awb: text("awb").primaryKey(),
+    batchId: text("batch_id")
+      .notNull()
+      .references(() => awbBatch.id),
+  },
+  (t) => [index("parcels_awb_batch_label_batch_idx").on(t.batchId, t.awb)],
+);
+
+/** APPEND-ONLY. Never updated, never deleted (§5). */
 export const parcelEvent = sqliteTable(
   "parcels_parcel_event",
   {

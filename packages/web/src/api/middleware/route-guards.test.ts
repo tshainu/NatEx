@@ -111,7 +111,7 @@ describe("route guards (static inventory)", () => {
   });
 
   test("admin-only namespaces stay admin-only", () => {
-    for (const g of guards.filter((x) => /^(audit|monitor|dashboard)\./.test(x.path))) {
+    for (const g of guards.filter((x) => /^(audit|monitor|dashboard|awbBatches)\./.test(x.path))) {
       expect({ path: g.path, roles: g.roles }).toEqual({ path: g.path, roles: ["admin"] });
     }
     for (const path of ["settings.set", "rateCards.publish", "rateCards.assign", "identity.createUser"]) {

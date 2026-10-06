@@ -1,11 +1,12 @@
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
-import { parcel, parcelEvent } from "../../database/schema/parcels";
+import { awbBatchLabel, parcel, parcelEvent } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
+import { nextUnusedMerchantAwb } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
@@ -53,11 +54,21 @@ async function uniqueAwb(): Promise<string> {
       .select({ id: parcel.id })
       .from(parcel)
       .where(eq(parcel.awb, candidate));
-    if (!clash) return candidate;
+    const [reserved] = await db
+      .select({ awb: awbBatchLabel.awb })
+      .from(awbBatchLabel)
+      .where(eq(awbBatchLabel.awb, candidate));
+    if (!clash && !reserved) return candidate;
   }
   // `return` only to tell the compiler the function ends here: every `errors.*`
   // helper throws (its return type is `never`).
   return errors.conflict("Could not mint a unique AWB. Retry.");
+}
+
+function errorChainText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return `${error.message} ${cause === undefined ? "" : errorChainText(cause)}`;
 }
 
 // ------------------------------------------------------------- event appending
@@ -684,35 +695,47 @@ export async function createParcel(
     });
   }
 
-  const awb = await uniqueAwb();
   const now = new Date();
-  const [row] = await db
-    .insert(parcel)
-    .values({
-      id: prefixedId("pcl"),
-      awb,
-      merchantId: input.merchantId,
-      branchId: input.branchId,
-      status: "Booked",
-      weightGrams: input.weightGrams,
-      lengthCm: input.lengthCm ?? null,
-      widthCm: input.widthCm ?? null,
-      heightCm: input.heightCm ?? null,
-      declaredValueCents: input.declaredValueCents,
-      codAmountCents: input.codAmountCents,
-      originAddress: input.originAddress,
-      originLat: input.originLat ?? null,
-      originLng: input.originLng ?? null,
-      consigneeName: input.consigneeName,
-      consigneePhone: input.consigneePhone,
-      destAddress: input.destAddress,
-      destLat: input.destLat ?? null,
-      destLng: input.destLng ?? null,
-      destZoneId: input.destZoneId ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
+  let row: ParcelRow | undefined;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const awb = (await nextUnusedMerchantAwb(input.merchantId)) ?? (await uniqueAwb());
+    try {
+      [row] = await db
+        .insert(parcel)
+        .values({
+          id: prefixedId("pcl"),
+          awb,
+          merchantId: input.merchantId,
+          branchId: input.branchId,
+          status: "Booked",
+          weightGrams: input.weightGrams,
+          lengthCm: input.lengthCm ?? null,
+          widthCm: input.widthCm ?? null,
+          heightCm: input.heightCm ?? null,
+          declaredValueCents: input.declaredValueCents,
+          codAmountCents: input.codAmountCents,
+          originAddress: input.originAddress,
+          originLat: input.originLat ?? null,
+          originLng: input.originLng ?? null,
+          consigneeName: input.consigneeName,
+          consigneePhone: input.consigneePhone,
+          destAddress: input.destAddress,
+          destLat: input.destLat ?? null,
+          destLng: input.destLng ?? null,
+          destZoneId: input.destZoneId ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+      break;
+    } catch (error) {
+      const message = errorChainText(error);
+      const duplicateAwb = message.includes("parcels_parcel.awb") ||
+        (message.includes("UNIQUE constraint failed") && message.includes("awb"));
+      if (!duplicateAwb) throw error;
+    }
+  }
+  if (!row) return errors.conflict("Could not allocate a unique AWB. Retry the booking.");
 
   await appendParcelEvent({
     parcelId: row!.id,
