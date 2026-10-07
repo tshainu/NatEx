@@ -58,7 +58,7 @@ export const parcel = sqliteTable(
   ],
 );
 
-/** A fixed, merchant-owned range of physical AWB stickers issued by an admin. */
+/** A fixed range of physical AWB stickers with explicit planned/assigned ownership. */
 export const awbBatch = sqliteTable(
   "parcels_awb_batch",
   {
@@ -67,6 +67,15 @@ export const awbBatch = sqliteTable(
     merchantId: text("merchant_id").notNull(),
     /** Snapshot for batch history if the merchant is renamed later. */
     merchantName: text("merchant_name").notNull(),
+    /** Null on legacy merchant-owned batches; planned | assigned on new rows. */
+    assignmentStatus: text("assignment_status"),
+    /** merchant | branch | hub; null until assigned. */
+    assigneeType: text("assignee_type"),
+    assigneeId: text("assignee_id"),
+    assigneeName: text("assignee_name"),
+    assignedAt: integer("assigned_at", { mode: "timestamp" }),
+    assignedById: text("assigned_by_id"),
+    assignedByName: text("assigned_by_name"),
     awbStart: text("awb_start").notNull(),
     awbEnd: text("awb_end").notNull(),
     labelCount: integer("label_count").notNull().default(1000),
@@ -78,6 +87,7 @@ export const awbBatch = sqliteTable(
   },
   (t) => [
     index("parcels_awb_batch_merchant_idx").on(t.merchantId, t.createdAt),
+    index("parcels_awb_batch_assignee_idx").on(t.assignmentStatus, t.assigneeType, t.assigneeId),
     index("parcels_awb_batch_range_idx").on(t.awbStart, t.awbEnd),
   ],
 );

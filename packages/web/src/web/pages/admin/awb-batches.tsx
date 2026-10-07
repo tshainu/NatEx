@@ -1,8 +1,8 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Plus, Printer } from "lucide-react";
+import { Download, Layers, Printer, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/input";
+import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, Page } from "@/components/natex/page";
 import { DataTable, type Column } from "@/components/natex/data-table";
@@ -12,11 +12,24 @@ import { downloadCsv } from "@/lib/csv";
 type AwbBatchList = Awaited<ReturnType<typeof client.awbBatches.list>>;
 type BatchRow = AwbBatchList["batches"][number];
 type MerchantOption = AwbBatchList["merchants"][number];
+type LocationOption = AwbBatchList["locations"][number];
 type BatchExport = Awaited<ReturnType<typeof client.awbBatches.labels>>;
+type AssigneeType = "merchant" | "branch" | "hub";
+
+type InventoryRow = {
+  id: string;
+  name: string;
+  type: string;
+  batchCount: number;
+  issued: number;
+  used: number;
+  unused: number;
+};
 
 type ExportKind = "csv" | "pdf";
 const EMPTY_BATCHES: BatchRow[] = [];
 const EMPTY_MERCHANTS: MerchantOption[] = [];
+const EMPTY_LOCATIONS: LocationOption[] = [];
 
 function dateTime(value: string | Date): string {
   return new Date(value).toLocaleString("en-LK", {
@@ -37,6 +50,13 @@ function escapeHtml(value: string): string {
     };
     return entities[character]!;
   });
+}
+
+function assigneeTypeLabel(type: string | null): string {
+  if (type === "merchant") return "Merchant";
+  if (type === "branch") return "Branch";
+  if (type === "hub") return "Hub";
+  return "Planned / unassigned";
 }
 
 function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExport["labels"]): void {
@@ -69,7 +89,9 @@ function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExpor
 <header>
   <h1>NatEx — AWB sticker series</h1>
   <p><strong>Batch:</strong> <span class="mono">${escapeHtml(batch.batchCode)}</span></p>
-  <p><strong>Merchant:</strong> ${escapeHtml(batch.merchantName)}</p>
+  <p><strong>Status:</strong> ${escapeHtml(batch.status)}</p>
+  <p><strong>Assigned to:</strong> ${escapeHtml(batch.assigneeName ?? "Planned / unassigned")}</p>
+  ${batch.assignedAt ? `<p><strong>Assigned by / at:</strong> ${escapeHtml(batch.assignedByName ?? "Admin")} · ${escapeHtml(dateTime(batch.assignedAt))}</p>` : ""}
   <p><strong>Range:</strong> <span class="mono">${escapeHtml(batch.awbStart)} — ${escapeHtml(batch.awbEnd)}</span></p>
   <p><strong>Unused at export:</strong> ${unused.length} of ${batch.labelCount} labels</p>
   <p><strong>Generated:</strong> ${escapeHtml(dateTime(batch.createdAt))}</p>
@@ -84,41 +106,90 @@ ${unused.length ? `<ol>${items}</ol>` : '<p class="empty">All labels in this bat
 
 export default function AdminAwbBatches() {
   const queryClient = useQueryClient();
-  const [merchantId, setMerchantId] = React.useState("");
+  const [batchCount, setBatchCount] = React.useState("1");
+  const [assignmentBatchId, setAssignmentBatchId] = React.useState("");
+  const [assigneeType, setAssigneeType] = React.useState<AssigneeType>("merchant");
+  const [assigneeId, setAssigneeId] = React.useState("");
   const [exporting, setExporting] = React.useState<{ id: string; kind: ExportKind } | null>(null);
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const batchesQuery = useQuery(orpc.awbBatches.list.queryOptions());
   const batches = batchesQuery.data?.batches ?? EMPTY_BATCHES;
   const merchants = batchesQuery.data?.merchants ?? EMPTY_MERCHANTS;
-  const selectedMerchant = merchants.find((merchant) => merchant.id === merchantId);
+  const locations = batchesQuery.data?.locations ?? EMPTY_LOCATIONS;
+  const batchCountValue = Number(batchCount);
+  const validBatchCount = Number.isInteger(batchCountValue) && batchCountValue >= 1 && batchCountValue <= 50;
+  const plannedBatches = React.useMemo(() => batches.filter((batch) => batch.status === "planned"), [batches]);
+  const availableTargets = React.useMemo(() => {
+    if (assigneeType === "merchant") {
+      return merchants.filter((merchant) => merchant.status === "active").map(({ id, name }) => ({ id, name }));
+    }
+    return locations
+      .filter((location) => location.type === assigneeType)
+      .map(({ id, name }) => ({ id, name }));
+  }, [assigneeType, locations, merchants]);
 
   React.useEffect(() => {
-    if (merchantId && merchants.some((merchant) => merchant.id === merchantId && merchant.status === "active")) return;
-    setMerchantId(merchants.find((merchant) => merchant.status === "active")?.id ?? "");
-  }, [merchantId, merchants]);
+    if (assignmentBatchId && plannedBatches.some((batch) => batch.id === assignmentBatchId)) return;
+    setAssignmentBatchId(plannedBatches[0]?.id ?? "");
+  }, [assignmentBatchId, plannedBatches]);
 
-  const createBatch = useMutation({
-    mutationFn: (selectedMerchantId: string) => client.awbBatches.create({ merchantId: selectedMerchantId }),
-    onSuccess: async (batch) => {
-      setSuccess(`Batch ${batch.batchCode} created with 1,000 AWB labels for ${batch.merchantName}.`);
+  React.useEffect(() => {
+    if (assigneeId && availableTargets.some((target) => target.id === assigneeId)) return;
+    setAssigneeId(availableTargets[0]?.id ?? "");
+  }, [assigneeId, availableTargets]);
+
+  const generateBatches = useMutation({
+    mutationFn: (count: number) => client.awbBatches.generate({ count }),
+    onSuccess: async (created) => {
+      const labels = created.length * 1_000;
+      setSuccess(`Generated ${created.length} planned batch${created.length === 1 ? "" : "es"} (${labels.toLocaleString()} AWB labels). Assign each batch when it is ready to issue.`);
       await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
     },
   });
 
-  const totals = React.useMemo(() => {
-    return merchants.map((merchant: MerchantOption) => {
-      const owned = batches.filter((batch) => batch.merchantId === merchant.id);
-      return {
-        id: merchant.id,
-        name: merchant.name,
+  const assignBatch = useMutation({
+    mutationFn: () => client.awbBatches.assign({ batchId: assignmentBatchId, assigneeType, assigneeId }),
+    onSuccess: async (batch) => {
+      setSuccess(`${batch.batchCode} assigned to ${assigneeTypeLabel(batch.assigneeType)} · ${batch.assigneeName}.`);
+      await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
+    },
+  });
+
+  const inventory = React.useMemo(() => {
+    const rows: InventoryRow[] = [];
+    const planned = batches.filter((batch) => batch.status === "planned");
+    if (planned.length) {
+      rows.push({
+        id: "planned",
+        name: "Planned / unassigned",
+        type: "Planned",
+        batchCount: planned.length,
+        issued: planned.reduce((sum, batch) => sum + batch.labelCount, 0),
+        used: planned.reduce((sum, batch) => sum + batch.usedCount, 0),
+        unused: planned.reduce((sum, batch) => sum + batch.unusedCount, 0),
+      });
+    }
+
+    const targets: { id: string; name: string; type: AssigneeType }[] = [
+      ...merchants.map((merchant) => ({ id: merchant.id, name: merchant.name, type: "merchant" as const })),
+      ...locations.map((location) => ({ id: location.id, name: location.name, type: location.type as AssigneeType })),
+    ];
+    for (const target of targets) {
+      const owned = batches.filter((batch) => batch.assigneeType === target.type && batch.assigneeId === target.id);
+      if (!owned.length) continue;
+      rows.push({
+        id: `${target.type}:${target.id}`,
+        name: target.name,
+        type: assigneeTypeLabel(target.type),
         batchCount: owned.length,
         issued: owned.reduce((sum, batch) => sum + batch.labelCount, 0),
         used: owned.reduce((sum, batch) => sum + batch.usedCount, 0),
         unused: owned.reduce((sum, batch) => sum + batch.unusedCount, 0),
-      };
-    });
-  }, [batches, merchants]);
+      });
+    }
+    return rows;
+  }, [batches, locations, merchants]);
 
   const exportBatch = async (batch: BatchRow, kind: ExportKind) => {
     setExportError(null);
@@ -137,8 +208,14 @@ export default function AdminAwbBatches() {
       if (kind === "csv") {
         downloadCsv(
           `natex-${batch.batchCode}-unused-awbs.csv`,
-          ["AWB", "Batch ID", "Merchant", "Usage"],
-          unused.map((label) => [label.awb, batch.batchCode, batch.merchantName, "Unused — not booked"]),
+          ["AWB", "Batch ID", "Assignment type", "Assigned to", "Usage"],
+          unused.map((label) => [
+            label.awb,
+            batch.batchCode,
+            assigneeTypeLabel(batch.assigneeType),
+            batch.assigneeName ?? "Planned / unassigned",
+            "Unused — not booked",
+          ]),
         );
       } else if (popup) {
         openPrintableBatch(popup, data, unused);
@@ -155,14 +232,27 @@ export default function AdminAwbBatches() {
   const columns: Column<BatchRow>[] = [
     {
       key: "batch",
-      header: "Batch identity",
+      header: "Batch number",
       width: "w-[190px]",
       cell: (row) => <span className="font-mono font-semibold">{row.batchCode}</span>,
     },
     {
-      key: "merchant",
-      header: "Merchant",
-      cell: (row) => <span className="font-medium">{row.merchantName}</span>,
+      key: "status",
+      header: "Status",
+      width: "w-[130px]",
+      cell: (row) => <span className={row.status === "planned" ? "font-medium text-status-warn" : "font-medium"}>{row.status}</span>,
+    },
+    {
+      key: "assignee",
+      header: "Assigned to",
+      width: "w-[260px]",
+      cell: (row) => (
+        <span>
+          {row.assigneeName ?? "Planned / unassigned"}
+          {row.assigneeType ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{assigneeTypeLabel(row.assigneeType)}</span> : null}
+          {row.assignedAt ? <span className="mt-0.5 block text-[11px] text-muted-foreground">Assigned by {row.assignedByName ?? "Admin"} · {dateTime(row.assignedAt)}</span> : null}
+        </span>
+      ),
     },
     {
       key: "range",
@@ -172,19 +262,11 @@ export default function AdminAwbBatches() {
     },
     {
       key: "used",
-      header: "Used",
+      header: "Used / unused",
       align: "right",
-      width: "w-[90px]",
+      width: "w-[145px]",
       className: "font-mono",
-      cell: (row) => row.usedCount.toLocaleString(),
-    },
-    {
-      key: "unused",
-      header: "Unused stickers",
-      align: "right",
-      width: "w-[140px]",
-      className: "font-mono font-semibold",
-      cell: (row) => row.unusedCount.toLocaleString(),
+      cell: (row) => `${row.usedCount.toLocaleString()} / ${row.unusedCount.toLocaleString()}`,
     },
     {
       key: "created",
@@ -235,62 +317,107 @@ export default function AdminAwbBatches() {
   return (
     <Page
       title="AWB label batches"
-      description="Issue fixed 1,000-number AWB series to merchants, export the unused stickers for a preprint manufacturer, and monitor how many have been booked."
+      description="Generate planned 1,000-label batches, assign them to merchants or locations, and track the unused stock as bookings consume AWBs."
     >
-      <Card title="Generate a batch" description="Every batch contains exactly 1,000 sequential, globally reserved NX AWBs.">
+      <Card title="Generate new batches" description="Each batch contains exactly 1,000 sequential, globally reserved NX AWBs. Generated batches start as planned and unassigned.">
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="Assign batch to merchant" hint="Only active merchants can be issued a new batch." className="w-full max-w-md">
-            <Select value={merchantId} onChange={(event) => setMerchantId(event.target.value)} disabled={!merchants.length}>
-              <option value="">Select a merchant</option>
-              {merchants.map((merchant: MerchantOption) => (
-                <option key={merchant.id} value={merchant.id} disabled={merchant.status !== "active"}>
-                  {merchant.name}{merchant.status !== "active" ? ` — ${merchant.status}` : ""}
-                </option>
+          <Field label="Number of batches" hint="Generate 1–50 batches at a time.">
+            <Input
+              type="number"
+              min={1}
+              max={50}
+              step={1}
+              value={batchCount}
+              onChange={(event) => setBatchCount(event.target.value)}
+              className="w-40"
+            />
+          </Field>
+          <Button
+            type="button"
+            pending={generateBatches.isPending}
+            disabled={!validBatchCount || generateBatches.isPending}
+            onClick={() => {
+              setSuccess(null);
+              generateBatches.mutate(batchCountValue);
+            }}
+          >
+            <Layers aria-hidden />
+            Generate {validBatchCount ? `${batchCountValue} batch${batchCountValue === 1 ? "" : "es"}` : "batches"}
+          </Button>
+        </div>
+        {generateBatches.error ? <p role="alert" className="mt-3 text-[13px] text-status-bad">{apiMessage(generateBatches.error, "The batches could not be generated.")}</p> : null}
+        <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
+          For example, generating 10 batches reserves 10,000 unique AWB numbers. Assign each planned batch to a merchant, branch, or hub when it is ready to issue.
+        </p>
+      </Card>
+
+      <Card title="Assign batch" description="Select a planned batch and assign its full 1,000-label range to one merchant, branch, or hub.">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Planned batch" className="w-full max-w-sm">
+            <Select value={assignmentBatchId} onChange={(event) => setAssignmentBatchId(event.target.value)} disabled={!plannedBatches.length}>
+              <option value="">{plannedBatches.length ? "Select a planned batch" : "No planned batches available"}</option>
+              {plannedBatches.map((batch) => (
+                <option key={batch.id} value={batch.id}>{batch.batchCode} · {batch.awbStart}–{batch.awbEnd}</option>
               ))}
+            </Select>
+          </Field>
+          <Field label="Assign to type" className="w-40">
+            <Select value={assigneeType} onChange={(event) => setAssigneeType(event.target.value as AssigneeType)}>
+              <option value="merchant">Merchant</option>
+              <option value="branch">Branch</option>
+              <option value="hub">Hub</option>
+            </Select>
+          </Field>
+          <Field label={assigneeTypeLabel(assigneeType)} className="w-full max-w-sm">
+            <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={!availableTargets.length}>
+              <option value="">{availableTargets.length ? `Select a ${assigneeType}` : `No ${assigneeType}s available`}</option>
+              {availableTargets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
             </Select>
           </Field>
           <Button
             type="button"
-            pending={createBatch.isPending}
-            disabled={!merchantId || selectedMerchant?.status !== "active" || createBatch.isPending}
+            pending={assignBatch.isPending}
+            disabled={!assignmentBatchId || !assigneeId || assignBatch.isPending}
             onClick={() => {
               setSuccess(null);
-              createBatch.mutate(merchantId);
+              assignBatch.mutate();
             }}
           >
-            <Plus aria-hidden />
-            Create 1,000-label batch
+            <UserPlus aria-hidden />
+            Assign batch
           </Button>
         </div>
+        {assignBatch.error ? <p role="alert" className="mt-3 text-[13px] text-status-bad">{apiMessage(assignBatch.error, "The batch could not be assigned.")}</p> : null}
         <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
-          Bookings for that merchant automatically consume the next unused AWB in its series. AWBs are globally reserved, and the batch cannot be reassigned.
+          Merchant batches are consumed first for that merchant&apos;s bookings. If no merchant labels remain, bookings at an assigned branch or hub use that location&apos;s stock.
         </p>
-        {createBatch.error ? <p role="alert" className="mt-3 text-[13px] text-status-bad">{apiMessage(createBatch.error, "The batch could not be created.")}</p> : null}
-        {success ? <output aria-live="polite" className="mt-3 block text-[13px] text-status-good">{success}</output> : null}
       </Card>
 
-      <Card title="Unused stickers by merchant" description="Unused means the AWB has not yet been attached to a booked parcel; the system does not track whether a sticker has already been physically printed.">
-        {totals.length ? (
+      {success ? <output aria-live="polite" className="block text-[13px] text-status-good">{success}</output> : null}
+
+      <Card title="Unused stickers by assignee" description="Counts reflect AWBs not yet attached to booked parcels. Planned batches remain in central stock until assigned.">
+        {inventory.length ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {totals.map((merchant) => (
-              <div key={merchant.id} className="rounded-md border border-border bg-background p-4">
-                <h3 className="truncate text-[14px] font-semibold">{merchant.name}</h3>
+            {inventory.map((owner) => (
+              <div key={owner.id} className="rounded-md border border-border bg-background p-4">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{owner.type}</span>
+                <h3 className="mt-1 truncate text-[14px] font-semibold">{owner.name}</h3>
                 <div className="mt-3 flex items-baseline justify-between gap-3">
                   <span className="text-[12px] text-muted-foreground">Unused stickers</span>
-                  <span className="font-mono text-[20px] font-bold">{merchant.unused.toLocaleString()}</span>
+                  <span className="font-mono text-[20px] font-bold">{owner.unused.toLocaleString()}</span>
                 </div>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  {merchant.used.toLocaleString()} used · {merchant.issued.toLocaleString()} issued · {merchant.batchCount} batch{merchant.batchCount === 1 ? "" : "es"}
+                  {owner.used.toLocaleString()} used · {owner.issued.toLocaleString()} issued · {owner.batchCount} batch{owner.batchCount === 1 ? "" : "es"}
                 </p>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-[13px] text-muted-foreground">Merchant balances will appear after the list loads. No label batches have been issued yet.</p>
+          <p className="text-[13px] text-muted-foreground">No AWB batches have been generated yet.</p>
         )}
       </Card>
 
-      <Card title="Batch register" description="Export includes only currently unused AWBs. CSV opens in Excel; PDF opens the browser print dialog, where it can be saved as a PDF.">
+      <Card title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused AWBs; CSV opens in Excel and PDF opens the browser print dialog.">
         {exportError ? <p role="alert" className="mb-3 text-[13px] text-status-bad">{exportError}</p> : null}
         <DataTable
           columns={columns}
@@ -298,8 +425,8 @@ export default function AdminAwbBatches() {
           rowKey={(row) => row.id}
           loading={batchesQuery.isLoading}
           error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
-          emptyTitle="No AWB batch has been issued"
-          emptyDescription="Generate a batch above to reserve 1,000 consecutive AWB stickers for a merchant."
+          emptyTitle="No AWB batch has been generated"
+          emptyDescription="Generate one or more 1,000-label batches above. They will appear as planned until assigned."
         />
       </Card>
     </Page>

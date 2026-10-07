@@ -6,7 +6,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
-import { nextUnusedMerchantAwb } from "./awb-batches";
+import { nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
@@ -698,7 +698,7 @@ export async function createParcel(
   const now = new Date();
   let row: ParcelRow | undefined;
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const awb = (await nextUnusedMerchantAwb(input.merchantId)) ?? (await uniqueAwb());
+    const awb = (await nextUnusedAwbForBooking(input.merchantId, input.branchId)) ?? (await uniqueAwb());
     try {
       [row] = await db
         .insert(parcel)
