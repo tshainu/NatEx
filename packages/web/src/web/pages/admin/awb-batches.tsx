@@ -8,6 +8,7 @@ import { Card, Page } from "@/components/natex/page";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { client, orpc, apiMessage } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
+import { awbRangeMatchesQuery } from "./awb-batch-search";
 
 type AwbBatchList = Awaited<ReturnType<typeof client.awbBatches.list>>;
 type BatchRow = AwbBatchList["batches"][number];
@@ -59,6 +60,10 @@ function assigneeTypeLabel(type: string | null): string {
   return "Planned / unassigned";
 }
 
+function formatSeriesId(seriesNumber: number): string {
+  return `S-${String(seriesNumber).padStart(6, "0")}`;
+}
+
 function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExport["labels"]): void {
   const batch = data.batch;
   const items = unused
@@ -88,6 +93,7 @@ function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExpor
 <body>
 <header>
   <h1>NatEx — AWB sticker series</h1>
+  <p><strong>Series ID:</strong> <span class="mono">${escapeHtml(formatSeriesId(batch.seriesNumber))}</span></p>
   <p><strong>Batch:</strong> <span class="mono">${escapeHtml(batch.batchCode)}</span></p>
   <p><strong>Status:</strong> ${escapeHtml(batch.status)}</p>
   <p><strong>Assigned to:</strong> ${escapeHtml(batch.assigneeName ?? "Planned / unassigned")}</p>
@@ -113,8 +119,27 @@ export default function AdminAwbBatches() {
   const [exporting, setExporting] = React.useState<{ id: string; kind: ExportKind } | null>(null);
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
+  const [seriesSearch, setSeriesSearch] = React.useState("");
   const batchesQuery = useQuery(orpc.awbBatches.list.queryOptions());
   const batches = batchesQuery.data?.batches ?? EMPTY_BATCHES;
+  const visibleBatches = React.useMemo(() => {
+    const term = seriesSearch.trim().toLowerCase();
+    if (!term) return batches;
+    return batches.filter((batch) => {
+      const identity = [
+        formatSeriesId(batch.seriesNumber),
+        String(batch.seriesNumber),
+        batch.batchCode,
+        batch.awbStart,
+        batch.awbEnd,
+        batch.merchantId,
+        batch.merchantName,
+        batch.assigneeId ?? "",
+        batch.assigneeName ?? "",
+      ].join(" ").toLowerCase();
+      return identity.includes(term) || awbRangeMatchesQuery(term, batch.awbStart, batch.awbEnd);
+    });
+  }, [batches, seriesSearch]);
   const merchants = batchesQuery.data?.merchants ?? EMPTY_MERCHANTS;
   const locations = batchesQuery.data?.locations ?? EMPTY_LOCATIONS;
   const batchCountValue = Number(batchCount);
@@ -143,7 +168,10 @@ export default function AdminAwbBatches() {
     mutationFn: (count: number) => client.awbBatches.generate({ count }),
     onSuccess: async (created) => {
       const labels = created.length * 1_000;
-      setSuccess(`Generated ${created.length} planned batch${created.length === 1 ? "" : "es"} (${labels.toLocaleString()} AWB labels). Assign each batch when it is ready to issue.`);
+      const firstSeries = created[0]?.seriesNumber;
+      const lastSeries = created.at(-1)?.seriesNumber;
+      const ids = firstSeries && lastSeries ? ` Series IDs ${formatSeriesId(firstSeries)}–${formatSeriesId(lastSeries)}.` : "";
+      setSuccess(`Generated ${created.length} planned batch${created.length === 1 ? "" : "es"} (${labels.toLocaleString()} AWB labels).${ids} Assign each batch when it is ready to issue.`);
       await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
     },
   });
@@ -151,7 +179,7 @@ export default function AdminAwbBatches() {
   const assignBatch = useMutation({
     mutationFn: () => client.awbBatches.assign({ batchId: assignmentBatchId, assigneeType, assigneeId }),
     onSuccess: async (batch) => {
-      setSuccess(`${batch.batchCode} assigned to ${assigneeTypeLabel(batch.assigneeType)} · ${batch.assigneeName}.`);
+      setSuccess(`${formatSeriesId(batch.seriesNumber)} (${batch.batchCode}) assigned to ${assigneeTypeLabel(batch.assigneeType)} · ${batch.assigneeName}.`);
       await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
     },
   });
@@ -207,11 +235,13 @@ export default function AdminAwbBatches() {
       const unused = data.labels.filter((label) => !label.used);
       if (kind === "csv") {
         downloadCsv(
-          `natex-${batch.batchCode}-unused-awbs.csv`,
-          ["AWB", "Batch ID", "Assignment type", "Assigned to", "Usage"],
+          `natex-${formatSeriesId(batch.seriesNumber)}-${batch.batchCode}-unused-awbs.csv`,
+          ["AWB", "Series ID", "Batch code", "AWB series range", "Assignment type", "Assigned to", "Usage"],
           unused.map((label) => [
             label.awb,
+            formatSeriesId(batch.seriesNumber),
             batch.batchCode,
+            `${batch.awbStart} – ${batch.awbEnd}`,
             assigneeTypeLabel(batch.assigneeType),
             batch.assigneeName ?? "Planned / unassigned",
             "Unused — not booked",
@@ -220,7 +250,7 @@ export default function AdminAwbBatches() {
       } else if (popup) {
         openPrintableBatch(popup, data, unused);
       }
-      setSuccess(`${unused.length} unused label${unused.length === 1 ? "" : "s"} ready from ${batch.batchCode}.`);
+      setSuccess(`${unused.length} unused label${unused.length === 1 ? "" : "s"} ready from ${formatSeriesId(batch.seriesNumber)} (${batch.batchCode}).`);
     } catch (error) {
       popup?.close();
       setExportError(apiMessage(error, "The label export failed."));
@@ -231,8 +261,20 @@ export default function AdminAwbBatches() {
 
   const columns: Column<BatchRow>[] = [
     {
-      key: "batch",
-      header: "Batch number",
+      key: "seriesId",
+      header: "Series ID",
+      width: "w-[120px]",
+      cell: (row) => <span className="font-mono font-semibold">{formatSeriesId(row.seriesNumber)}</span>,
+    },
+    {
+      key: "range",
+      header: "AWB series range",
+      width: "w-[270px]",
+      cell: (row) => <span className="font-mono text-[12px]">{row.awbStart} – {row.awbEnd}</span>,
+    },
+    {
+      key: "batchCode",
+      header: "Batch code",
       width: "w-[190px]",
       cell: (row) => <span className="font-mono font-semibold">{row.batchCode}</span>,
     },
@@ -253,12 +295,6 @@ export default function AdminAwbBatches() {
           {row.assignedAt ? <span className="mt-0.5 block text-[11px] text-muted-foreground">Assigned by {row.assignedByName ?? "Admin"} · {dateTime(row.assignedAt)}</span> : null}
         </span>
       ),
-    },
-    {
-      key: "range",
-      header: "AWB range",
-      width: "w-[250px]",
-      cell: (row) => <span className="font-mono text-[12px]">{row.awbStart} – {row.awbEnd}</span>,
     },
     {
       key: "used",
@@ -357,7 +393,7 @@ export default function AdminAwbBatches() {
             <Select value={assignmentBatchId} onChange={(event) => setAssignmentBatchId(event.target.value)} disabled={!plannedBatches.length}>
               <option value="">{plannedBatches.length ? "Select a planned batch" : "No planned batches available"}</option>
               {plannedBatches.map((batch) => (
-                <option key={batch.id} value={batch.id}>{batch.batchCode} · {batch.awbStart}–{batch.awbEnd}</option>
+                <option key={batch.id} value={batch.id}>{formatSeriesId(batch.seriesNumber)} · {batch.awbStart}–{batch.awbEnd}</option>
               ))}
             </Select>
           </Field>
@@ -419,14 +455,24 @@ export default function AdminAwbBatches() {
 
       <Card title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused AWBs; CSV opens in Excel and PDF opens the browser print dialog.">
         {exportError ? <p role="alert" className="mb-3 text-[13px] text-status-bad">{exportError}</p> : null}
+        <div className="mb-3 max-w-lg">
+          <Field label="Search batch / AWB / merchant" hint="Search by series ID, batch code, any AWB within the range, or merchant/assignee.">
+            <Input
+              type="search"
+              value={seriesSearch}
+              onChange={(event) => setSeriesSearch(event.target.value)}
+              placeholder="e.g. NXB-…, NX1234567890, or merchant name"
+            />
+          </Field>
+        </div>
         <DataTable
           columns={columns}
-          rows={batches}
+          rows={visibleBatches}
           rowKey={(row) => row.id}
           loading={batchesQuery.isLoading}
           error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
-          emptyTitle="No AWB batch has been generated"
-          emptyDescription="Generate one or more 1,000-label batches above. They will appear as planned until assigned."
+          emptyTitle={seriesSearch.trim() ? "No matching AWB series" : "No AWB batch has been generated"}
+          emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more 1,000-label batches above. They will appear as planned until assigned."}
         />
       </Card>
     </Page>

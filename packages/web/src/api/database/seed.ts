@@ -19,7 +19,7 @@ import { db } from "./__client";
 import { branch, mfaFactor, mfaRecoveryCode, otpChallenge, refreshToken, user } from "./schema/identity";
 import { merchant, rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "./schema/merchants";
 import { settingValue } from "./schema/settings";
-import { awbBatch, awbBatchLabel, parcel, parcelEvent } from "./schema/parcels";
+import { awbBatch, awbBatchLabel, awbBatchSeries, parcel, parcelEvent } from "./schema/parcels";
 import { manifest, manifestItem } from "./schema/collection";
 import { geocodeCache, zone } from "./schema/routing";
 import { bag, bagItem, custodyException, hubScan, trip } from "./schema/transport";
@@ -108,6 +108,7 @@ async function clear() {
   await db.delete(trip);
   await db.delete(manifestItem);
   await db.delete(manifest);
+  await db.delete(awbBatchSeries);
   await db.delete(awbBatchLabel);
   await db.delete(awbBatch);
   await db.delete(parcelEvent);

@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { db } from "../../database";
-import { awbBatch, awbBatchLabel, parcel } from "../../database/schema/parcels";
+import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
 import { getMerchant } from "../merchants/service";
 import { getBranch } from "../identity/service";
 import { errors } from "../../shared/errors";
@@ -12,6 +12,7 @@ const LABEL_INSERT_CHUNK = 200;
 export const MAX_BATCHES_PER_GENERATION = 50;
 
 export type AwbBatchRow = typeof awbBatch.$inferSelect;
+export type AwbBatchWithSeries = AwbBatchRow & { seriesNumber: number };
 export type AwbAssigneeType = "merchant" | "branch" | "hub";
 export type AwbAssignmentStatus = "planned" | "assigned";
 export type AwbBatchState = AwbAssignmentStatus | "depleted";
@@ -87,11 +88,31 @@ function generateDrafts(batchCount: number) {
   return drafts;
 }
 
+/** Give pre-feature batches stable numeric IDs, in their original creation order. */
+async function ensureSeriesNumbers(): Promise<void> {
+  await db.transaction(async (tx) => {
+    const missing = await tx
+      .select({ batchId: awbBatch.id })
+      .from(awbBatch)
+      .leftJoin(awbBatchSeries, eq(awbBatchSeries.batchId, awbBatch.id))
+      .where(isNull(awbBatchSeries.batchId))
+      .orderBy(asc(awbBatch.createdAt), asc(awbBatch.id));
+    for (const row of missing) {
+      await tx
+        .insert(awbBatchSeries)
+        .values({ batchId: row.batchId })
+        .onConflictDoNothing({ target: awbBatchSeries.batchId });
+    }
+  });
+}
+
 /** Read all batches and count parcels created with each batch's reserved AWBs. */
 export async function listAwbBatches() {
+  await ensureSeriesNumbers();
   const rows = await db
     .select({
       id: awbBatch.id,
+      seriesNumber: awbBatchSeries.seriesNumber,
       batchCode: awbBatch.batchCode,
       merchantId: awbBatch.merchantId,
       merchantName: awbBatch.merchantName,
@@ -110,9 +131,10 @@ export async function listAwbBatches() {
       usedCount: count(parcel.id),
     })
     .from(awbBatch)
+    .innerJoin(awbBatchSeries, eq(awbBatchSeries.batchId, awbBatch.id))
     .leftJoin(awbBatchLabel, eq(awbBatchLabel.batchId, awbBatch.id))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
-    .groupBy(awbBatch.id)
+    .groupBy(awbBatch.id, awbBatchSeries.seriesNumber)
     .orderBy(desc(awbBatch.createdAt), desc(awbBatch.id));
 
   return rows.map((row) => {
@@ -123,11 +145,12 @@ export async function listAwbBatches() {
 }
 
 /** Generate an atomic set of planned batches; each contains exactly 1,000 labels. */
-export async function createAwbBatches(batchCount: number, actor: Principal): Promise<AwbBatchRow[]> {
+export async function createAwbBatches(batchCount: number, actor: Principal): Promise<AwbBatchWithSeries[]> {
   if (!Number.isInteger(batchCount) || batchCount < 1 || batchCount > MAX_BATCHES_PER_GENERATION) {
     errors.badRequest(`Generate between 1 and ${MAX_BATCHES_PER_GENERATION} batches at a time.`);
   }
 
+  await ensureSeriesNumbers();
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const drafts = generateDrafts(batchCount);
     if (!drafts) continue;
@@ -149,7 +172,7 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
           if (labelClash) throw new AwbRangeOccupied();
         }
 
-        const created: AwbBatchRow[] = [];
+        const created: AwbBatchWithSeries[] = [];
         for (const draft of drafts) {
           const [saved] = await tx.insert(awbBatch).values({
             ...draft.row,
@@ -158,12 +181,17 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
             createdAt: new Date(),
           }).returning();
           if (!saved) throw new Error("The AWB batch was not saved.");
+          const [series] = await tx
+            .insert(awbBatchSeries)
+            .values({ batchId: saved.id })
+            .returning({ seriesNumber: awbBatchSeries.seriesNumber });
+          if (!series) throw new Error("The AWB series number was not saved.");
           for (let start = 0; start < draft.labels.length; start += LABEL_INSERT_CHUNK) {
             await tx.insert(awbBatchLabel).values(
               draft.labels.slice(start, start + LABEL_INSERT_CHUNK).map((awb) => ({ awb, batchId: saved.id })),
             );
           }
-          created.push(saved);
+          created.push({ ...saved, seriesNumber: series.seriesNumber });
         }
         return created;
       });
@@ -182,6 +210,7 @@ export async function assignAwbBatch(
   assigneeId: string,
   actor: Principal,
 ) {
+  await ensureSeriesNumbers();
   let assigneeName: string;
   if (assigneeType === "merchant") {
     const owner = await getMerchant(assigneeId);
@@ -225,7 +254,13 @@ export async function assignAwbBatch(
       .where(and(eq(awbBatch.id, batchId), eq(awbBatch.assignmentStatus, "planned")))
       .returning();
     if (!saved) errors.conflict("This batch was already assigned. Refresh and try again.");
-    return { ...saved!, ...assignmentFor(saved!), usedCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
+    const [series] = await tx
+      .select({ seriesNumber: awbBatchSeries.seriesNumber })
+      .from(awbBatchSeries)
+      .where(eq(awbBatchSeries.batchId, saved!.id))
+      .limit(1);
+    if (!series) throw new Error("The AWB series number is missing.");
+    return { ...saved!, seriesNumber: series.seriesNumber, ...assignmentFor(saved!), usedCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
   });
 }
 
@@ -263,8 +298,15 @@ export async function nextUnusedAwbForBooking(merchantId: string, branchId: stri
 
 /** A batch plus per-label use state, for Excel-compatible or print/PDF export. */
 export async function labelsForAwbBatch(batchId: string) {
+  await ensureSeriesNumbers();
   const [batch] = await db.select().from(awbBatch).where(eq(awbBatch.id, batchId)).limit(1);
   if (!batch) errors.notFound("AWB batch");
+  const [series] = await db
+    .select({ seriesNumber: awbBatchSeries.seriesNumber })
+    .from(awbBatchSeries)
+    .where(eq(awbBatchSeries.batchId, batchId))
+    .limit(1);
+  if (!series) throw new Error("The AWB series number is missing.");
   const labels = await db
     .select({ awb: awbBatchLabel.awb, parcelId: parcel.id })
     .from(awbBatchLabel)
@@ -275,7 +317,7 @@ export async function labelsForAwbBatch(batchId: string) {
   const unusedCount = Math.max(0, batch!.labelCount - usedCount);
   const assignment = assignmentFor(batch!);
   return {
-    batch: { ...batch!, ...assignment, usedCount, unusedCount, status: stateFor(assignment.assignmentStatus, unusedCount) },
+    batch: { ...batch!, seriesNumber: series.seriesNumber, ...assignment, usedCount, unusedCount, status: stateFor(assignment.assignmentStatus, unusedCount) },
     labels: labels.map(({ awb, parcelId }) => ({ awb, used: parcelId !== null })),
   };
 }

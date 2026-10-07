@@ -91,6 +91,18 @@ export const awbBatch = sqliteTable(
     index("parcels_awb_batch_range_idx").on(t.awbStart, t.awbEnd),
   ],
 );
+/** Stable, human-friendly numeric identity for each AWB label series. */
+export const awbBatchSeries = sqliteTable(
+  "parcels_awb_batch_series",
+  {
+    seriesNumber: integer("series_number").primaryKey({ autoIncrement: true }),
+    batchId: text("batch_id")
+      .notNull()
+      .unique()
+      .references(() => awbBatch.id),
+  },
+);
+
 /** Each AWB is reserved globally at issue time; a parcel row marks it as used. */
 export const awbBatchLabel = sqliteTable(
   "parcels_awb_batch_label",

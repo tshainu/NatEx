@@ -3,10 +3,10 @@ import { inArray } from "drizzle-orm";
 import { db } from "../../database";
 import { branch } from "../../database/schema/identity";
 import { merchant } from "../../database/schema/merchants";
-import { awbBatch, awbBatchLabel, parcel } from "../../database/schema/parcels";
+import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
-import { assignAwbBatch, createAwbBatches, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
+import { assignAwbBatch, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
 import { createAwbSeries } from "./awb-series";
 
 /**
@@ -58,6 +58,7 @@ afterAll(async () => {
     await db.delete(parcel).where(inArray(parcel.id, USED_PARCEL_IDS));
   }
   if (CREATED_BATCH_IDS.length) {
+    await db.delete(awbBatchSeries).where(inArray(awbBatchSeries.batchId, CREATED_BATCH_IDS));
     await db.delete(awbBatchLabel).where(inArray(awbBatchLabel.batchId, CREATED_BATCH_IDS));
     await db.delete(awbBatch).where(inArray(awbBatch.id, CREATED_BATCH_IDS));
   }
@@ -91,6 +92,8 @@ describe("AWB batch planning and assignment", () => {
     expect(generated).toHaveLength(10);
     expect(generated.every((batch) => batch.labelCount === 1_000 && batch.assignmentStatus === "planned")).toBe(true);
     expect(new Set(generated.map((batch) => batch.batchCode)).size).toBe(10);
+    expect(generated.every((batch) => Number.isInteger(batch.seriesNumber) && batch.seriesNumber > 0)).toBe(true);
+    expect(new Set(generated.map((batch) => batch.seriesNumber)).size).toBe(10);
     const starts = generated.map((batch) => BigInt(batch.awbStart.slice(2))).sort((a, b) => a < b ? -1 : 1);
     expect(starts.every((start, index) => index === 0 || start > starts[index - 1]! + 999n)).toBe(true);
 
@@ -116,13 +119,54 @@ describe("AWB batch planning and assignment", () => {
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[1]!, BRANCH_ID)).toBe(createAwbSeries(branchBatch.awbStart.slice(2), 2)[1]);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[2]!, HUB_ID)).toBe(createAwbSeries(hubBatch.awbStart.slice(2), 2)[1]);
 
+    const exportData = await labelsForAwbBatch(merchantBatch.id);
+    expect(exportData.batch.seriesNumber).toBe(merchantBatch.seriesNumber);
+    expect(exportData.batch.awbStart).toBe(merchantBatch.awbStart);
+    expect(exportData.batch.awbEnd).toBe(merchantBatch.awbEnd);
+    expect(exportData.labels).toHaveLength(1_000);
+
     const inventory = await listAwbBatches();
     for (const batch of [merchantBatch, branchBatch, hubBatch]) {
       const row = inventory.find((item) => item.id === batch.id);
+      expect(row?.seriesNumber).toBe(batch.seriesNumber);
+      expect(row?.awbStart).toBe(batch.awbStart);
+      expect(row?.awbEnd).toBe(batch.awbEnd);
       expect(row?.usedCount).toBe(1);
       expect(row?.unusedCount).toBe(999);
       expect(row?.status).toBe("assigned");
     }
     expect(inventory.filter((row) => row.status === "planned" && generated.some((batch) => batch.id === row.id))).toHaveLength(7);
+  });
+
+  test("backfills and preserves a numeric series ID for a legacy batch", async () => {
+    const id = prefixedId("awb");
+    CREATED_BATCH_IDS.push(id);
+    const createdAt = new Date(Date.now() - 60_000);
+    await db.insert(awbBatch).values({
+      id,
+      batchCode: `NXB-LEGACY-${RUN}`,
+      merchantId: MERCHANT_IDS[0]!,
+      merchantName: "[test] legacy merchant",
+      assignmentStatus: null,
+      assigneeType: null,
+      assigneeId: null,
+      assigneeName: null,
+      assignedAt: null,
+      assignedById: null,
+      assignedByName: null,
+      awbStart: "NX9999999000",
+      awbEnd: "NX9999999999",
+      labelCount: 1_000,
+      createdById: ACTOR.userId,
+      createdByName: ACTOR.name,
+      createdAt,
+    });
+
+    const first = (await listAwbBatches()).find((batch) => batch.id === id);
+    const second = (await listAwbBatches()).find((batch) => batch.id === id);
+    expect(first?.seriesNumber).toBeGreaterThan(0);
+    expect(second?.seriesNumber).toBe(first?.seriesNumber);
+    expect(first?.awbStart).toBe("NX9999999000");
+    expect(first?.awbEnd).toBe("NX9999999999");
   });
 });
