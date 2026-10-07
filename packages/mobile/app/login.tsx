@@ -2,6 +2,7 @@ import React from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
+import { StatusBar } from "expo-status-bar";
 import { apiMessage, client } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { deviceId, homeRouteFor, type ApiSession } from "../lib/session";
@@ -11,11 +12,12 @@ import { Card, Panel } from "../components/natex/card";
 import { Input } from "../components/natex/input";
 import { Body, Label, Mono, Small } from "../components/natex/text";
 import { Space } from "../constants/theme";
-import { useColors } from "../hooks/use-colors";
+import { ThemeOverrideProvider, useColors } from "../hooks/use-colors";
 
 /**
- * Username + password sign-in — the field app's primary method (§2). Phone +
- * OTP stays available behind a toggle for accounts without credentials.
+ * Username + password sign-in — phone + OTP stays available behind a toggle
+ * for accounts without credentials. The role-specific workspace is selected
+ * from the server-authenticated session.
  *
  * The device id goes up with the sign-in, not as a separate call — the API folds
  * device binding into `identity.loginPassword` / `identity.verifyOtp`, and for a
@@ -33,7 +35,7 @@ const FIELD_LOGINS = [
 function gateSession<T extends { mfa: { state: string } }>(session: T): T {
   // §2 TOTP MFA (M5): ops, admin and finance finish sign-in with an
   // authenticator code. That step lives in the web portal; the field app
-  // is for riders and transport, so a pending session is not stored here.
+  // is for merchants, riders and transport, so a pending session is not stored here.
   if (session.mfa.state === "enrol" || session.mfa.state === "challenge") {
     throw new Error("This account signs in with an authenticator code. Use the NatEx web portal.");
   }
@@ -41,6 +43,15 @@ function gateSession<T extends { mfa: { state: string } }>(session: T): T {
 }
 
 export default function LoginScreen() {
+  return (
+    <ThemeOverrideProvider scheme="light">
+      <StatusBar style="dark" backgroundColor="#F7F8FA" />
+      <LoginForm />
+    </ThemeOverrideProvider>
+  );
+}
+
+function LoginForm() {
   const colors = useColors();
   const { signIn } = useAuth();
   const [method, setMethod] = React.useState<"password" | "phone">("password");
@@ -162,19 +173,16 @@ export default function LoginScreen() {
   return (
     <Screen footer={footer}>
       <View style={styles.brand}>
-        {/* The logo mark is white-on-transparent, so it sits on an ink badge
-            that reads the same in Dark and Day mode. */}
-        <View style={styles.logoBadge}>
+        <View style={[styles.logoBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Image
-            source={require("../assets/natex-logo.png")}
+            source={require("../assets/natex-wordmark.jpg")}
             style={styles.logo}
             resizeMode="contain"
             accessibilityLabel="NatEx"
           />
         </View>
         <Small color={colors.mutedForeground} style={styles.tagline}>
-          Field app for riders and transport staff. Sign in with the username and
-          password your branch gave you.
+          Sign in to book and manage NatEx deliveries. Your merchant or field workspace opens after sign-in.
         </Small>
       </View>
 
@@ -267,15 +275,15 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   brand: { alignItems: "center", paddingTop: Space.unit * 3, paddingBottom: Space.unit * 2 },
-  // Logo art is 2016×648 (~3.1:1).
-  // The mark is white-on-transparent — the ink badge keeps it readable in Day mode.
   logoBadge: {
-    backgroundColor: "#0A1626",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E3E7ED",
     borderRadius: Space.radius,
-    paddingHorizontal: Space.unit * 2,
-    paddingVertical: 6,
+    paddingHorizontal: Space.unit,
+    paddingVertical: 4,
   },
-  logo: { width: 180, height: 58 },
+  logo: { width: 240, height: 78 },
   tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
   accountRow: {
     flexDirection: "row",

@@ -149,9 +149,10 @@ export async function storeApiSession(session: ApiSession): Promise<StoredSessio
  * never sees transport tabs and vice-versa." Back-office roles have no field
  * workflow at all and are sent to the web portals instead.
  */
-export function homeRouteFor(role: Role | undefined): "/login" | "/(rider)" | "/(transport)" | "/desk" {
+export function homeRouteFor(role: Role | undefined): "/login" | "/(rider)" | "/(transport)" | "/(merchant)" | "/desk" {
   if (!role) return "/login";
   if (role === "rider") return "/(rider)";
   if (role === "transport") return "/(transport)";
+  if (role === "merchant") return "/(merchant)";
   return "/desk";
 }

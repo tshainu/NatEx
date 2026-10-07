@@ -1,19 +1,23 @@
-import { Colors, type ThemeColors } from "../constants/theme";
+import React from "react";
+import { Colors, type ColorScheme, type ThemeColors } from "../constants/theme";
 import { useResolvedScheme } from "../lib/theme";
 
-/**
- * Returns the color palette for the active appearance — the rider's Dark /
- * Day / System choice from the Me tab (lib/theme.ts), resolved against the OS
- * scheme when set to System.
- *
- * ```tsx
- * const colors = useColors();
- * <View style={{ backgroundColor: colors.background }}>
- *   <Text style={{ color: colors.foreground }}>Hello</Text>
- * </View>
- * ```
- */
+const ThemeOverrideContext = React.createContext<ColorScheme | null>(null);
+
+/** Lets a role-specific route group use a fixed palette without changing the device preference. */
+export function ThemeOverrideProvider({
+  children,
+  scheme,
+}: {
+  children: React.ReactNode;
+  scheme: ColorScheme;
+}) {
+  return React.createElement(ThemeOverrideContext.Provider, { value: scheme }, children);
+}
+
+/** Returns the route override when present, otherwise the user's saved appearance preference. */
 export function useColors(): ThemeColors {
-  const scheme = useResolvedScheme();
-  return Colors[scheme];
+  const resolved = useResolvedScheme();
+  const override = React.useContext(ThemeOverrideContext);
+  return Colors[override ?? resolved];
 }
