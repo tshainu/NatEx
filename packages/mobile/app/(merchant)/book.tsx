@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,6 +6,8 @@ import { StyleSheet, View } from "react-native";
 import { Button } from "../../components/natex/button";
 import { Card, Panel } from "../../components/natex/card";
 import { Input } from "../../components/natex/input";
+import { AddressFields, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "../../components/natex/address-fields";
+import { BarcodeScanner } from "../../components/natex/barcode-scanner";
 import { Screen, ScreenHeader } from "../../components/natex/screen";
 import { Awb, Body, Label, Small, Title } from "../../components/natex/text";
 import { apiMessage, client, orpc } from "../../lib/api";
@@ -16,9 +18,10 @@ import { Space } from "../../constants/theme";
 
 interface BookingForm {
   orderRef: string;
+  awb: string;
   consigneeName: string;
   consigneePhone: string;
-  destAddress: string;
+  destAddress: AddressParts;
   weightKg: string;
   lengthCm: string;
   widthCm: string;
@@ -29,9 +32,10 @@ interface BookingForm {
 
 const INITIAL: BookingForm = {
   orderRef: "",
+  awb: "",
   consigneeName: "",
   consigneePhone: "",
-  destAddress: "",
+  destAddress: { ...EMPTY_ADDRESS },
   weightKg: "",
   lengthCm: "",
   widthCm: "",
@@ -66,22 +70,49 @@ export default function MerchantBook() {
   const [error, setError] = useState<string | null>(null);
   const [successAwb, setSuccessAwb] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [checkedAwb, setCheckedAwb] = useState("");
   const keyRef = useRef<string | null>(null);
   const codEnabled = profile.data?.codEnabled ?? true;
   const inactive = profile.data ? profile.data.status !== "active" : false;
+  const normalizedAwb = checkedAwb.trim().toUpperCase();
+  const awbCheck = useQuery({
+    queryKey: ["merchant-awb-availability", merchantId, normalizedAwb],
+    queryFn: () => client.awbBatches.check({ awb: normalizedAwb }),
+    enabled: /^NX\d{10}$/.test(normalizedAwb),
+    staleTime: 0,
+  });
+  useEffect(() => {
+    const timer = setTimeout(() => setCheckedAwb(form.awb.trim().toUpperCase()), 400);
+    return () => clearTimeout(timer);
+  }, [form.awb]);
 
   const set = (key: keyof BookingForm) => (value: string) => {
     keyRef.current = null;
     setForm((current) => ({ ...current, [key]: value }));
     setError(null);
   };
+  const setAwb = (value: string) => {
+    keyRef.current = null;
+    setForm((current) => ({ ...current, awb: value.trim().toUpperCase() }));
+    setError(null);
+  };
+  const setDestination = (destAddress: AddressParts) => {
+    keyRef.current = null;
+    setForm((current) => ({ ...current, destAddress }));
+    setError(null);
+  };
 
   const submit = async () => {
     setError(null);
     if (!merchantId) return setError("This login is not linked to a merchant account. Contact NatEx operations.");
+    if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) return setError("Enter or scan a valid AWB from your preprinted sticker.");
+    if (normalizedAwb !== form.awb.trim().toUpperCase()) return setError("Wait for the sticker check to finish before booking.");
+    if (awbCheck.isError) return setError("The sticker could not be checked. No booking was created. Check the connection or contact NatEx support.");
+    if (!awbCheck.data?.valid) return setError(awbCheck.data?.reason ?? "Wait for the sticker check to finish before booking.");
+    if (!isCompleteAddress(form.destAddress)) return setError("Enter address line 1, district and province for the delivery address.");
     if (!form.consigneeName.trim() || form.consigneeName.trim().length < 2) return setError("Enter the consignee’s name.");
     if (form.consigneePhone.trim().length < 9) return setError("Enter a valid consignee phone number.");
-    if (form.destAddress.trim().length < 8) return setError("Enter a full delivery address (at least 8 characters).");
 
     const weightGrams = parseKilograms(form.weightKg);
     if (weightGrams === null) return setError("Enter a parcel weight from 0.001 to 200 kg.");
@@ -106,10 +137,11 @@ export default function MerchantBook() {
           dryRun: false,
           rows: [{
             line: 1,
+            awb: form.awb.trim().toUpperCase(),
             orderRef: form.orderRef.trim() || null,
             consigneeName: form.consigneeName.trim(),
             consigneePhone: form.consigneePhone.trim(),
-            destAddress: form.destAddress.trim(),
+            destAddress: formatAddress(form.destAddress),
             weightGrams,
             lengthCm: dimensions.lengthCm === false ? null : dimensions.lengthCm,
             widthCm: dimensions.widthCm === false ? null : dimensions.widthCm,
@@ -150,7 +182,7 @@ export default function MerchantBook() {
         <Button title="Create booking" loading={booking} disabled={inactive || booking} onPress={() => { void submit(); }} hint={inactive ? "Contact NatEx operations to reactivate your account." : undefined} />
       )}
     >
-      <ScreenHeader title="Book a shipment" subtitle="Enter the delivery details. Your pickup address is already on file." />
+      <ScreenHeader title="Book a shipment" subtitle="Enter the delivery details and use one of your allocated preprinted AWB stickers." />
 
       {profile.data?.address ? (
         <Panel>
@@ -172,7 +204,7 @@ export default function MerchantBook() {
         <Card style={styles.successCard}>
           <View style={styles.successIcon}><Title color="#176B2C">✓</Title></View>
           <Title>Shipment booked</Title>
-          <Small>Share this AWB with your team and include it in the next pickup request.</Small>
+          <Small>Your allocated preprinted AWB has been linked to this shipment. Include it in the next pickup request.</Small>
           <Awb color="#176B2C" style={styles.successAwb}>{successAwb}</Awb>
           <Button title="Track this shipment" variant="secondary" onPress={() => router.push({ pathname: "/(merchant)/shipment/[awb]", params: { awb: successAwb } })} />
         </Card>
@@ -180,9 +212,11 @@ export default function MerchantBook() {
         <>
           <Card>
             <Title>Consignee</Title>
+            <Input label="AWB number (preprinted sticker)" value={form.awb} onChangeText={setAwb} code placeholder="NX1234567890" hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking sticker allocation…" : "Type the AWB printed on your sticker.")} error={awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null} />
+            <Button title="Scan AWB barcode" variant="secondary" onPress={() => setScanning(true)} />
             <Input label="Full name" value={form.consigneeName} onChangeText={set("consigneeName")} autoCapitalize="words" returnKeyType="next" placeholder="Recipient name" />
             <Input label="Phone number" value={form.consigneePhone} onChangeText={set("consigneePhone")} keyboardType="phone-pad" placeholder="077 123 4567" />
-            <Input label="Delivery address" value={form.destAddress} onChangeText={set("destAddress")} multiline numberOfLines={3} textAlignVertical="top" placeholder="House, street, town and nearest landmark" />
+            <AddressFields value={form.destAddress} onChange={setDestination} />
             <Input label="Order reference (optional)" value={form.orderRef} onChangeText={set("orderRef")} autoCapitalize="characters" placeholder="Your internal order ID" />
           </Card>
 
@@ -205,9 +239,10 @@ export default function MerchantBook() {
               <Panel><Small>COD is not enabled for your account. This parcel will be prepaid.</Small></Panel>
             )}
           </Card>
-          <Small>AWBs are assigned by NatEx when the booking is accepted. You can request a rider pickup after booking.</Small>
+          <Small>Use an unused sticker allocated to your merchant account. You can request rider pickup after booking.</Small>
         </>
       )}
+      <BarcodeScanner visible={scanning} onClose={() => setScanning(false)} onScanned={(value) => { setScanning(false); setAwb(value); }} />
     </Screen>
   );
 }

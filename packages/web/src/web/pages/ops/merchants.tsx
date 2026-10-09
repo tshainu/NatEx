@@ -3,13 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
 import { date, dateTime, coords, humanise } from "@/lib/format";
-import { Input, Field, Textarea } from "@/components/ui/input";
+import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, ConfirmDialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Page, KeyValue, KeyValueGrid, ErrorNote } from "@/components/natex/page";
+import { AddressFields } from "@/components/natex/address-fields";
+import { EMPTY_ADDRESS, formatAddress, isCompleteAddress } from "@/lib/address";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -414,7 +416,7 @@ function CreateMerchantDialog({
     name: "",
     branchId: defaultBranchId,
     vatNo: "",
-    address: "",
+    address: { ...EMPTY_ADDRESS },
     contactName: "",
     contactPhone: "",
     codEnabled: true,
@@ -430,7 +432,7 @@ function CreateMerchantDialog({
     ...orpc.merchants.create.mutationOptions(),
     onSuccess: (row) => {
       void queryClient.invalidateQueries();
-      setForm((f) => ({ ...f, name: "", vatNo: "", address: "", contactName: "", contactPhone: "" }));
+      setForm((f) => ({ ...f, name: "", vatNo: "", address: { ...EMPTY_ADDRESS }, contactName: "", contactPhone: "" }));
       onCreated((row as { id: string }).id);
     },
     onError: (error) =>
@@ -443,7 +445,7 @@ function CreateMerchantDialog({
   const ready =
     form.name.trim().length >= 2 &&
     form.branchId &&
-    form.address.trim().length >= 4 &&
+    isCompleteAddress(form.address) &&
     form.contactName.trim().length >= 2 &&
     form.contactPhone.trim().length >= 9;
 
@@ -466,7 +468,7 @@ function CreateMerchantDialog({
                 name: form.name.trim(),
                 branchId: form.branchId,
                 vatNo: form.vatNo.trim() || null,
-                address: form.address.trim(),
+                address: formatAddress(form.address),
                 contactName: form.contactName.trim(),
                 contactPhone: form.contactPhone.trim(),
                 codEnabled: form.codEnabled,
@@ -501,9 +503,7 @@ function CreateMerchantDialog({
             />
           </Field>
         </div>
-        <Field label="Pickup address">
-          <Textarea value={form.address} onChange={(e) => set("address", e.target.value)} />
-        </Field>
+        <AddressFields title="Pickup address" value={form.address} onChange={(address) => set("address", address)} />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Contact name">
             <Input

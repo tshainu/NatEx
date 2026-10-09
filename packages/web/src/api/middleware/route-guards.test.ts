@@ -111,7 +111,7 @@ describe("route guards (static inventory)", () => {
   });
 
   test("admin-only namespaces stay admin-only", () => {
-    for (const g of guards.filter((x) => /^(audit|monitor|dashboard|awbBatches)\./.test(x.path))) {
+    for (const g of guards.filter((x) => /^(audit|monitor|dashboard)\./.test(x.path) || /^awbBatches\.(list|generate|assign|labels)$/.test(x.path))) {
       expect({ path: g.path, roles: g.roles }).toEqual({ path: g.path, roles: ["admin"] });
     }
     for (const path of ["settings.set", "rateCards.publish", "rateCards.assign", "identity.createUser"]) {
@@ -120,6 +120,11 @@ describe("route guards (static inventory)", () => {
       expect({ path, roles: g.roles }).toEqual({ path, roles: ["admin"] });
     }
     expect(byPath.get("settings.set")?.roles).toEqual(["admin"]);
+  });
+
+  test("merchant AWB sticker checks are merchant-only", () => {
+    expect(byPath.get("awbBatches.check")?.roles).toEqual(["merchant"]);
+    expect(byPath.get("awbBatches.checkMany")?.roles).toEqual(["merchant"]);
   });
 
   test("desk-only reads (staff phones, consignee messages, commercial terms) refuse field roles", () => {

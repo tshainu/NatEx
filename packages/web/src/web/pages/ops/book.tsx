@@ -6,10 +6,12 @@ import { money, toE6, metres } from "@/lib/format";
 import { kgToGrams, rupeesToCents } from "@/lib/csv";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Textarea } from "@/components/ui/input";
+import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/natex/status-pill";
 import { Badge } from "@/components/ui/badge";
+import { AddressFields } from "@/components/natex/address-fields";
+import { EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 
 /**
  * Counter booking. Money is entered in rupees and converted to integer cents
@@ -19,32 +21,34 @@ import { Badge } from "@/components/ui/badge";
 
 interface Form {
   merchantId: string;
+  awb: string;
   weightKg: string;
   lengthCm: string;
   widthCm: string;
   heightCm: string;
   declaredValue: string;
   codAmount: string;
-  originAddress: string;
+  originAddress: AddressParts;
   consigneeName: string;
   consigneePhone: string;
-  destAddress: string;
+  destAddress: AddressParts;
   destLat: string;
   destLng: string;
 }
 
 const EMPTY: Form = {
   merchantId: "",
+  awb: "",
   weightKg: "1",
   lengthCm: "",
   widthCm: "",
   heightCm: "",
   declaredValue: "0",
   codAmount: "0",
-  originAddress: "",
+  originAddress: { ...EMPTY_ADDRESS },
   consigneeName: "",
   consigneePhone: "",
-  destAddress: "",
+  destAddress: { ...EMPTY_ADDRESS },
   destLat: "",
   destLng: "",
 };
@@ -84,16 +88,17 @@ export default function OpsBook() {
     mutationFn: () =>
       client.parcels.create({
         merchantId: form.merchantId,
+        awb: form.awb.trim() || null,
         weightGrams: "grams" in weight ? weight.grams : 0,
         lengthCm: form.lengthCm ? Number(form.lengthCm) : null,
         widthCm: form.widthCm ? Number(form.widthCm) : null,
         heightCm: form.heightCm ? Number(form.heightCm) : null,
         declaredValueCents: centsOf(declared),
         codAmountCents: centsOf(cod),
-        originAddress: form.originAddress.trim(),
+        originAddress: formatAddress(form.originAddress),
         consigneeName: form.consigneeName.trim(),
         consigneePhone: form.consigneePhone.trim(),
-        destAddress: form.destAddress.trim(),
+        destAddress: formatAddress(form.destAddress),
         destLat: hasCoords ? toE6(Number(form.destLat)) : null,
         destLng: hasCoords ? toE6(Number(form.destLng)) : null,
         destZoneId: serviceability.data?.zone?.id ?? null,
@@ -111,15 +116,15 @@ export default function OpsBook() {
     weight.grams > 0 &&
     "cents" in declared &&
     "cents" in cod &&
-    form.originAddress.trim().length >= 4 &&
+    isCompleteAddress(form.originAddress) &&
     form.consigneeName.trim().length >= 2 &&
     form.consigneePhone.trim().length >= 9 &&
-    form.destAddress.trim().length >= 4;
+    isCompleteAddress(form.destAddress);
 
   return (
     <Page
       title="Book a parcel"
-      description="Creates the parcel at Booked and writes the first custody event. The AWB is minted server-side and is the parcel's public identity from here on."
+      description="Creates the parcel at Booked and writes the first custody event. A supplied AWB must be an unused sticker allocated to the selected merchant."
     >
       {booked ? (
         <Card className="max-w-3xl border-status-good/40 bg-status-good/8">
@@ -168,6 +173,9 @@ export default function OpsBook() {
                 ))}
               </Select>
             </Field>
+            <Field label="Preprinted AWB sticker" hint="Optional for staff. If entered, it must belong to this merchant and be unused.">
+              <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" />
+            </Field>
             <div className="grid grid-cols-4 gap-3">
               <Field label="Weight (kg)" error={form.weightKg && "error" in weight ? weight.error : null}>
                 <Input
@@ -213,9 +221,7 @@ export default function OpsBook() {
                 />
               </Field>
             </div>
-            <Field label="Pickup address">
-              <Textarea value={form.originAddress} onChange={set("originAddress")} required />
-            </Field>
+            <AddressFields title="Pickup address" value={form.originAddress} onChange={(originAddress) => setForm((prev) => ({ ...prev, originAddress }))} />
           </div>
         </Card>
 
@@ -237,9 +243,7 @@ export default function OpsBook() {
                   />
                 </Field>
               </div>
-              <Field label="Delivery address">
-                <Textarea value={form.destAddress} onChange={set("destAddress")} required />
-              </Field>
+              <AddressFields title="Delivery address" value={form.destAddress} onChange={(destAddress) => setForm((prev) => ({ ...prev, destAddress }))} />
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Latitude" hint="Optional — enables the zone check">
                   <Input value={form.destLat} onChange={set("destLat")} inputMode="decimal" placeholder="6.9271" className="font-mono" />

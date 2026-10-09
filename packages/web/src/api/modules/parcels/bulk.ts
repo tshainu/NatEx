@@ -3,6 +3,7 @@ import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { normaliseLkPhone } from "../../shared/sms";
 import { getMerchant } from "../merchants/service";
+import { checkMerchantAwb } from "./awb-batches";
 import { createParcel } from "./service";
 import { roleMayCommand } from "./state-machine";
 
@@ -38,6 +39,7 @@ const optionalCm = z.number().int("Dimensions are whole centimetres").min(1).max
 export const bulkRowSchema = z.object({
   /** CSV line number as the merchant sees it in their spreadsheet. */
   line: z.number().int().min(1),
+  awb: z.string().trim().min(1).max(24).transform((value) => value.toUpperCase()).optional(),
   orderRef: z.string().trim().max(60).nullish(),
   consigneeName: z
     .string({ error: "Consignee name is required" })
@@ -139,8 +141,9 @@ export async function bulkCreateParcels(
   const valid: BulkRow[] = [];
   const rejected: BulkRejected[] = [];
   const seenRefs = new Map<string, number>();
+  const seenAwbs = new Map<string, number>();
 
-  input.rows.forEach((raw, index) => {
+  for (const [index, raw] of input.rows.entries()) {
     const line = lineOf(raw, index);
     const orderRef = refOf(raw);
     const parsed = bulkRowSchema.safeParse({ ...(raw as object), line });
@@ -154,6 +157,19 @@ export async function bulkCreateParcels(
     if (parsed.success && parsed.data.codAmountCents > 0 && !owner!.codEnabled) {
       rowErrors.push({ field: "codAmountCents", message: `${owner!.name} is not enabled for COD` });
     }
+    if (parsed.success && actor.role === "merchant" && !parsed.data.awb) {
+      rowErrors.push({ field: "awb", message: "Enter or scan an AWB from your allocated preprinted stickers." });
+    }
+    if (parsed.success && parsed.data.awb) {
+      const firstAwb = seenAwbs.get(parsed.data.awb);
+      if (firstAwb !== undefined) {
+        rowErrors.push({ field: "awb", message: `Duplicate AWB — first used on line ${firstAwb}.` });
+      } else {
+        seenAwbs.set(parsed.data.awb, line);
+      }
+      const availability = await checkMerchantAwb(owner!.id, parsed.data.awb);
+      if (!availability.valid) rowErrors.push({ field: "awb", message: availability.reason });
+    }
     if (orderRef) {
       const first = seenRefs.get(orderRef);
       if (first !== undefined) {
@@ -165,7 +181,7 @@ export async function bulkCreateParcels(
 
     if (rowErrors.length) rejected.push({ line, orderRef, errors: rowErrors });
     else valid.push(parsed.data!);
-  });
+  }
 
   const accepted: BulkAccepted[] = [];
   if (input.dryRun) {
@@ -181,6 +197,7 @@ export async function bulkCreateParcels(
         const d = await createParcel(
           {
             merchantId: owner!.id,
+            awb: r.awb ?? null,
             branchId: owner!.branchId,
             weightGrams: r.weightGrams,
             lengthCm: r.lengthCm ?? null,

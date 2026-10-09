@@ -6,7 +6,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
-import { nextUnusedAwbForBooking } from "./awb-batches";
+import { checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
@@ -316,14 +316,17 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
     filters.push(eq(parcel.branchId, input.branchId));
   }
   if (input.search?.trim()) {
-    const term = `%${input.search.trim()}%`;
-    filters.push(
-      or(
-        like(parcel.awb, term.toUpperCase()),
-        like(parcel.consigneeName, term),
-        like(parcel.consigneePhone, term),
-      ),
-    );
+    const query = input.search.trim();
+    const term = `%${query}%`;
+    const rupees = query.replace(/^(?:LKR|RS)\.?\s*/i, "").replace(/,/g, "").trim();
+    const amount = /^\d+(?:\.\d{1,2})?$/.test(rupees) ? Number(rupees) * 100 : NaN;
+    filters.push(or(
+      like(parcel.awb, term.toUpperCase()),
+      like(parcel.consigneeName, term),
+      like(parcel.consigneePhone, term),
+      like(parcel.destAddress, term),
+      ...(Number.isSafeInteger(amount) ? [eq(parcel.codAmountCents, amount)] : []),
+    ));
   }
 
   const where = and(...filters.filter((f) => f !== undefined));
@@ -638,6 +641,8 @@ export async function parcelsByIds(ids: string[]): Promise<ParcelRow[]> {
 
 export interface CreateParcelInput {
   merchantId: string;
+  /** Physical sticker AWB typed/scanned by a merchant; omitted for staff auto-mint. */
+  awb?: string | null;
   branchId: string;
   weightGrams: number;
   lengthCm?: number | null;
@@ -695,10 +700,19 @@ export async function createParcel(
     });
   }
 
+  if (actor.role === "merchant" && !input.awb?.trim()) {
+    errors.badRequest("Enter an AWB from your allocated preprinted stickers.");
+  }
+  const suppliedAwb = input.awb?.trim().toUpperCase() || null;
+  if (suppliedAwb) {
+    const availability = await checkMerchantAwb(input.merchantId, suppliedAwb);
+    if (!availability.valid) errors.badRequest(availability.reason, { awb: suppliedAwb });
+  }
+
   const now = new Date();
   let row: ParcelRow | undefined;
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const awb = (await nextUnusedAwbForBooking(input.merchantId, input.branchId)) ?? (await uniqueAwb());
+    const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(input.merchantId, input.branchId)) ?? (await uniqueAwb());
     try {
       [row] = await db
         .insert(parcel)
@@ -733,6 +747,7 @@ export async function createParcel(
       const duplicateAwb = message.includes("parcels_parcel.awb") ||
         (message.includes("UNIQUE constraint failed") && message.includes("awb"));
       if (!duplicateAwb) throw error;
+      if (suppliedAwb) errors.conflict("This AWB was just used by another booking. Scan or enter a different sticker.", { awb: suppliedAwb });
     }
   }
   if (!row) return errors.conflict("Could not allocate a unique AWB. Retry the booking.");

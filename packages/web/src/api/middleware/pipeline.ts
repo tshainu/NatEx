@@ -47,6 +47,7 @@ export const financeProc = authedProc.use(requireRole("finance", "admin"));
  */
 export const transportProc = authedProc.use(requireRole("transport", "ops", "admin"));
 export const adminProc = authedProc.use(requireRole("admin"));
+export const merchantProc = authedProc.use(requireRole("merchant"));
 /**
  * Doorstep actions (§6 role table for Delivered / DeliveryAttempted /
  * RTODelivered): the rider who is standing there owns them, ops records them on

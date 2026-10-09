@@ -81,6 +81,7 @@ export const create = authedProc
   .input(
     z.object({
       merchantId: z.string().min(1),
+      awb: z.string().trim().min(1).max(24).nullish(),
       branchId: z.string().min(1).optional(),
       weightGrams: z.number().int().min(1).max(200_000),
       lengthCm: z.number().int().min(1).max(500).nullish(),

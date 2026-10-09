@@ -5,6 +5,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "overrides": {
+    "react-native": "0.86.3"
+  },
   "scripts": {
     "dev": "cd packages/web && bunx vite",
     "dev:desktop": "cd packages/desktop && bunx vite",

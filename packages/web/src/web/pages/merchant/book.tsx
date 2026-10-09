@@ -1,15 +1,18 @@
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { apiMessage } from "@/lib/api";
+import { apiMessage, client } from "@/lib/api";
 import { kgToGrams, rupeesToCents } from "@/lib/csv";
 import { FIELD_TO_HEADER } from "@/lib/bulk-csv";
 import { money } from "@/lib/format";
 import { Page, Card, ErrorNote } from "@/components/natex/page";
 import { TabStrip, useTabParam } from "@/components/natex/tab-strip";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Textarea } from "@/components/ui/input";
+import { Field, Input } from "@/components/ui/input";
+import { AddressFields } from "@/components/natex/address-fields";
+import { EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useInvalidateParcels, useMerchantProfile, bulkChunk } from "@/queries/merchant";
 import { BulkUpload } from "./book-csv";
 
@@ -69,9 +72,10 @@ export default function MerchantBook() {
 
 interface Form {
   orderRef: string;
+  awb: string;
   consigneeName: string;
   consigneePhone: string;
-  destAddress: string;
+  destAddress: AddressParts;
   weightKg: string;
   lengthCm: string;
   widthCm: string;
@@ -81,9 +85,10 @@ interface Form {
 }
 const EMPTY: Form = {
   orderRef: "",
+  awb: "",
   consigneeName: "",
   consigneePhone: "",
-  destAddress: "",
+  destAddress: { ...EMPTY_ADDRESS },
   weightKg: "",
   lengthCm: "",
   widthCm: "",
@@ -97,6 +102,7 @@ const HEADER_TO_FORM: Record<string, keyof Form> = {
   consignee_name: "consigneeName",
   consignee_phone: "consigneePhone",
   delivery_address: "destAddress",
+  awb: "awb",
   weight_kg: "weightKg",
   length_cm: "lengthCm",
   width_cm: "widthCm",
@@ -113,6 +119,17 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const [booked, setBooked] = React.useState<{ awb: string; cod: number } | null>(null);
+  const [checkedAwb, setCheckedAwb] = React.useState("");
+  React.useEffect(() => {
+    const timer = setTimeout(() => setCheckedAwb(form.awb.trim().toUpperCase()), 400);
+    return () => clearTimeout(timer);
+  }, [form.awb]);
+  const awbCheck = useQuery({
+    queryKey: ["merchant-awb-availability", merchantId, checkedAwb],
+    queryFn: () => client.awbBatches.check({ awb: checkedAwb }),
+    enabled: /^NX\d{10}$/.test(checkedAwb),
+    staleTime: 0,
+  });
   // One key per intent: a retry after a network failure replays, it does not
   // book a second parcel. Any edit to the form is a new intent.
   const keyRef = React.useRef<string | null>(null);
@@ -121,6 +138,11 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
     keyRef.current = null;
     setForm((f) => ({ ...f, [k]: e.target.value }));
     setFieldErrors((fe) => ({ ...fe, [k]: undefined }));
+  };
+  const setAddress = (destAddress: AddressParts) => {
+    keyRef.current = null;
+    setForm((f) => ({ ...f, destAddress }));
+    setFieldErrors((fe) => ({ ...fe, destAddress: undefined }));
   };
 
   const weight = kgToGrams(form.weightKg);
@@ -144,6 +166,26 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
       setError("This login is not linked to a merchant account.");
       return;
     }
+    if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) {
+      setFieldErrors((fe) => ({ ...fe, awb: "Enter a valid AWB from your sticker." }));
+      return;
+    }
+    if (checkedAwb !== form.awb.trim().toUpperCase()) {
+      setFieldErrors((fe) => ({ ...fe, awb: "Wait for the sticker check to finish." }));
+      return;
+    }
+    if (awbCheck.isError) {
+      setError("The sticker could not be checked. No booking was created. Check your connection or contact NatEx support.");
+      return;
+    }
+    if (!awbCheck.data?.valid) {
+      setFieldErrors((fe) => ({ ...fe, awb: awbCheck.data?.reason ?? "Wait for the sticker check to finish." }));
+      return;
+    }
+    if (!isCompleteAddress(form.destAddress)) {
+      setFieldErrors((fe) => ({ ...fe, destAddress: "Enter line 1, district and province." }));
+      return;
+    }
     keyRef.current ??= crypto.randomUUID();
     setPending(true);
     try {
@@ -154,10 +196,11 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
           rows: [
             {
               line: 1,
+              awb: form.awb.trim().toUpperCase(),
               orderRef: form.orderRef.trim() || null,
               consigneeName: form.consigneeName,
               consigneePhone: form.consigneePhone,
-              destAddress: form.destAddress,
+              destAddress: formatAddress(form.destAddress),
               weightGrams: (weight as { grams: number }).grams,
               lengthCm: form.lengthCm.trim() ? Number(form.lengthCm) : null,
               widthCm: form.widthCm.trim() ? Number(form.widthCm) : null,
@@ -234,6 +277,13 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
       >
         <Card title="Consignee">
           <div className="space-y-4">
+            <Field
+              label="AWB number (preprinted sticker)"
+              hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking allocated sticker…" : "Type the AWB printed on the sticker allocated to your merchant account.")}
+              error={fieldErrors.awb ?? (awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null)}
+            >
+              <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" required />
+            </Field>
             <Field label="Consignee name" error={fieldErrors.consigneeName}>
               <Input value={form.consigneeName} onChange={set("consigneeName")} required autoComplete="off" />
             </Field>
@@ -246,9 +296,7 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
                 required
               />
             </Field>
-            <Field label="Delivery address" error={fieldErrors.destAddress}>
-              <Textarea value={form.destAddress} onChange={set("destAddress")} required />
-            </Field>
+            <AddressFields title="Delivery address" value={form.destAddress} onChange={setAddress} />
             <Field label="Your order reference" hint="Optional — shown on reports" error={fieldErrors.orderRef}>
               <Input value={form.orderRef} onChange={set("orderRef")} className="font-mono" />
             </Field>

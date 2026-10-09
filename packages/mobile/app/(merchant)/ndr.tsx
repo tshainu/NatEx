@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../components/natex/button";
 import { Card, Empty, Panel } from "../../components/natex/card";
 import { Input } from "../../components/natex/input";
+import { AddressFields, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "../../components/natex/address-fields";
 import { Screen } from "../../components/natex/screen";
 import { Body, Label, Mono, Small, Title } from "../../components/natex/text";
 import { apiMessage, client, orpc } from "../../lib/api";
@@ -26,7 +27,7 @@ export default function MerchantNdr() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState<Instruction>("reattempt");
   const [reattemptDate, setReattemptDate] = useState(() => addDays(colomboToday(), 1));
-  const [newAddress, setNewAddress] = useState("");
+  const [newAddress, setNewAddress] = useState<AddressParts>(EMPTY_ADDRESS);
   const [newPhone, setNewPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +48,13 @@ export default function MerchantNdr() {
       setError("Enter the reattempt date as YYYY-MM-DD.");
       return;
     }
-    if (instruction === "address_change" && !newAddress.trim() && !newPhone.trim()) {
+    const addressHasContent = Boolean(newAddress.line1.trim() || newAddress.line2.trim() || newAddress.district || newAddress.province);
+    if (instruction === "address_change" && !addressHasContent && !newPhone.trim()) {
       setError("Enter a corrected address, phone number, or both.");
+      return;
+    }
+    if (instruction === "address_change" && addressHasContent && !isCompleteAddress(newAddress)) {
+      setError("Complete the corrected address with line 1, district and province, or clear it to update only the phone.");
       return;
     }
     setSubmitting(true);
@@ -58,14 +64,14 @@ export default function MerchantNdr() {
         instruction,
         notes: notes.trim() || null,
         reattemptDate: instruction === "reattempt" || instruction === "address_change" ? reattemptDate : null,
-        newAddress: instruction === "address_change" ? newAddress.trim() || null : null,
+        newAddress: instruction === "address_change" && addressHasContent ? formatAddress(newAddress) : null,
         newPhone: instruction === "address_change" ? newPhone.trim() || null : null,
       };
       await client.ndr.instruct(payload);
       setSuccess(`${selected.awb}: ${instruction === "rto" ? "return requested" : "instruction sent"}.`);
       setSelectedId(null);
       setNotes("");
-      setNewAddress("");
+      setNewAddress(EMPTY_ADDRESS);
       setNewPhone("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: orpc.ndr.key() }),
@@ -139,7 +145,7 @@ export default function MerchantNdr() {
                 ) : null}
                 {instruction === "address_change" ? (
                   <>
-                    <Input label="Corrected delivery address" value={newAddress} onChangeText={setNewAddress} multiline numberOfLines={3} textAlignVertical="top" placeholder="New address (optional if phone is corrected)" />
+                    <AddressFields value={newAddress} onChange={setNewAddress} />
                     <Input label="Corrected phone number" value={newPhone} onChangeText={setNewPhone} keyboardType="phone-pad" placeholder="New phone (optional if address is corrected)" />
                   </>
                 ) : null}

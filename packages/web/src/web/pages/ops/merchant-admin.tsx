@@ -1,12 +1,14 @@
 import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { orpc, apiMessage } from "@/lib/api";
-import { Input, Field, Textarea } from "@/components/ui/input";
+import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, ConfirmDialog } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/natex/page";
+import { AddressFields } from "@/components/natex/address-fields";
+import { addressPartsFromLegacy, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useMerchantPortalUsers, useRateCards } from "@/queries/admin";
 
 /**
@@ -36,7 +38,7 @@ interface MerchantForm {
   name: string;
   branchId: string;
   vatNo: string;
-  address: string;
+  address: AddressParts;
   contactName: string;
   contactPhone: string;
   codEnabled: boolean;
@@ -73,9 +75,7 @@ function MerchantFields({
           <Input value={form.vatNo} onChange={(e) => set("vatNo", e.target.value)} className="font-mono" />
         </Field>
       </div>
-      <Field label="Pickup address">
-        <Textarea value={form.address} onChange={(e) => set("address", e.target.value)} />
-      </Field>
+      <AddressFields title="Pickup address" value={form.address} onChange={(address) => set("address", address)} />
       <div className="grid grid-cols-2 gap-4">
         <Field label="Contact name">
           <Input value={form.contactName} onChange={(e) => set("contactName", e.target.value)} />
@@ -107,7 +107,7 @@ function formValid(f: MerchantForm): boolean {
   return (
     f.name.trim().length >= 2 &&
     Boolean(f.branchId) &&
-    f.address.trim().length >= 4 &&
+    isCompleteAddress(f.address) &&
     f.contactName.trim().length >= 2 &&
     f.contactPhone.trim().length >= 9
   );
@@ -131,7 +131,7 @@ export function EditMerchantDialog({
     name: merchant.name,
     branchId: merchant.branchId,
     vatNo: merchant.vatNo ?? "",
-    address: merchant.address,
+    address: addressPartsFromLegacy(merchant.address),
     contactName: merchant.contactName,
     contactPhone: merchant.contactPhone,
     codEnabled: merchant.codEnabled,
@@ -164,7 +164,9 @@ export function EditMerchantDialog({
   if (form.name.trim() !== initial.name) patch.name = form.name.trim();
   if (form.branchId !== initial.branchId) patch.branchId = form.branchId;
   if (form.vatNo.trim() !== initial.vatNo) patch.vatNo = form.vatNo.trim() || null;
-  if (form.address.trim() !== initial.address) patch.address = form.address.trim();
+  const initialAddress = formatAddress(initial.address);
+  const nextAddress = formatAddress(form.address);
+  if (nextAddress !== initialAddress) patch.address = nextAddress;
   if (form.contactName.trim() !== initial.contactName) patch.contactName = form.contactName.trim();
   if (form.contactPhone.trim() !== initial.contactPhone) patch.contactPhone = form.contactPhone.trim();
   if (form.codEnabled !== initial.codEnabled) patch.codEnabled = form.codEnabled;
@@ -224,7 +226,7 @@ export function OnboardMerchantDialog({
     name: "",
     branchId: defaultBranchId,
     vatNo: "",
-    address: "",
+    address: { ...EMPTY_ADDRESS },
     contactName: "",
     contactPhone: "",
     codEnabled: true,
@@ -294,7 +296,7 @@ export function OnboardMerchantDialog({
                 name: form.name.trim(),
                 branchId: form.branchId,
                 vatNo: form.vatNo.trim() || null,
-                address: form.address.trim(),
+                address: formatAddress(form.address),
                 contactName: form.contactName.trim(),
                 contactPhone: form.contactPhone.trim(),
                 codEnabled: form.codEnabled,

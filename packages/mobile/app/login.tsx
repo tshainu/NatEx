@@ -45,7 +45,7 @@ function gateSession<T extends { mfa: { state: string } }>(session: T): T {
 export default function LoginScreen() {
   return (
     <ThemeOverrideProvider scheme="light">
-      <StatusBar style="dark" backgroundColor="#F7F8FA" />
+      <StatusBar style="dark" />
       <LoginForm />
     </ThemeOverrideProvider>
   );

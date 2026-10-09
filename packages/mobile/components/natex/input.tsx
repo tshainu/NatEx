@@ -20,7 +20,7 @@ interface InputProps extends Omit<TextInputProps, "style"> {
   code?: boolean;
 }
 
-export const Input = React.forwardRef<TextInput, InputProps>(function Input(
+export const Input = React.forwardRef<React.ComponentRef<typeof TextInput>, InputProps>(function Input(
   { label, hint, error, code = false, ...rest },
   ref,
 ) {

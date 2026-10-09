@@ -168,5 +168,5 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   clear: { minHeight: Space.minTouch, minWidth: Space.minTouch, justifyContent: "center", alignItems: "flex-end" },
   pad: { height: HEIGHT, borderWidth: 1, borderRadius: Space.radius, overflow: "hidden" },
-  placeholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  placeholder: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },
 });

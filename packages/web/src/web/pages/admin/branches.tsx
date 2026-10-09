@@ -3,13 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
 import { date, coords } from "@/lib/format";
-import { Input, Field, Textarea } from "@/components/ui/input";
+import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Page, ErrorNote } from "@/components/natex/page";
 import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
+import { AddressFields } from "@/components/natex/address-fields";
+import { addressPartsFromLegacy, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useAuth } from "@/components/auth-provider";
 
 /**
@@ -134,7 +136,7 @@ function CreateBranchDialog({
   const [form, setForm] = React.useState({
     code: "",
     name: "",
-    address: "",
+    address: { ...EMPTY_ADDRESS },
     lat: "",
     lng: "",
     type: "branch" as "hub" | "branch",
@@ -149,7 +151,7 @@ function CreateBranchDialog({
     ...orpc.identity.createBranch.mutationOptions(),
     onSuccess: () => {
       void queryClient.invalidateQueries();
-      setForm((f) => ({ ...f, code: "", name: "", address: "", lat: "", lng: "" }));
+      setForm((f) => ({ ...f, code: "", name: "", address: { ...EMPTY_ADDRESS }, lat: "", lng: "" }));
       onOpenChange(false);
     },
     onError: (error) => setProblem(apiMessage(error, "This branch could not be created.")),
@@ -163,7 +165,7 @@ function CreateBranchDialog({
   const ready =
     form.code.trim().length >= 2 &&
     form.name.trim().length >= 2 &&
-    form.address.trim().length >= 4 &&
+    isCompleteAddress(form.address) &&
     Number.isFinite(lat) &&
     form.lat !== "" &&
     Number.isFinite(lng) &&
@@ -187,7 +189,7 @@ function CreateBranchDialog({
               create.mutate({
                 code: form.code.trim().toUpperCase(),
                 name: form.name.trim(),
-                address: form.address.trim(),
+                address: formatAddress(form.address),
                 lat,
                 lng,
                 type: form.type,
@@ -221,9 +223,7 @@ function CreateBranchDialog({
         <Field label="Name">
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
-        <Field label="Address">
-          <Textarea value={form.address} onChange={(e) => set("address", e.target.value)} />
-        </Field>
+        <AddressFields title="Branch address" value={form.address} onChange={(address) => set("address", address)} />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Latitude" hint="Decimal degrees.">
             <Input
@@ -258,7 +258,7 @@ function CreateBranchDialog({
 function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = React.useState(branch.name);
-  const [address, setAddress] = React.useState(branch.address);
+  const [address, setAddress] = React.useState<AddressParts>(() => addressPartsFromLegacy(branch.address));
   const [lat, setLat] = React.useState(String(branch.lat));
   const [lng, setLng] = React.useState(String(branch.lng));
   const [type, setType] = React.useState(branch.type as "hub" | "branch");
@@ -279,13 +279,14 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
     id: branch.id,
   };
   if (name.trim() !== branch.name) patch.name = name.trim();
-  if (address.trim() !== branch.address) patch.address = address.trim();
+  const formattedAddress = formatAddress(address);
+  if (formattedAddress !== branch.address) patch.address = formattedAddress;
   if (lat !== "" && Number.isFinite(latN) && latN !== branch.lat) patch.lat = latN;
   if (lng !== "" && Number.isFinite(lngN) && lngN !== branch.lng) patch.lng = lngN;
   if (type !== branch.type) patch.type = type;
   const valid =
     name.trim().length >= 2 &&
-    address.trim().length >= 4 &&
+    isCompleteAddress(address) &&
     lat !== "" &&
     lng !== "" &&
     Number.isFinite(latN) &&
@@ -328,9 +329,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
             </Select>
           </Field>
         </div>
-        <Field label="Address">
-          <Textarea value={address} onChange={(e) => setAddress(e.target.value)} />
-        </Field>
+        <AddressFields title="Branch address" value={address} onChange={setAddress} />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Latitude">
             <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="font-mono" />

@@ -35,8 +35,12 @@ export default function TransportLayout() {
           name="index"
           options={{
             title: "Bags",
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "bag" : "bag-outline"} size={size} color={color} />
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "bag" : "bag-outline"}
+                size={size}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
             ),
           }}
         />
@@ -44,8 +48,12 @@ export default function TransportLayout() {
           name="trips"
           options={{
             title: "Trips",
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "bus" : "bus-outline"} size={size} color={color} />
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "bus" : "bus-outline"}
+                size={size}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
             ),
           }}
         />
@@ -53,11 +61,11 @@ export default function TransportLayout() {
           name="inbound"
           options={{
             title: "Inbound",
-            tabBarIcon: ({ color, size, focused }) => (
+            tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "download" : "download-outline"}
                 size={size}
-                color={color}
+                color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
           }}
@@ -66,8 +74,12 @@ export default function TransportLayout() {
           name="settings"
           options={{
             title: "Settings",
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons name={focused ? "settings" : "settings-outline"} size={size} color={color} />
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "settings" : "settings-outline"}
+                size={size}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
             ),
           }}
         />

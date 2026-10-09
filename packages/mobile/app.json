@@ -6,8 +6,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
     "extra": {
       "apiUrl": "https://204-13-236-153.sslip.io/",
@@ -18,18 +17,12 @@
       "bundleIdentifier": "com.appId.runable",
       "supportsTablet": true
     },
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#ffffff"
-    },
     "name": "mobile",
     "slug": "mobile",
     "version": "1.0.0",
     "scheme": "runable-natex-pshh6q6",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
@@ -51,7 +44,16 @@
           "cameraPermission": "NatEx uses the camera to scan parcel barcodes.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-status-bar"
     ]
   }
 }

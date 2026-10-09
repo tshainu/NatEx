@@ -296,6 +296,44 @@ export async function nextUnusedAwbForBooking(merchantId: string, branchId: stri
   return locationLabel?.awb ?? null;
 }
 
+/** Check supplied stickers without revealing any other merchant's inventory. */
+export async function checkMerchantAwbs(merchantId: string, values: string[]) {
+  const awbs = values.map((value) => value.trim().toUpperCase());
+  const syntacticallyValid = [...new Set(awbs.filter((awb) => /^NX\d{10}$/.test(awb)))];
+  const labels = syntacticallyValid.length
+    ? await db
+    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id })
+    .from(awbBatchLabel)
+    .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
+    .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .where(and(
+      inArray(awbBatchLabel.awb, syntacticallyValid),
+      or(
+        and(
+          eq(awbBatch.assignmentStatus, "assigned"),
+          eq(awbBatch.assigneeType, "merchant"),
+          eq(awbBatch.assigneeId, merchantId),
+        ),
+        and(isNull(awbBatch.assignmentStatus), eq(awbBatch.merchantId, merchantId)),
+      ),
+    ))
+    : [];
+  const byAwb = new Map(labels.map((label) => [label.awb, label]));
+
+  return awbs.map((awb) => {
+    if (!/^NX\d{10}$/.test(awb)) return { valid: false as const, awb, reason: "Enter a valid 12-character NX AWB from your sticker." };
+    const label = byAwb.get(awb);
+    if (!label) return { valid: false as const, awb, reason: "This AWB is not in the sticker batches allocated to your merchant." };
+    if (label.usedParcelId) return { valid: false as const, awb, reason: "This AWB has already been used. Scan or enter an unused sticker." };
+    return { valid: true as const, awb, reason: "AWB is allocated to your merchant and available." };
+  });
+}
+
+/** Check a single typed/scanned sticker. */
+export async function checkMerchantAwb(merchantId: string, value: string) {
+  return (await checkMerchantAwbs(merchantId, [value]))[0]!;
+}
+
 /** A batch plus per-label use state, for Excel-compatible or print/PDF export. */
 export async function labelsForAwbBatch(batchId: string) {
   await ensureSeriesNumbers();

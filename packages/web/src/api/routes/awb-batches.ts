@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { adminProc, mutate } from "../middleware/pipeline";
+import { adminProc, merchantProc, mutate } from "../middleware/pipeline";
 import * as awbBatchService from "../modules/parcels/awb-batches";
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
+import { errors } from "../shared/errors";
 
 export const list = adminProc.handler(async ({ context }) => {
   const [batches, merchants, locations] = await Promise.all([
@@ -53,4 +54,20 @@ export const labels = adminProc
   .input(z.object({ batchId: z.string().min(1).max(100) }))
   .handler(({ input }) => awbBatchService.labelsForAwbBatch(input.batchId));
 
-export const awbBatches = { list, generate, assign, labels };
+export const check = merchantProc
+  .input(z.object({ awb: z.string().trim().min(1).max(24) }))
+  .handler(({ input, context }) => {
+    const merchantId = context.principal.merchantId;
+    if (!merchantId) return errors.forbidden("This merchant login is not linked to a merchant account.");
+    return awbBatchService.checkMerchantAwb(merchantId, input.awb);
+  });
+
+export const checkMany = merchantProc
+  .input(z.object({ awbs: z.array(z.string().trim().min(1).max(24)).min(1).max(100) }))
+  .handler(({ input, context }) => {
+    const merchantId = context.principal.merchantId;
+    if (!merchantId) return errors.forbidden("This merchant login is not linked to a merchant account.");
+    return awbBatchService.checkMerchantAwbs(merchantId, input.awbs);
+  });
+
+export const awbBatches = { list, generate, assign, labels, check, checkMany };

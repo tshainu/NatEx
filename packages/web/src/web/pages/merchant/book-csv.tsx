@@ -2,7 +2,7 @@ import * as React from "react";
 import { Link } from "wouter";
 import { CheckCircle2, Download, FileUp, RotateCcw } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { apiMessage } from "@/lib/api";
+import { apiMessage, client } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
 import { money } from "@/lib/format";
 import {
@@ -162,11 +162,22 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
     const next = new Map<number, { ok: boolean; messages: string[] }>();
     try {
       for (const part of chunk(sendable, CHUNK)) {
-        const report = await bulkChunk(
-          { merchantId, dryRun: true, rows: part.map((r) => r.payload!) },
-          crypto.randomUUID(),
-        );
-        absorb(report, next);
+        const awbs = part.map((r) => String(r.payload!.awb));
+        const checks = await client.awbBatches.checkMany({ awbs });
+        const eligible = new Set<number>();
+        checks.forEach((check, index) => {
+          const row = part[index]!;
+          if (check.valid) eligible.add(row.line);
+          else next.set(row.line, { ok: false, messages: [`awb: ${check.reason}`] });
+        });
+        const validRows = part.filter((row) => eligible.has(row.line));
+        if (validRows.length) {
+          const report = await bulkChunk(
+            { merchantId, dryRun: true, rows: validRows.map((r) => r.payload!) },
+            crypto.randomUUID(),
+          );
+          absorb(report, next);
+        }
         setServer(new Map(next));
       }
       setPhase("checked");
@@ -313,7 +324,7 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
           {TEMPLATE_COLUMNS.filter((c) => c.required)
             .map((c) => c.header)
             .join(", ")}
-          . Weight in kg (up to 3 decimals), money in rupees (up to 2 decimals) — nothing is
+          . Use one allocated, unused preprinted AWB sticker per row. The new template separates address line 1/2, district and province; older files with a single delivery_address column are still accepted. Example AWBs are placeholders and must be replaced. Weight in kg (up to 3 decimals), money in rupees (up to 2 decimals) — nothing is
           rounded; an amount with a third decimal is refused. Nothing is booked until you press
           Book.
         </p>

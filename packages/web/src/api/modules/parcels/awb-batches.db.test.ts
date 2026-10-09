@@ -6,8 +6,9 @@ import { merchant } from "../../database/schema/merchants";
 import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
-import { assignAwbBatch, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
+import { assignAwbBatch, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
 import { createAwbSeries } from "./awb-series";
+import { createParcel } from "./service";
 
 /**
  * Integration coverage for planned batch generation and assignment.
@@ -106,14 +107,47 @@ describe("AWB batch planning and assignment", () => {
     await assignAwbBatch(branchBatch.id, "branch", BRANCH_ID, ACTOR);
     await assignAwbBatch(hubBatch.id, "hub", HUB_ID, ACTOR);
 
+    expect(await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).toMatchObject({ valid: true, awb: merchantBatch.awbStart });
+    expect((await checkMerchantAwb(MERCHANT_IDS[1]!, merchantBatch.awbStart)).valid).toBe(false);
+    expect((await checkMerchantAwb(MERCHANT_IDS[0]!, "not-an-awb")).valid).toBe(false);
+    expect((await checkMerchantAwbs(MERCHANT_IDS[0]!, [merchantBatch.awbStart, "not-an-awb"]))
+      .map((check) => check.valid)).toEqual([true, false]);
+
+    const merchantActor: Principal = {
+      ...ACTOR,
+      userId: `usr_merchant_awb_test_${RUN}`,
+      role: "merchant",
+      roles: ["merchant"],
+      merchantId: MERCHANT_IDS[0]!,
+    };
+    const created = await createParcel({
+      merchantId: MERCHANT_IDS[0]!,
+      branchId: BRANCH_ID,
+      awb: merchantBatch.awbStart,
+      weightGrams: 500,
+      declaredValueCents: 0,
+      codAmountCents: 0,
+      originAddress: "Test merchant address",
+      consigneeName: "AWB test consignee",
+      consigneePhone: "+94770000009",
+      destAddress: "12 Test Road, Kandy, Central Province",
+    }, merchantActor);
+    USED_PARCEL_IDS.push(created.parcel.id);
+    expect(created.parcel.awb).toBe(merchantBatch.awbStart);
+    expect((await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).valid).toBe(false);
+
     await expect(assignAwbBatch(merchantBatch.id, "hub", HUB_ID, ACTOR)).rejects.toThrow();
-    expect(await nextUnusedAwbForBooking(MERCHANT_IDS[0]!, BRANCH_ID)).toBe(merchantBatch.awbStart);
+    expect(await nextUnusedAwbForBooking(MERCHANT_IDS[0]!, BRANCH_ID)).toBe(createAwbSeries(merchantBatch.awbStart.slice(2), 2)[1]);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[1]!, BRANCH_ID)).toBe(branchBatch.awbStart);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[2]!, HUB_ID)).toBe(hubBatch.awbStart);
 
-    await reserveOneLabelAsUsed(merchantBatch.awbStart, MERCHANT_IDS[0]!, BRANCH_ID);
     await reserveOneLabelAsUsed(branchBatch.awbStart, MERCHANT_IDS[1]!, BRANCH_ID);
     await reserveOneLabelAsUsed(hubBatch.awbStart, MERCHANT_IDS[2]!, HUB_ID);
+
+    expect(await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).toMatchObject({
+      valid: false,
+      reason: "This AWB has already been used. Scan or enter an unused sticker.",
+    });
 
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[0]!, BRANCH_ID)).toBe(createAwbSeries(merchantBatch.awbStart.slice(2), 2)[1]);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[1]!, BRANCH_ID)).toBe(createAwbSeries(branchBatch.awbStart.slice(2), 2)[1]);
