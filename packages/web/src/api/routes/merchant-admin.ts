@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { adminProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
-import { createUser, getBranch, getUserByPhone } from "../modules/identity/service";
+import { createUser, getBranch, getUserByPhone, getUserByUsername } from "../modules/identity/service";
 import { assignRateCard } from "../modules/merchants/rate-cards";
 import * as merchantsService from "../modules/merchants/service";
 import { errors } from "../shared/errors";
@@ -57,7 +57,16 @@ export const onboard = adminProc
       podPolicy: pod.default("signature"),
       rateCardId: z.string().min(1).nullish(),
       portalUser: z
-        .object({ name: z.string().trim().min(2).max(120), phone: z.string().min(9).max(20) })
+        .object({
+          name: z.string().trim().min(2).max(120),
+          phone: z.string().min(9).max(20),
+          username: z.string().trim().min(2).max(60).optional(),
+          password: z.string().min(8).max(200).optional(),
+        })
+        .refine((portal) => Boolean(portal.username) === Boolean(portal.password), {
+          message: "Provide both a username and password, or leave both blank.",
+          path: ["username"],
+        })
         .nullish(),
     }),
   )
@@ -66,6 +75,10 @@ export const onboard = adminProc
     if (input.portalUser) {
       const clash = await getUserByPhone(normaliseLkPhone(input.portalUser.phone));
       if (clash) errors.conflict(`Phone ${clash.phone} already belongs to ${clash.name}.`, { userId: clash.id });
+      if (input.portalUser.username) {
+        const usernameClash = await getUserByUsername(input.portalUser.username);
+        if (usernameClash) errors.conflict(`Username ${input.portalUser.username.trim().toLowerCase()} is already taken.`);
+      }
     }
     return mutate(
       context,
@@ -98,11 +111,15 @@ export const onboard = adminProc
               role: "merchant",
               branchId: input.branchId,
               merchantId: created.id,
+              username: input.portalUser.username ?? null,
+              password: input.portalUser.password ?? null,
             })
           : null;
         return {
           merchant: { ...created, rateCardId: rate?.after ?? null },
-          portalUser: portal ? { id: portal.id, name: portal.name, phone: portal.phone } : null,
+          portalUser: portal
+            ? { id: portal.id, name: portal.name, phone: portal.phone, username: portal.username }
+            : null,
         };
       },
     );

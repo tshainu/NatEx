@@ -235,8 +235,19 @@ export function OnboardMerchantDialog({
   const [withPortal, setWithPortal] = React.useState(true);
   const [portalName, setPortalName] = React.useState("");
   const [portalPhone, setPortalPhone] = React.useState("");
+  const [withPasswordLogin, setWithPasswordLogin] = React.useState(true);
+  const [portalUsername, setPortalUsername] = React.useState("");
+  const [portalPassword, setPortalPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
   const set = <K extends keyof MerchantForm>(key: K, value: MerchantForm[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const changeOpen = (next: boolean) => {
+    if (!next) {
+      setPortalPassword("");
+      setPortalUsername("");
+      setProblem(null);
+    }
+    onOpenChange(next);
+  };
 
   const onboard = useMutation({
     ...orpc.merchants.onboard.mutationOptions(),
@@ -246,6 +257,9 @@ export function OnboardMerchantDialog({
       setRateCardId("");
       setPortalName("");
       setPortalPhone("");
+      setWithPasswordLogin(true);
+      setPortalUsername("");
+      setPortalPassword("");
       onDone(result.merchant.id);
     },
     onError: (error) => setProblem(apiMessage(error, "This merchant could not be onboarded.")),
@@ -253,18 +267,22 @@ export function OnboardMerchantDialog({
 
   const assignable = (cards.data ?? []).filter((c) => c.activeVersion);
   const chosen = assignable.find((c) => c.id === rateCardId);
-  const portalOk = !withPortal || (portalName.trim().length >= 2 && portalPhone.trim().length >= 9);
+  const portalOk =
+    !withPortal ||
+    (portalName.trim().length >= 2 &&
+      portalPhone.trim().length >= 9 &&
+      (!withPasswordLogin || (portalUsername.trim().length >= 2 && portalPassword.length >= 8)));
 
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={changeOpen}
       title="Onboard a merchant"
-      description="Creates the merchant, its first merchant-portal login and its rate card in one audited step. The portal phone is checked first, so a clash never leaves a merchant without its user."
+      description="Creates the merchant, its first merchant-portal login and its rate card in one audited step. The portal phone and username are checked first, so a clash is reported before creating the merchant."
       className="w-[560px]"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => changeOpen(false)}>
             Cancel
           </Button>
           <Button
@@ -282,7 +300,15 @@ export function OnboardMerchantDialog({
                 codEnabled: form.codEnabled,
                 podPolicy: form.podPolicy,
                 rateCardId: rateCardId || null,
-                portalUser: withPortal ? { name: portalName.trim(), phone: portalPhone.trim() } : null,
+                portalUser: withPortal
+                  ? {
+                      name: portalName.trim(),
+                      phone: portalPhone.trim(),
+                      ...(withPasswordLogin
+                        ? { username: portalUsername.trim(), password: portalPassword }
+                        : {}),
+                    }
+                  : null,
               });
             }}
           >
@@ -316,13 +342,53 @@ export function OnboardMerchantDialog({
             Create a merchant-portal login
           </label>
           {withPortal ? (
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Login name">
-                <Input value={portalName} onChange={(e) => setPortalName(e.target.value)} />
-              </Field>
-              <Field label="Login phone" hint="Signs in with a one-time code.">
-                <Input value={portalPhone} onChange={(e) => setPortalPhone(e.target.value)} className="font-mono" />
-              </Field>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Account holder name">
+                  <Input value={portalName} onChange={(e) => setPortalName(e.target.value)} />
+                </Field>
+                <Field label="Login phone" hint="Can also sign in with a one-time code.">
+                  <Input value={portalPhone} onChange={(e) => setPortalPhone(e.target.value)} className="font-mono" />
+                </Field>
+              </div>
+              <label className="flex items-center gap-2 text-[13px] font-medium">
+                <input
+                  type="checkbox"
+                  aria-label="Enable username and password sign-in"
+                  checked={withPasswordLogin}
+                  onChange={(e) => {
+                    setWithPasswordLogin(e.target.checked);
+                    if (!e.target.checked) {
+                      setPortalUsername("");
+                      setPortalPassword("");
+                    }
+                  }}
+                />
+                Also enable username and password sign-in
+              </label>
+              {withPasswordLogin ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Username">
+                    <Input
+                      value={portalUsername}
+                      onChange={(e) => setPortalUsername(e.target.value)}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      autoComplete="username"
+                      placeholder="e.g. acme-courier"
+                    />
+                  </Field>
+                  <Field label="Temporary password" hint="At least 8 characters. Share it directly with the merchant.">
+                    <Input
+                      type="password"
+                      value={portalPassword}
+                      onChange={(e) => setPortalPassword(e.target.value)}
+                      autoComplete="new-password"
+                      minLength={8}
+                    />
+                  </Field>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -440,6 +506,7 @@ export function PortalUsersSection({ merchantId }: { merchantId: string }) {
         {(users.data ?? []).map((u) => (
           <li key={u.id} className="flex items-center gap-3 px-3 py-2 text-[12px]">
             <span className="min-w-0 flex-1 truncate font-medium">{u.name}</span>
+            <span className="font-mono text-muted-foreground">{u.username ?? "phone login"}</span>
             <span className="font-mono text-muted-foreground">{u.phone}</span>
             <Badge variant={u.status === "active" ? "good" : "warn"}>{u.status}</Badge>
           </li>

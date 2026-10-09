@@ -228,7 +228,7 @@ export async function revokeUserSessions(userId: string): Promise<{ userId: stri
 /** Merchant-portal users for one merchant (merchant onboarding view). */
 export async function usersForMerchant(merchantId: string) {
   return db
-    .select({ id: user.id, name: user.name, phone: user.phone, status: user.status, createdAt: user.createdAt })
+    .select({ id: user.id, name: user.name, phone: user.phone, username: user.username, status: user.status, createdAt: user.createdAt })
     .from(user)
     .where(and(eq(user.role, "merchant"), eq(user.merchantId, merchantId)))
     .orderBy(user.name);
