@@ -12,6 +12,7 @@ import { Badge, LifecyclePill } from "../../../components/natex/pill";
 import { Body, Label, Mono, Small, Title } from "../../../components/natex/text";
 import { Space } from "../../../constants/theme";
 import { useColors } from "../../../hooks/use-colors";
+import { invalidAwbPulse } from "../../../lib/feedback";
 
 type Step = "scan" | "confirm" | "done";
 
@@ -57,7 +58,8 @@ export default function ReceiveScreen() {
         releasedByName: releasedBy.trim(),
         receivedByName: receivedBy.trim() || null,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.unexpected.length > 0) invalidAwbPulse();
       void queryClient.invalidateQueries({ queryKey: orpc.transport.key() });
       setStep("done");
     },

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, ScanLine } from "lucide-react";
+import { Plus } from "lucide-react";
 import { orpc, apiMessage, apiDetails } from "@/lib/api";
 import { date, dateTime, colomboToday, amount, humanise } from "@/lib/format";
 import { Input, Field, Textarea } from "@/components/ui/input";
@@ -353,73 +353,14 @@ function ManifestDrawer({
   id: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const queryClient = useQueryClient();
-  const { session } = useAuth();
-  const canWrite = session!.user.role === "ops" || session!.user.role === "admin";
-
-  const [scanAwb, setScanAwb] = React.useState("");
-  const [releasedBy, setReleasedBy] = React.useState("");
-  const [note, setNote] = React.useState<string | null>(null);
-  const [problem, setProblem] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setScanAwb("");
-    setReleasedBy("");
-    setNote(null);
-    setProblem(null);
-  }, [id]);
-
   const detail = useQuery({
     ...orpc.collection.get.queryOptions({ input: { id: id ?? "" } }),
     enabled: Boolean(id),
   });
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries();
-  };
-
-  const scan = useMutation({
-    ...orpc.collection.scan.mutationOptions(),
-    onSuccess: (result) => {
-      setProblem(null);
-      setNote(
-        result.alreadyScanned
-          ? `${result.item.awb} was already scanned on this manifest — counted once.`
-          : `${result.item.awb} scanned. ${result.manifest.scannedCount} of ${result.manifest.expectedCount} present.`,
-      );
-      setScanAwb("");
-      invalidate();
-    },
-    onError: (error) => {
-      setNote(null);
-      setProblem(apiMessage(error, "That scan could not be recorded."));
-    },
-  });
-
-  const handover = useMutation({
-    ...orpc.collection.handover.mutationOptions(),
-    onSuccess: (result) => {
-      setProblem(null);
-      const parts = [`${result.movedAwbs.length} parcel(s) moved to Picked up.`];
-      if (result.missingAwbs.length) {
-        parts.push(`Shortfall: ${result.missingAwbs.length} declared but never scanned.`);
-      }
-      if (result.rejected.length) {
-        parts.push(`${result.rejected.length} refused by the state machine.`);
-      }
-      setNote(parts.join(" "));
-      invalidate();
-    },
-    onError: (error) => {
-      setNote(null);
-      setProblem(apiMessage(error, "The handover could not be recorded."));
-    },
-  });
-
   const manifest = detail.data?.manifest;
   const items = detail.data?.items ?? [];
   const scanned = items.filter((i) => i.scannedAt).length;
-  const closed = manifest?.status === "handed_over" || manifest?.status === "cancelled";
 
   return (
     <Drawer
@@ -427,32 +368,6 @@ function ManifestDrawer({
       onOpenChange={onOpenChange}
       title={manifest ? manifest.code : "Manifest"}
       subtitle={detail.data ? detail.data.merchantName : undefined}
-      footer={
-        canWrite && manifest && !closed ? (
-          <div className="flex flex-col gap-2">
-            <Field label="Released by (merchant's representative)">
-              <Input
-                value={releasedBy}
-                onChange={(e) => setReleasedBy(e.target.value)}
-                placeholder="Name of the person releasing the parcels"
-              />
-            </Field>
-            <Button
-              className="w-full"
-              disabled={scanned === 0 || releasedBy.trim().length < 2}
-              pending={handover.isPending}
-              onClick={() =>
-                handover.mutate({
-                  manifestId: manifest.id,
-                  handoverByName: releasedBy.trim(),
-                })
-              }
-            >
-              Complete handover — {scanned} scanned
-            </Button>
-          </div>
-        ) : null
-      }
     >
       {detail.isLoading ? (
         <p className="text-[13px] text-muted-foreground">Loading manifest…</p>
@@ -485,38 +400,18 @@ function ManifestDrawer({
             ) : null}
           </KeyValueGrid>
 
-          {note ? <SuccessNote>{note}</SuccessNote> : null}
-          {problem ? <ErrorNote>{problem}</ErrorNote> : null}
-
-          {canWrite && !closed ? (
+          {manifest.status === "handed_over" ? (
+            <SuccessNote>The assigned rider accepted custody in the Rider app. Scanned parcels may now continue through the delivery workflow.</SuccessNote>
+          ) : manifest.status === "cancelled" ? (
+            <ErrorNote>This manifest was cancelled. No pickup custody was recorded.</ErrorNote>
+          ) : (
             <div className="rounded-md border border-border bg-muted/40 p-3">
-              <p className="label-xs mb-2 text-muted-foreground">Counter scan</p>
-              <form
-                className="flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!scanAwb.trim()) return;
-                  scan.mutate({ manifestId: manifest.id, awb: scanAwb.trim() });
-                }}
-              >
-                <Input
-                  value={scanAwb}
-                  onChange={(e) => setScanAwb(e.target.value.toUpperCase())}
-                  placeholder="NX0000000000"
-                  className="font-mono"
-                  autoComplete="off"
-                />
-                <Button type="submit" variant="outline" pending={scan.isPending}>
-                  <ScanLine aria-hidden />
-                  Scan
-                </Button>
-              </form>
-              <p className="mt-2 text-[12px] text-muted-foreground">
-                A scan records presence only. Nothing changes custody until the handover
-                below is completed.
+              <p className="label-xs mb-2 text-muted-foreground">Rider app handover required</p>
+              <p className="text-[13px] text-muted-foreground">
+                The assigned rider scans the parcels and confirms the merchant handover in NX Official. Scanning alone does not transfer custody; only scanned parcels move to Picked up after the rider completes handover.
               </p>
             </div>
-          ) : null}
+          )}
 
           <div>
             <p className="label-xs mb-2 text-muted-foreground">

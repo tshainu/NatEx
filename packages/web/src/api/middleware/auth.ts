@@ -1,5 +1,5 @@
 import { base } from "../__core/app";
-import { bearerFrom, PENDING_MFA, verifyAccessToken, type MfaLevel, type Principal, type Role } from "../shared/auth";
+import { bearerFrom, PENDING_MFA, resolveRequestedRole, verifyAccessToken, type MfaLevel, type Principal, type Role } from "../shared/auth";
 import { errors, fail, problem } from "../shared/errors";
 import { getUserById, rolesOf } from "../modules/identity/service";
 import { mfaRequiredForAny } from "../modules/identity/mfa";
@@ -37,6 +37,17 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
     if (user!.status !== "active") errors.forbidden("This account is suspended.");
 
     const roles = rolesOf(user!);
+    const activeRole = resolveRequestedRole(
+      context.headers.get("x-natex-active-role"),
+      roles,
+      user!.role as Role,
+    );
+    if (!activeRole) {
+      errors.forbidden("The selected workspace role is not assigned to this account.", {
+        requestedRole: context.headers.get("x-natex-active-role"),
+        assignedRoles: roles,
+      });
+    }
     // One active device per rider (PROJECT.md §5): a token minted for a device
     // that is no longer the bound one is refused.
     if (roles.includes("rider") && claims!.deviceId && user!.deviceId !== claims!.deviceId) {
@@ -69,7 +80,7 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
     const principal: Principal = {
       userId: user!.id,
       name: user!.name,
-      role: user!.role as Role,
+      role: activeRole as Role,
       roles,
       branchId: user!.branchId,
       merchantId: user!.merchantId,

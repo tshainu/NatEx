@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
 import { apiMessage, client } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { deviceId, homeRouteFor, type ApiSession } from "../lib/session";
@@ -57,6 +58,7 @@ function LoginForm() {
   const [method, setMethod] = React.useState<"password" | "phone">("password");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [passwordVisible, setPasswordVisible] = React.useState(false);
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
   const [challenge, setChallenge] = React.useState<{
@@ -175,14 +177,14 @@ function LoginForm() {
       <View style={styles.brand}>
         <View style={[styles.logoBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Image
-            source={require("../assets/natex-wordmark.jpg")}
+            source={require("../assets/nx-official-icon.png")}
             style={styles.logo}
             resizeMode="contain"
-            accessibilityLabel="NatEx"
+            accessibilityLabel="NX Official"
           />
         </View>
         <Small color={colors.mutedForeground} style={styles.tagline}>
-          Sign in to book and manage NatEx deliveries. Your merchant or field workspace opens after sign-in.
+          Sign in to NX Official. Your assigned workspace opens after sign-in.
         </Small>
       </View>
 
@@ -201,8 +203,26 @@ function LoginForm() {
             label="Password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
-            placeholder="•••••���••"
+            secureTextEntry={!passwordVisible}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="••••••••"
+            trailing={
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={passwordVisible ? "Hide password" : "Show password"}
+                accessibilityState={{ selected: passwordVisible }}
+                hitSlop={8}
+                onPress={() => setPasswordVisible((visible) => !visible)}
+                style={styles.passwordToggle}
+              >
+                <Ionicons
+                  name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color={colors.mutedForeground}
+                />
+              </Pressable>
+            }
           />
         </Card>
       ) : challenge ? (
@@ -283,8 +303,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.unit,
     paddingVertical: 4,
   },
-  logo: { width: 240, height: 78 },
+  logo: { width: 128, height: 128 },
   tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
+  passwordToggle: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   accountRow: {
     flexDirection: "row",
     alignItems: "center",

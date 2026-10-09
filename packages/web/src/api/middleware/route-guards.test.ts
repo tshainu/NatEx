@@ -73,8 +73,6 @@ const PENDING_MFA_OK = ["mfa.enrolConfirm", "mfa.enrolStart", "mfa.status", "mfa
  * (parcels: roleMayCommand + §5 scope; collection: manifest ownership).
  */
 const SERVICE_GATED = [
-  "collection.handover",
-  "collection.scan",
   "identity.logout",
   "identity.me",
   "identity.mySessions",
@@ -125,6 +123,11 @@ describe("route guards (static inventory)", () => {
   test("merchant AWB sticker checks are merchant-only", () => {
     expect(byPath.get("awbBatches.check")?.roles).toEqual(["merchant"]);
     expect(byPath.get("awbBatches.checkMany")?.roles).toEqual(["merchant"]);
+  });
+
+  test("only Rider-role sessions can scan pickup manifests or accept custody", () => {
+    expect(byPath.get("collection.scan")?.roles).toEqual(["rider"]);
+    expect(byPath.get("collection.handover")?.roles).toEqual(["rider"]);
   });
 
   test("desk-only reads (staff phones, consignee messages, commercial terms) refuse field roles", () => {

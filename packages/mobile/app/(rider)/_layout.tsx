@@ -4,6 +4,7 @@ import { RoleGate } from "../../components/natex/role-gate";
 import { Fonts, Space, Type } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { useOutboxDriver, useReasonCodes, useRiderRun } from "../../hooks/use-rider-run";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
  * §7 plumbing that must run on EVERY rider screen, not just the run list: a
@@ -29,6 +30,8 @@ function OutboxDriver() {
  */
 export default function RiderLayout() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 12);
 
   return (
     <RoleGate allow={["rider"]}>
@@ -41,8 +44,9 @@ export default function RiderLayout() {
           tabBarStyle: {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            height: Space.minTouch + 26,
+            height: Space.minTouch + 26 + bottomInset,
             paddingTop: 6,
+            paddingBottom: bottomInset,
           },
           tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1 },
         }}

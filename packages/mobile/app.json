@@ -1,28 +1,28 @@
 {
   "expo": {
-    "icon": "./assets/icon.png",
+    "name": "NX Official",
+    "slug": "mobile",
+    "version": "1.0.0",
+    "scheme": "runable-natex-pshh6q6",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/nx-official-icon.png",
     "android": {
-      "package": "com.appId.runable",
+      "package": "com.natex.rider",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/nx-official-icon.png",
+        "backgroundColor": "#0758F4"
       }
+    },
+    "ios": {
+      "bundleIdentifier": "com.natex.rider",
+      "supportsTablet": true
     },
     "extra": {
       "apiUrl": "https://204-13-236-153.sslip.io/",
       "applicationId": "natex-pshh6q6",
       "runableAuthIssuer": "https://api.runable.com/api/auth"
     },
-    "ios": {
-      "bundleIdentifier": "com.appId.runable",
-      "supportsTablet": true
-    },
-    "name": "mobile",
-    "slug": "mobile",
-    "version": "1.0.0",
-    "scheme": "runable-natex-pshh6q6",
-    "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro"

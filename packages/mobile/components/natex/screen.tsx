@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { Display, Small } from "./text";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 
 /**
  * The screen shell every field screen uses.
@@ -103,6 +104,7 @@ export function ScreenHeader({
 }) {
   return (
     <View style={styles.header}>
+      <WorkspaceSwitcher />
       <View style={styles.flex}>
         <Display>{title}</Display>
         {subtitle ? <Small style={styles.headerSubtitle}>{subtitle}</Small> : null}

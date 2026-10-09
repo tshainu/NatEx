@@ -18,33 +18,39 @@ interface InputProps extends Omit<TextInputProps, "style"> {
   error?: string | null;
   /** AWB / seal / phone: mono, larger, no autocorrect. */
   code?: boolean;
+  /** Optional control rendered inside the trailing edge of the input. */
+  trailing?: React.ReactNode;
 }
 
 export const Input = React.forwardRef<React.ComponentRef<typeof TextInput>, InputProps>(function Input(
-  { label, hint, error, code = false, ...rest },
+  { label, hint, error, code = false, trailing, ...rest },
   ref,
 ) {
   const colors = useColors();
   return (
     <View style={styles.wrap}>
       {label ? <Label>{label}</Label> : null}
-      <TextInput
-        ref={ref}
-        {...rest}
-        placeholderTextColor={colors.mutedForeground}
-        autoCorrect={code ? false : rest.autoCorrect}
-        autoCapitalize={code ? "characters" : rest.autoCapitalize}
-        accessibilityLabel={rest.accessibilityLabel ?? label}
-        style={[
-          styles.input,
-          code ? styles.code : styles.text,
-          {
-            color: colors.foreground,
-            backgroundColor: colors.surface,
-            borderColor: error ? colors.statusWarn : colors.border,
-          },
-        ]}
-      />
+      <View style={styles.inputWrap}>
+        <TextInput
+          ref={ref}
+          {...rest}
+          placeholderTextColor={colors.mutedForeground}
+          autoCorrect={code ? false : rest.autoCorrect}
+          autoCapitalize={code ? "characters" : rest.autoCapitalize}
+          accessibilityLabel={rest.accessibilityLabel ?? label}
+          style={[
+            styles.input,
+            code ? styles.code : styles.text,
+            trailing ? styles.inputWithTrailing : null,
+            {
+              color: colors.foreground,
+              backgroundColor: colors.surface,
+              borderColor: error ? colors.statusWarn : colors.border,
+            },
+          ]}
+        />
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+      </View>
       {error ? (
         <Small color={colors.statusWarn}>{error}</Small>
       ) : hint ? (
@@ -56,6 +62,15 @@ export const Input = React.forwardRef<React.ComponentRef<typeof TextInput>, Inpu
 
 const styles = StyleSheet.create({
   wrap: { gap: 6 },
+  inputWrap: { position: "relative" },
+  inputWithTrailing: { paddingRight: Space.minTouch + Space.unit },
+  trailing: {
+    position: "absolute",
+    top: 0,
+    right: 2,
+    bottom: 0,
+    justifyContent: "center",
+  },
   input: {
     minHeight: Space.minTouch,
     borderWidth: 1,

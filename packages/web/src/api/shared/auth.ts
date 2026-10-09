@@ -26,6 +26,18 @@ export const ROLES: readonly Role[] = [
   "merchant",
 ] as const;
 
+/** Returns a request-selected role only when it is in the authenticated user's live role set. */
+export function resolveRequestedRole(
+  requested: string | null,
+  assignedRoles: readonly Role[],
+  fallback: Role,
+): Role | null {
+  if (requested === null) return fallback;
+  if (!(ROLES as readonly string[]).includes(requested)) return null;
+  const role = requested as Role;
+  return assignedRoles.includes(role) ? role : null;
+}
+
 /**
  * What the sign-in behind a token proved (§2 TOTP MFA for ops/admin/finance):
  *   none      — the role needs no second factor (or enforcement is off)

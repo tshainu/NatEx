@@ -30,7 +30,9 @@ interface AuthValue {
   session: StoredSession | null;
   user: SessionUser | null;
   role: Role | null;
+  roles: Role[];
   signIn: (session: ApiSession) => Promise<void>;
+  switchRole: (role: Role) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -62,6 +64,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   );
 
+  const switchRole = React.useCallback(
+    async (nextRole: Role) => {
+      if (!session) return;
+      const assigned = session.user.roles?.length ? session.user.roles : [session.user.role];
+      if (!assigned.includes(nextRole)) return;
+      if ((session.activeRole ?? session.user.role) === nextRole) return;
+      // Avoid showing cached results from the previous workspace after switching.
+      queryClient.clear();
+      await setSession({ ...session, activeRole: nextRole });
+    },
+    [queryClient, session],
+  );
+
   const signOut = React.useCallback(async () => {
     // Best-effort server-side revocation (identity.logout revokes every
     // refresh token for the user). If the device is offline the local session
@@ -83,11 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ready,
       session,
       user: session?.user ?? null,
-      role: session?.user.role ?? null,
+      role: session?.activeRole ?? session?.user.role ?? null,
+      roles: session?.user.roles?.length
+        ? session.user.roles
+        : session?.user
+          ? [session.user.role]
+          : [],
       signIn,
+      switchRole,
       signOut,
     }),
-    [ready, session, signIn, signOut],
+    [ready, session, signIn, switchRole, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

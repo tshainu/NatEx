@@ -15,6 +15,7 @@ import { useAuth } from "../../lib/auth";
 import { parseRupeesToCents } from "../../lib/format";
 import { useColors } from "../../hooks/use-colors";
 import { Space } from "../../constants/theme";
+import { invalidAwbPulse } from "../../lib/feedback";
 
 interface BookingForm {
   orderRef: string;
@@ -72,6 +73,7 @@ export default function MerchantBook() {
   const [booking, setBooking] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [checkedAwb, setCheckedAwb] = useState("");
+  const lastInvalidAwbPulse = useRef<string | null>(null);
   const keyRef = useRef<string | null>(null);
   const codEnabled = profile.data?.codEnabled ?? true;
   const inactive = profile.data ? profile.data.status !== "active" : false;
@@ -87,6 +89,19 @@ export default function MerchantBook() {
     return () => clearTimeout(timer);
   }, [form.awb]);
 
+  useEffect(() => {
+    const matchesCurrentInput = form.awb.trim().toUpperCase() === normalizedAwb;
+    if (
+      matchesCurrentInput &&
+      awbCheck.data &&
+      !awbCheck.data.valid &&
+      lastInvalidAwbPulse.current !== normalizedAwb
+    ) {
+      lastInvalidAwbPulse.current = normalizedAwb;
+      invalidAwbPulse();
+    }
+  }, [awbCheck.data, form.awb, normalizedAwb]);
+
   const set = (key: keyof BookingForm) => (value: string) => {
     keyRef.current = null;
     setForm((current) => ({ ...current, [key]: value }));
@@ -94,6 +109,9 @@ export default function MerchantBook() {
   };
   const setAwb = (value: string) => {
     keyRef.current = null;
+    if (value.trim().toUpperCase() !== form.awb.trim().toUpperCase()) {
+      lastInvalidAwbPulse.current = null;
+    }
     setForm((current) => ({ ...current, awb: value.trim().toUpperCase() }));
     setError(null);
   };
@@ -106,10 +124,22 @@ export default function MerchantBook() {
   const submit = async () => {
     setError(null);
     if (!merchantId) return setError("This login is not linked to a merchant account. Contact NatEx operations.");
-    if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) return setError("Enter or scan a valid AWB from your preprinted sticker.");
+    if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) {
+      if (lastInvalidAwbPulse.current !== form.awb.trim().toUpperCase()) {
+        lastInvalidAwbPulse.current = form.awb.trim().toUpperCase();
+        invalidAwbPulse();
+      }
+      return setError("Enter or scan a valid AWB from your preprinted sticker.");
+    }
     if (normalizedAwb !== form.awb.trim().toUpperCase()) return setError("Wait for the sticker check to finish before booking.");
     if (awbCheck.isError) return setError("The sticker could not be checked. No booking was created. Check the connection or contact NatEx support.");
-    if (!awbCheck.data?.valid) return setError(awbCheck.data?.reason ?? "Wait for the sticker check to finish before booking.");
+    if (!awbCheck.data?.valid) {
+      if (awbCheck.data && lastInvalidAwbPulse.current !== normalizedAwb) {
+        lastInvalidAwbPulse.current = normalizedAwb;
+        invalidAwbPulse();
+      }
+      return setError(awbCheck.data?.reason ?? "Wait for the sticker check to finish before booking.");
+    }
     if (!isCompleteAddress(form.destAddress)) return setError("Enter address line 1, district and province for the delivery address.");
     if (!form.consigneeName.trim() || form.consigneeName.trim().length < 2) return setError("Enter the consignee’s name.");
     if (form.consigneePhone.trim().length < 9) return setError("Enter a valid consignee phone number.");

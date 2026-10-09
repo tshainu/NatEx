@@ -21,6 +21,8 @@ export interface SessionUser {
   id: string;
   name: string;
   role: Role;
+  /** All roles granted to the account; older sessions may only have `role`. */
+  roles?: Role[];
   branchId: string;
   branchName: string;
   merchantId: string | null;
@@ -33,6 +35,8 @@ export interface StoredSession {
   /** Epoch ms at which the access token stops being usable. */
   expiresAt: number;
   user: SessionUser;
+  /** Locally selected workspace. The API token still carries the full role set. */
+  activeRole?: Role;
 }
 
 const SESSION_KEY = "natex.session";
@@ -133,12 +137,17 @@ export interface ApiSession {
   user: SessionUser;
 }
 
-export async function storeApiSession(session: ApiSession): Promise<StoredSession> {
+export async function storeApiSession(
+  session: ApiSession,
+  preferredRole?: Role,
+): Promise<StoredSession> {
+  const roles = session.user.roles?.length ? session.user.roles : [session.user.role];
   const stored: StoredSession = {
     accessToken: session.accessToken,
     refreshToken: session.refreshToken,
     expiresAt: Date.now() + session.expiresIn * 1000,
     user: session.user,
+    activeRole: preferredRole && roles.includes(preferredRole) ? preferredRole : session.user.role,
   };
   await setSession(stored);
   return stored;

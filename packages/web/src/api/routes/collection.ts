@@ -74,7 +74,7 @@ export const create = opsProc
  * A scan records presence on the manifest. It deliberately does NOT move
  * custody — that happens once, at handover (§5, two-party handover).
  */
-export const scan = authedProc
+export const scan = riderProc
   .input(
     z.object({
       manifestId: z.string().min(1),
@@ -96,7 +96,7 @@ export const scan = authedProc
     ),
   );
 
-export const handover = authedProc
+export const handover = riderProc
   .input(
     z.object({
       manifestId: z.string().min(1),

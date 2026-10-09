@@ -90,22 +90,7 @@ export function SettingsScreen({ note }: { note?: string }) {
 
       {/* ── About ───────────────────────────────────────────────── */}
       <Section title="About" icon="information-circle-outline">
-        <Row label="App version" value={Constants.expoConfig?.version ?? "—"} />
-        <Row
-          label="Server"
-          value={
-            (() => {
-              const url = Constants.expoConfig?.extra?.apiUrl as string | undefined;
-              try {
-                return url ? new URL(url).host : "—";
-              } catch {
-                return "—";
-              }
-            })()
-          }
-          mono
-          last
-        />
+        <Row label="App version" value={Constants.expoConfig?.version ?? "—"} last />
       </Section>
     </Screen>
   );
@@ -193,13 +178,12 @@ function SwitchRow({
 
 /* ── Appearance ──────────────────────────────────────────────────────────── */
 
-const THEME_OPTIONS: { key: ThemePreference; title: string; hint: string }[] = [
-  { key: "dark", title: "Dark", hint: "Default — night glare" },
-  { key: "day", title: "Day", hint: "Bright daylight" },
-  { key: "system", title: "System", hint: "Follows the phone" },
+const THEME_OPTIONS: { key: ThemePreference; title: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "dark", title: "Dark", icon: "moon-outline" },
+  { key: "day", title: "Light", icon: "sunny-outline" },
 ];
 
-/** Dark / Day / System. Persists across launches; dark stays the default. */
+/** Compact Dark / Light controls. The preference persists across launches. */
 function ThemePicker() {
   const colors = useColors();
   const preference = useThemePreference();
@@ -222,17 +206,14 @@ function ThemePicker() {
               },
             ]}
           >
-            <Mono
-              style={{
-                color: active ? colors.primaryForeground : colors.foreground,
-                fontSize: Type.body,
-              }}
-            >
+            <Ionicons
+              name={option.icon}
+              size={19}
+              color={active ? colors.primaryForeground : colors.mutedForeground}
+            />
+            <Body color={active ? colors.primaryForeground : colors.foreground}>
               {option.title}
-            </Mono>
-            <Small color={active ? colors.primaryForeground : colors.mutedForeground}>
-              {option.hint}
-            </Small>
+            </Body>
           </Pressable>
         );
       })}
@@ -322,13 +303,14 @@ const styles = StyleSheet.create({
   segmentRow: { flexDirection: "row", gap: Space.unit },
   segment: {
     flex: 1,
-    minHeight: Space.minTouch + 8,
+    minHeight: Space.minTouch,
     borderRadius: Space.radius,
     borderWidth: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Space.unit,
-    gap: 2,
+    gap: Space.unit,
   },
   syncButton: {
     flexDirection: "row",

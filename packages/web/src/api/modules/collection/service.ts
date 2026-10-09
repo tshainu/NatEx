@@ -57,6 +57,13 @@ function assertManifestVisible(row: ManifestRow, scope: Principal): void {
   }
 }
 
+function assertAssignedRiderForCustody(row: ManifestRow, actor: Principal): void {
+  assertManifestVisible(row, actor);
+  if (actor.role !== "rider") {
+    errors.forbidden("Only the assigned rider can scan parcels and accept pickup custody in the Rider app.");
+  }
+}
+
 // ------------------------------------------------------------------ read paths
 
 export async function getManifest(id: string): Promise<ManifestRow | null> {
@@ -275,7 +282,7 @@ export async function scanItem(
 ): Promise<ScanItemResult> {
   const row = await getManifest(input.manifestId);
   if (!row) errors.notFound("Manifest");
-  assertManifestVisible(row!, actor);
+  assertAssignedRiderForCustody(row!, actor);
   if (row!.status === "handed_over") {
     errors.conflict(`Manifest ${row!.code} is already handed over.`, { code: row!.code });
   }
@@ -347,9 +354,12 @@ export async function handoverManifest(
 ): Promise<HandoverResult> {
   const row = await getManifest(input.manifestId);
   if (!row) errors.notFound("Manifest");
-  assertManifestVisible(row!, actor);
+  assertAssignedRiderForCustody(row!, actor);
   if (row!.status === "handed_over") {
     errors.conflict(`Manifest ${row!.code} is already handed over.`, { code: row!.code });
+  }
+  if (row!.status === "cancelled") {
+    errors.conflict(`Manifest ${row!.code} is cancelled.`, { code: row!.code });
   }
 
   const items = await db

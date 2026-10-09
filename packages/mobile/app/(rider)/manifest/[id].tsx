@@ -14,6 +14,7 @@ import { Badge, LifecyclePill, StatusPill } from "../../../components/natex/pill
 import { Awb, Body, Label, Mono, Small, Title } from "../../../components/natex/text";
 import { Space } from "../../../constants/theme";
 import { useColors } from "../../../hooks/use-colors";
+import { invalidAwbPulse } from "../../../lib/feedback";
 
 /**
  * Collect from one merchant: scan every declared label, then hand over.
@@ -48,6 +49,7 @@ export default function ManifestScreen() {
   const scan = useMutation({
     mutationFn: (value: string) => client.collection.scan({ manifestId, awb: value }),
     onSuccess: (result) => {
+      if (result.alreadyScanned) invalidAwbPulse();
       setFeedback(
         result.alreadyScanned
           ? { tone: "warn", text: `${result.item.awb} was already scanned.` }
@@ -58,6 +60,7 @@ export default function ManifestScreen() {
       inputRef.current?.focus();
     },
     onError: (error) => {
+      invalidAwbPulse();
       setFeedback({ tone: "bad", text: apiMessage(error, "That label was not accepted.") });
     },
   });

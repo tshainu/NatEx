@@ -12,6 +12,7 @@ import { BarcodeScanner } from "../../components/natex/barcode-scanner";
 import { Body, Label, Mono, Small } from "../../components/natex/text";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
+import { invalidAwbPulse } from "../../lib/feedback";
 
 /**
  * End of the rider's run: hand the collected parcels in at the origin hub.
@@ -34,6 +35,7 @@ export default function RiderHandInScreen() {
   const handIn = useMutation({
     mutationFn: (awbs: string[]) => client.collection.riderHandIn({ awbs }),
     onSuccess: (result) => {
+      if (result.rejected.length > 0) invalidAwbPulse();
       // Only the accepted labels leave the queue; a rejected one stays on screen
       // with its reason so the rider can deal with it at the counter.
       const accepted = new Set(result.received);
@@ -46,6 +48,7 @@ export default function RiderHandInScreen() {
     const value = normaliseAwb(raw ?? awb);
     if (!value) return;
     if (queue.includes(value)) {
+      invalidAwbPulse();
       setDuplicate(value);
       setAwb("");
       return;

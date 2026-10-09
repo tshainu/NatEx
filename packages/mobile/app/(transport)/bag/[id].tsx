@@ -13,6 +13,7 @@ import { Badge, LifecyclePill } from "../../../components/natex/pill";
 import { Body, Label, Mono, Small } from "../../../components/natex/text";
 import { Space } from "../../../constants/theme";
 import { useColors } from "../../../hooks/use-colors";
+import { invalidAwbPulse } from "../../../lib/feedback";
 
 type Mode = "scan" | "seal" | "break";
 
@@ -48,6 +49,7 @@ export default function BagScreen() {
   const scan = useMutation({
     mutationFn: (awbs: string[]) => client.transport.bagScan({ bagId, awbs }),
     onSuccess: (result) => {
+      if (result.rejected.length > 0) invalidAwbPulse();
       // Accepted and duplicate labels are both "in the bag" as far as the floor
       // is concerned, so both leave the queue; only rejects stay for the clerk.
       const settled = new Set([

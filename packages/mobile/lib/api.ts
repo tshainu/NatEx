@@ -7,6 +7,7 @@ import type { AppRouterClient } from "@template/web";
 import {
   accessToken,
   deviceId,
+  getSession,
   refreshTokenValue,
   setSession,
   storeApiSession,
@@ -49,8 +50,9 @@ async function refreshAccessToken(): Promise<boolean> {
   const presented = refreshTokenValue();
   if (!presented) return false;
   try {
+    const preferredRole = getSession()?.activeRole;
     const session = await bareClient.identity.refresh({ refreshToken: presented });
-    await storeApiSession(session as ApiSession);
+    await storeApiSession(session as ApiSession, preferredRole);
     return true;
   } catch {
     // The refresh token is spent, revoked, or this device was re-bound
@@ -71,10 +73,17 @@ const link = new RPCLink({
   url: RPC_URL,
   headers: () => {
     const token = accessToken();
+    const session = getSession();
+    const activeRole = session?.activeRole ?? session?.user.role;
     return {
       "idempotency-key": newIdempotencyKey(),
       "x-device-id": deviceId(),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(token
+        ? {
+            authorization: `Bearer ${token}`,
+            ...(activeRole ? { "x-natex-active-role": activeRole } : {}),
+          }
+        : {}),
     };
   },
   /**

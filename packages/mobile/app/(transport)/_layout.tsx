@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { RoleGate } from "../../components/natex/role-gate";
 import { Fonts, Space, Type } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
  * The transport clerk's four tabs.
@@ -14,6 +15,8 @@ import { useColors } from "../../hooks/use-colors";
  */
 export default function TransportLayout() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 12);
 
   return (
     <RoleGate allow={["transport"]}>
@@ -25,8 +28,9 @@ export default function TransportLayout() {
           tabBarStyle: {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            height: Space.minTouch + 26,
+            height: Space.minTouch + 26 + bottomInset,
             paddingTop: 6,
+            paddingBottom: bottomInset,
           },
           tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1 },
         }}
