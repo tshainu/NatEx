@@ -496,6 +496,7 @@ export function RateCardSection({ merchant, isAdmin }: { merchant: EditableMerch
 
 export function PortalUsersSection({ merchantId }: { merchantId: string }) {
   const users = useMerchantPortalUsers(merchantId, true);
+  const [editing, setEditing] = React.useState<PortalUserForEdit | null>(null);
   return (
     <section aria-labelledby="portal-users-h">
       <h3 id="portal-users-h" className="label-xs mb-2 text-muted-foreground">
@@ -509,6 +510,9 @@ export function PortalUsersSection({ merchantId }: { merchantId: string }) {
             <span className="font-mono text-muted-foreground">{u.username ?? "phone login"}</span>
             <span className="font-mono text-muted-foreground">{u.phone}</span>
             <Badge variant={u.status === "active" ? "good" : "warn"}>{u.status}</Badge>
+            <Button variant="outline" size="sm" onClick={() => setEditing(u)}>
+              Edit sign-in
+            </Button>
           </li>
         ))}
         {users.data && users.data.length === 0 ? (
@@ -517,6 +521,124 @@ export function PortalUsersSection({ merchantId }: { merchantId: string }) {
           </li>
         ) : null}
       </ul>
+      {editing ? (
+        <EditMerchantPortalLoginDialog
+          key={editing.id}
+          user={editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type PortalUserForEdit = {
+  id: string;
+  name: string;
+  phone: string;
+  username: string | null;
+  status: string;
+};
+
+function EditMerchantPortalLoginDialog({
+  user,
+  onClose,
+}: {
+  user: PortalUserForEdit;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [username, setUsername] = React.useState(user.username ?? "");
+  const [password, setPassword] = React.useState("");
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const close = () => {
+    setPassword("");
+    onClose();
+  };
+
+  const save = useMutation({
+    ...orpc.identity.updateUser.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
+      close();
+    },
+    onError: (error) => setProblem(apiMessage(error, "The merchant sign-in could not be updated.")),
+  });
+
+  const nextUsername = username.trim().toLowerCase();
+  const currentUsername = user.username ?? "";
+  const removingUsername = !nextUsername && Boolean(currentUsername);
+  const usernameValid = !nextUsername || nextUsername.length >= 2;
+  const passwordValid = !password || password.length >= 8;
+  const needsInitialPassword = Boolean(nextUsername) && !currentUsername;
+  const changed = nextUsername !== currentUsername || password.length > 0;
+  const ready =
+    changed &&
+    usernameValid &&
+    passwordValid &&
+    (!needsInitialPassword || password.length >= 8) &&
+    (!password || Boolean(nextUsername));
+
+  const patch: Parameters<typeof save.mutate>[0] = { userId: user.id };
+  if (nextUsername !== currentUsername) patch.username = nextUsername || null;
+  if (removingUsername) patch.password = "";
+  else if (password) patch.password = password;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && close()}
+      title={`Edit sign-in · ${user.name}`}
+      description="Update this merchant portal user's username or set a new password. The current password is never displayed."
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <Button disabled={!ready} pending={save.isPending} onClick={() => {
+            setProblem(null);
+            save.mutate(patch);
+          }}>
+            Save sign-in
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
+          {user.phone} · {user.status}
+        </p>
+        <Field label="Username" hint="Stored lowercase. Clear it to turn off username/password sign-in.">
+          <Input
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              if (!e.target.value.trim()) setPassword("");
+            }}
+            autoCapitalize="none"
+            autoCorrect="off"
+            autoComplete="username"
+            className="font-mono"
+          />
+        </Field>
+        <Field
+          label="New password"
+          hint={currentUsername ? "Leave blank to keep the current password. Enter at least 8 characters to change it." : "Required when adding a username. At least 8 characters."}
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            minLength={8}
+            disabled={!nextUsername}
+          />
+        </Field>
+        <p className="text-[12px] text-muted-foreground">
+          Changing a password signs the merchant out on every device. Passwords are hashed; they cannot be recovered or viewed.
+        </p>
+        {problem ? <ErrorNote>{problem}</ErrorNote> : null}
+      </div>
+    </Dialog>
   );
 }

@@ -59,7 +59,8 @@ export function rolesOf(account: { role: string; roles?: string | Role[] | null 
 }
 
 function toIdentityUser(row: typeof user.$inferSelect): IdentityUser {
-  return { ...row, username: row.username ?? null, roles: rolesOf(row) } as IdentityUser;
+  const { passwordHash: _passwordHash, ...safeRow } = row;
+  return { ...safeRow, username: row.username ?? null, roles: rolesOf(row) } as IdentityUser;
 }
 
 export async function getUserById(id: string): Promise<IdentityUser | null> {

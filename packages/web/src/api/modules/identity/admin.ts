@@ -136,7 +136,8 @@ export async function updateUser(
   const sessionsRevoked =
     "role" in next || "branchId" in next || "merchantId" in next || "phone" in next || "passwordHash" in next;
   if (sessionsRevoked) await revokeAllSessions(userId);
-  return { before: before!, after: { ...row, roles: rolesOf(row!) } as IdentityUser, sessionsRevoked };
+  const { passwordHash: _passwordHash, ...safeRow } = row!;
+  return { before: before!, after: { ...safeRow, roles: rolesOf(row!) } as IdentityUser, sessionsRevoked };
 }
 
 /** Suspend or reactivate, with the self-lockout and last-admin guards. */

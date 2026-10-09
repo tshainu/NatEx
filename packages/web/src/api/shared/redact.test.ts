@@ -29,6 +29,11 @@ describe("redactForAudit", () => {
     const out = redactForAudit({ accessToken: "eyJ", refreshToken: "r", devCode: "123456", password: null, user: { id: "u" } });
     expect(out).toEqual({ accessToken: "[redacted]", refreshToken: "[redacted]", devCode: "[redacted]", password: null, user: { id: "u" } });
   });
+  test("password hashes are dropped from identity audit records", () => {
+    const out = redactForAudit({ passwordHash: "$argon2id$private-hash", nested: { password_hash: "legacy-hash" } });
+    expect(out).toEqual({ passwordHash: "[redacted]", nested: { password_hash: "[redacted]" } });
+    expect(JSON.stringify(out)).not.toContain("argon2id");
+  });
   test("dates, primitives and unrelated keys pass through untouched", () => {
     const d = new Date("2026-10-02T00:00:00Z");
     expect(redactForAudit({ at: d, code: "STL-1", n: 3, ok: true })).toEqual({ at: d, code: "STL-1", n: 3, ok: true });

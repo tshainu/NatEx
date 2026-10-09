@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, refreshToken, user } from "../../database/schema/identity";
+import type { Principal } from "../../shared/auth";
+import { updateUser } from "./admin";
 import { createBranch, createUser, loginWithPassword } from "./service";
 
 const RUN = Date.now().toString(36).toLowerCase();
@@ -9,6 +11,8 @@ const BRANCH_CODE = `T${Date.now().toString().slice(-8)}`;
 const PHONE = `+9470${Date.now().toString().slice(-8)}`;
 const USERNAME = `merchant_${RUN}`;
 const PASSWORD = "merchant-test-password-47";
+const UPDATED_USERNAME = `merchant_updated_${RUN}`;
+const UPDATED_PASSWORD = "merchant-new-test-password-83";
 let branchId: string | null = null;
 let userId: string | null = null;
 
@@ -59,5 +63,26 @@ describe("merchant username/password sign-in", () => {
     await expect(loginWithPassword({ username: USERNAME, password: "not-the-password" })).rejects.toMatchObject({
       status: 401,
     });
+  });
+
+  test("admin can update login credentials without exposing the password hash", async () => {
+    const actor: Principal = {
+      userId: `usr_admin_test_${RUN}`,
+      name: "Test administrator",
+      role: "admin",
+      roles: ["admin"],
+      branchId: branchId!,
+    };
+    const result = await updateUser(actor, userId!, {
+      username: UPDATED_USERNAME,
+      password: UPDATED_PASSWORD,
+    });
+    expect(result.after.username).toBe(UPDATED_USERNAME);
+    expect("passwordHash" in result.after).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("argon2id");
+
+    const session = await loginWithPassword({ username: UPDATED_USERNAME, password: UPDATED_PASSWORD });
+    expect(session.user.id).toBe(userId!);
+    await expect(loginWithPassword({ username: USERNAME, password: PASSWORD })).rejects.toMatchObject({ status: 401 });
   });
 });

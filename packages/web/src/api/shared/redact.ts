@@ -19,6 +19,8 @@ const DROP_KEYS = new Set([
   "refreshtoken",
   "token",
   "password",
+  "passwordhash",
+  "password_hash",
   "secret",
   "devcode",
   "otp",

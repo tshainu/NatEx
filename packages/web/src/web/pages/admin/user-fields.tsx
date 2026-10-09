@@ -77,8 +77,8 @@ export function RoleCheckboxGroup({
 }
 
 /**
- * Username/password credentials for the app sign-in. Blank password keeps the
- * current one when editing; on create, blank means phone-OTP only.
+ * Username/password credentials for web and mobile app sign-in. Blank password
+ * keeps the current one when editing; on create, blank means phone-OTP only.
  */
 export function CredentialsFields({
   username,
@@ -123,7 +123,7 @@ export function CredentialsFields({
         </Field>
       </div>
       <p className="text-[12px] text-muted-foreground">
-        With a username and password set, the user can sign in on the rider app and the web without
+        With a username and password set, the user can sign in on the mobile app and the web without
         waiting for an SMS code. Setting or changing a password signs the user out everywhere.
       </p>
     </fieldset>
