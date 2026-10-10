@@ -247,23 +247,21 @@ console.log("\n4. Users, branches, sessions");
 await expectFail("an admin cannot demote themselves (409)", 409, () => admin.identity.updateUser({ userId: ADMIN_ID, role: "ops" }));
 await expectFail("an admin cannot suspend themselves (409)", 409, () => admin.identity.setUserStatus({ userId: ADMIN_ID, status: "suspended" }));
 await expectFail("ops cannot edit users", 403, () => ops.identity.updateUser({ userId: newOps.id, name: "Nope" }));
-const fixtureMerchantUser = await admin.identity.createUser({
+const fixtureMerchantUser = await admin.identity.createMerchantUser({
+  merchantId: "mch_ceylon_threads",
   name: `SMK5 Shop ${RUN}`,
   phone: `+9476${String(Date.now()).slice(-7)}`,
-  roles: ["merchant"],
-  branchId: BRANCH,
-  merchantId: "mch_ceylon_threads",
+  username: `smk5-${RUN}`,
+  password: `smk5-password-${RUN}`,
 });
 created.users.push(fixtureMerchantUser.id);
-const fmS = await login(fixtureMerchantUser.phone, `smk5m-${RUN}`);
+await login(fixtureMerchantUser.phone, `smk5m-${RUN}`);
 const fmSessions = await admin.identity.userSessions({ userId: fixtureMerchantUser.id });
 check(fmSessions.length === 1 && fmSessions[0].deviceId === `smk5m-${RUN}`, "admin sees the user's live session with its device");
-const renamed = await admin.identity.updateUser({ userId: fixtureMerchantUser.id, name: `SMK5 Shop renamed ${RUN}` });
+const renamed = await admin.identity.updateMerchantUser({ userId: fixtureMerchantUser.id, name: `SMK5 Shop renamed ${RUN}` });
 check(!renamed.sessionsRevoked && renamed.after.name.includes("renamed"), "a rename keeps the user's sessions");
-const moved = await admin.identity.updateUser({ userId: fixtureMerchantUser.id, branchId: "brn_kdy_hub" });
-check(moved.sessionsRevoked, "a branch change revokes the user's sessions");
-await expectFail("…and their refresh token is dead", 401, () => anon.identity.refresh({ refreshToken: fmS.refreshToken }));
-await expectFail("a merchant user cannot lose its merchant", 400, () => admin.identity.updateUser({ userId: fixtureMerchantUser.id, merchantId: null }));
+await expectFail("staff user editor refuses Merchant accounts", 400, () => admin.identity.updateUser({ userId: fixtureMerchantUser.id, name: "Nope" }));
+await expectFail("a Merchant user cannot lose its merchant", 400, () => admin.identity.updateUser({ userId: fixtureMerchantUser.id, merchantId: null }));
 const fm2 = await login(fixtureMerchantUser.phone, `smk5m-${RUN}`);
 const revoked = await admin.identity.revokeUserSessions({ userId: fixtureMerchantUser.id, reason: "smoke: revoke all" });
 check(revoked.revoked === 1, "admin revokes all of a user's sessions", String(revoked.revoked));

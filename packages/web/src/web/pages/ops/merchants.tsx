@@ -30,6 +30,7 @@ import {
 interface MerchantRow {
   id: string;
   branchId: string;
+  pickupRiderId: string | null;
   name: string;
   vatNo: string | null;
   address: string;
@@ -116,6 +117,12 @@ export default function Merchants({
       header: "POD",
       width: "w-[110px]",
       cell: (r) => <span className="text-muted-foreground">{humanise(r.podPolicy)}</span>,
+    },
+    {
+      key: "pickupRider",
+      header: "Pickup rider",
+      width: "w-[130px]",
+      cell: (r) => <Badge variant={r.pickupRiderId ? "brand" : "muted"}>{r.pickupRiderId ? "Assigned" : "Manual"}</Badge>,
     },
     {
       key: "status",
@@ -268,6 +275,14 @@ function MerchantDrawer({
 
   const merchant = detail.data as MerchantRow | undefined;
   const suspending = merchant?.status === "active";
+  const pickupRiders = useQuery({
+    ...orpc.identity.pickupRiderOptions.queryOptions({ input: { branchId: merchant?.branchId ?? "" } }),
+    enabled: Boolean(merchant?.branchId),
+    staleTime: 5 * 60 * 1000,
+  });
+  const pickupRiderName = merchant?.pickupRiderId
+    ? pickupRiders.data?.find((r) => r.id === merchant.pickupRiderId)?.name ?? merchant.pickupRiderId
+    : "Not assigned — manual scheduling";
 
   return (
     <>
@@ -313,6 +328,7 @@ function MerchantDrawer({
 
             <KeyValueGrid>
               <KeyValue label="Contact">{merchant.contactName}</KeyValue>
+              <KeyValue label="Default pickup rider">{pickupRiderName}</KeyValue>
               <KeyValue label="Phone" mono>
                 {merchant.contactPhone}
               </KeyValue>
@@ -415,6 +431,7 @@ function CreateMerchantDialog({
   const [form, setForm] = React.useState({
     name: "",
     branchId: defaultBranchId,
+    pickupRiderId: "",
     vatNo: "",
     address: { ...EMPTY_ADDRESS },
     contactName: "",
@@ -423,6 +440,11 @@ function CreateMerchantDialog({
     podPolicy: "signature" as "signature" | "otp" | "photo",
   });
   const [problem, setProblem] = React.useState<string | null>(null);
+  const riders = useQuery({
+    ...orpc.identity.pickupRiderOptions.queryOptions({ input: { branchId: form.branchId } }),
+    enabled: Boolean(form.branchId),
+    staleTime: 5 * 60 * 1000,
+  });
 
   React.useEffect(() => {
     if (open) setProblem(null);
@@ -432,7 +454,7 @@ function CreateMerchantDialog({
     ...orpc.merchants.create.mutationOptions(),
     onSuccess: (row) => {
       void queryClient.invalidateQueries();
-      setForm((f) => ({ ...f, name: "", vatNo: "", address: { ...EMPTY_ADDRESS }, contactName: "", contactPhone: "" }));
+      setForm((f) => ({ ...f, name: "", pickupRiderId: "", vatNo: "", address: { ...EMPTY_ADDRESS }, contactName: "", contactPhone: "" }));
       onCreated((row as { id: string }).id);
     },
     onError: (error) =>
@@ -467,6 +489,7 @@ function CreateMerchantDialog({
               create.mutate({
                 name: form.name.trim(),
                 branchId: form.branchId,
+                pickupRiderId: form.pickupRiderId || null,
                 vatNo: form.vatNo.trim() || null,
                 address: formatAddress(form.address),
                 contactName: form.contactName.trim(),
@@ -487,7 +510,10 @@ function CreateMerchantDialog({
         </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Owning branch">
-            <Select value={form.branchId} onChange={(e) => set("branchId", e.target.value)}>
+            <Select value={form.branchId} onChange={(e) => {
+              if (e.target.value !== form.branchId) set("pickupRiderId", "");
+              set("branchId", e.target.value);
+            }}>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -503,6 +529,13 @@ function CreateMerchantDialog({
             />
           </Field>
         </div>
+        <Field label="Default pickup rider" hint="New merchant bookings are added to this Rider's pickup manifest; custody still requires Rider scan and handover.">
+          <Select value={form.pickupRiderId} onChange={(e) => set("pickupRiderId", e.target.value)}>
+            <option value="">No default rider — schedule pickups manually</option>
+            {(riders.data ?? []).map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}
+          </Select>
+          {riders.error ? <span className="text-[12px] text-status-warn">Rider options are unavailable; refresh before saving an assignment.</span> : null}
+        </Field>
         <AddressFields title="Pickup address" value={form.address} onChange={(address) => set("address", address)} />
         <div className="grid grid-cols-2 gap-4">
           <Field label="Contact name">

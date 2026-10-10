@@ -33,6 +33,7 @@ interface ManifestRow {
   merchantId: string;
   merchantName: string;
   riderId: string | null;
+  assignmentSource: string;
   pickupDate: string;
   status: string;
   expectedCount: number;
@@ -99,6 +100,7 @@ export default function OpsManifests() {
       cell: (r) => <MonoCell>{r.code}</MonoCell>,
     },
     { key: "state", header: "State", width: "w-[130px]", cell: (r) => <ManifestState status={r.status} /> },
+    { key: "assignment", header: "Allocation", width: "w-[150px]", cell: (r) => <Badge variant={r.assignmentSource === "merchant_default" ? "brand" : "muted"}>{r.assignmentSource === "merchant_default" ? "Auto-assigned" : "Manual"}</Badge> },
     { key: "merchant", header: "Merchant", cell: (r) => <span className="truncate">{r.merchantName}</span> },
     {
       key: "rider",
@@ -377,6 +379,9 @@ function ManifestDrawer({
         <div className="flex flex-col gap-5">
           <div className="flex items-center gap-2">
             <ManifestState status={manifest.status} />
+            <Badge variant={manifest.assignmentSource === "merchant_default" ? "brand" : "muted"}>
+              {manifest.assignmentSource === "merchant_default" ? "Auto-assigned" : "Manual"}
+            </Badge>
             <span className="font-mono text-[12px] text-muted-foreground">
               {scanned}/{manifest.expectedCount} scanned
             </span>
@@ -390,6 +395,7 @@ function ManifestDrawer({
               {dateTime(manifest.createdAt)}
             </KeyValue>
             <KeyValue label="Merchant">{detail.data?.merchantName ?? "—"}</KeyValue>
+            <KeyValue label="Allocation">{manifest.assignmentSource === "merchant_default" ? "Automatic — merchant default Rider" : "Manual by operations"}</KeyValue>
             <KeyValue label="Handed over" mono>
               {manifest.handedOverAt ? dateTime(manifest.handedOverAt) : "—"}
             </KeyValue>

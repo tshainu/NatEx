@@ -151,7 +151,8 @@ export async function changeUserStatus(
   if (status === "suspended") await guardAdminLoss(actor, target!, "suspend");
   const [row] = await db.update(user).set({ status }).where(eq(user.id, userId)).returning();
   if (status === "suspended") await revokeAllSessions(userId);
-  return { ...row!, roles: rolesOf(row!) } as IdentityUser;
+  const { passwordHash: _passwordHash, ...safeRow } = row!;
+  return { ...safeRow, roles: rolesOf(row!) } as IdentityUser;
 }
 
 /**
@@ -231,6 +232,54 @@ export async function usersForMerchant(merchantId: string) {
   return db
     .select({ id: user.id, name: user.name, phone: user.phone, username: user.username, status: user.status, createdAt: user.createdAt })
     .from(user)
-    .where(and(eq(user.role, "merchant"), eq(user.merchantId, merchantId)))
+    .where(and(or(eq(user.role, "merchant"), like(user.roles, '%"merchant"%')), eq(user.merchantId, merchantId)))
     .orderBy(user.name);
+}
+
+/** Admin-only paginated Merchant portal user register, separate from staff Users. */
+export async function listMerchantUsers(input: {
+  page: number;
+  pageSize: number;
+  search?: string;
+  merchantId?: string;
+}) {
+  const filters = [or(eq(user.role, "merchant"), like(user.roles, '%"merchant"%'))];
+  if (input.merchantId) filters.push(eq(user.merchantId, input.merchantId));
+  if (input.search?.trim()) {
+    const term = `%${input.search.trim()}%`;
+    filters.push(or(like(user.name, term), like(user.phone, term), like(user.username, term)));
+  }
+  const where = and(...filters);
+  const page = Math.max(1, input.page);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize));
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+        roles: user.roles,
+        username: user.username,
+        status: user.status,
+        deviceId: user.deviceId,
+        branchId: user.branchId,
+        branchName: branch.name,
+        merchantId: user.merchantId,
+        createdAt: user.createdAt,
+      })
+      .from(user)
+      .leftJoin(branch, eq(branch.id, user.branchId))
+      .where(where)
+      .orderBy(user.name)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ value: sql<number>`count(*)` }).from(user).where(where),
+  ]);
+  return {
+    rows: rows.map((row) => ({ ...row, roles: rolesOf(row) })),
+    total: Number(total?.value ?? 0),
+    page,
+    pageSize,
+  };
 }

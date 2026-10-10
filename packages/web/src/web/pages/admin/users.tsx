@@ -15,7 +15,7 @@ import { DataTable, MonoCell, type Column } from "@/components/natex/data-table"
 import { useAuth } from "@/components/auth-provider";
 import { useMfaFactors } from "@/queries/admin";
 import { UserDrawer } from "./user-drawer";
-import { ALL_ROLES, CredentialsFields, RoleCheckboxGroup } from "./user-fields";
+import { OFFICIAL_ROLES, CredentialsFields, RoleCheckboxGroup } from "./user-fields";
 
 /**
  * Staff register (§5 identity). Admin writes; ops reads. A user signs in with
@@ -204,7 +204,7 @@ export default function AdminUsers() {
       title="Users"
       description={
         isAdmin
-          ? "Identity is phone plus one-time code — there are no passwords to manage. A rider is bound to a single device; suspending a user revokes every active session. Open a row to edit the user, see live sessions or reset an authenticator."
+          ? "Official staff and field accounts only; Merchant portal logins are managed on the separate Merchant users screen. A rider is bound to a single device; suspending a user revokes every active session. Open a row to edit the user, see live sessions or reset an authenticator."
           : "Read-only. Only an administrator may create users or change their status; the server refuses the write regardless of what this page shows."
       }
       actions={
@@ -246,7 +246,7 @@ export default function AdminUsers() {
             <Field label="Role" className="w-48">
               <Select value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="">All roles</option>
-                {ALL_ROLES.map((r) => (
+                {OFFICIAL_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
@@ -322,16 +322,9 @@ function CreateUserDialog({
   const [phone, setPhone] = React.useState("");
   const [roles, setRoles] = React.useState<Role[]>(["rider"]);
   const [branchId, setBranchId] = React.useState(defaultBranchId);
-  const [merchantId, setMerchantId] = React.useState("");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
-
-  const merchants = useQuery({
-    ...orpc.merchants.options.queryOptions(),
-    enabled: roles.includes("merchant"),
-    staleTime: 5 * 60 * 1000,
-  });
 
   React.useEffect(() => {
     if (open) setProblem(null);
@@ -343,7 +336,6 @@ function CreateUserDialog({
       void queryClient.invalidateQueries();
       setName("");
       setPhone("");
-      setMerchantId("");
       setUsername("");
       setPassword("");
       onOpenChange(false);
@@ -357,7 +349,6 @@ function CreateUserDialog({
     phone.trim().length >= 9 &&
     roles.length >= 1 &&
     branchId &&
-    (!roles.includes("merchant") || merchantId) &&
     (!wantsPassword || (username.trim().length >= 2 && password.length >= 6));
 
   return (
@@ -380,7 +371,6 @@ function CreateUserDialog({
                 phone: phone.trim(),
                 roles,
                 branchId,
-                merchantId: roles.includes("merchant") ? merchantId : null,
                 username: username.trim() || null,
                 password: password || null,
               })
@@ -403,7 +393,7 @@ function CreateUserDialog({
             className="font-mono"
           />
         </Field>
-        <RoleCheckboxGroup value={roles} onChange={setRoles} />
+        <RoleCheckboxGroup value={roles} onChange={setRoles} roles={OFFICIAL_ROLES} />
         <div className="grid grid-cols-1 gap-4">
           <Field label="Branch">
             <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
@@ -415,21 +405,6 @@ function CreateUserDialog({
             </Select>
           </Field>
         </div>
-        {roles.includes("merchant") ? (
-          <Field
-            label="Merchant account"
-            hint="A merchant-portal user must be attached to exactly one merchant."
-          >
-            <Select value={merchantId} onChange={(e) => setMerchantId(e.target.value)}>
-              <option value="">Choose a merchant</option>
-              {(merchants.data ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
         <CredentialsFields
           username={username}
           password={password}

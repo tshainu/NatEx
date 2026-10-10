@@ -112,7 +112,7 @@ describe("route guards (static inventory)", () => {
     for (const g of guards.filter((x) => /^(audit|monitor|dashboard)\./.test(x.path) || /^awbBatches\.(list|generate|assign|labels)$/.test(x.path))) {
       expect({ path: g.path, roles: g.roles }).toEqual({ path: g.path, roles: ["admin"] });
     }
-    for (const path of ["settings.set", "rateCards.publish", "rateCards.assign", "identity.createUser"]) {
+    for (const path of ["settings.set", "rateCards.publish", "rateCards.assign", "identity.createUser", "identity.listMerchantUsers", "identity.createMerchantUser", "identity.updateMerchantUser"]) {
       const g = byPath.get(path);
       if (!g) continue; // name drift is caught by the next assertion
       expect({ path, roles: g.roles }).toEqual({ path, roles: ["admin"] });

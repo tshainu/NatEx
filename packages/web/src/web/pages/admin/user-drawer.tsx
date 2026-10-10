@@ -12,7 +12,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { ErrorNote, SuccessNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { useUserSessions } from "@/queries/admin";
-import { CredentialsFields, orderRoles, RoleCheckboxGroup } from "./user-fields";
+import { CredentialsFields, OFFICIAL_ROLES, orderRoles, RoleCheckboxGroup } from "./user-fields";
 
 /**
  * One user, managed (§10 M5 "admin portal: users, roles"): edit identity and
@@ -281,7 +281,7 @@ function EditUserDialog({
         <Field label="Phone number" hint="Used for OTP sign-in and SMS notifications.">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="font-mono" />
         </Field>
-        <RoleCheckboxGroup value={roles} onChange={setRoles} disabled={isSelf} />
+        <RoleCheckboxGroup value={roles} onChange={setRoles} disabled={isSelf} roles={OFFICIAL_ROLES} />
         {isSelf ? (
           <p className="-mt-2 text-[12px] text-muted-foreground">You cannot change your own roles — another admin does it.</p>
         ) : null}

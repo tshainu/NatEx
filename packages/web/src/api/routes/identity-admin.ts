@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProc, authedProc, mutate } from "../middleware/pipeline";
 import * as adminService from "../modules/identity/admin";
+import * as identityService from "../modules/identity/service";
 import { getMerchant } from "../modules/merchants/service";
 import { ROLES, type Role } from "../shared/auth";
 import { errors } from "../shared/errors";
@@ -13,6 +14,76 @@ import { toE6 } from "../shared/geo";
  */
 
 const role = z.enum(ROLES as unknown as [Role, ...Role[]]);
+
+export const listMerchantUsers = adminProc
+  .input(
+    z.object({
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(25),
+      search: z.string().max(100).optional(),
+      merchantId: z.string().min(1).optional(),
+    }),
+  )
+  .handler(({ input }) => adminService.listMerchantUsers(input));
+
+export const createMerchantUser = adminProc
+  .input(
+    z.object({
+      merchantId: z.string().min(1),
+      name: z.string().trim().min(2).max(120),
+      phone: z.string().min(9).max(20),
+      username: z.string().trim().min(2).max(60),
+      password: z.string().min(8).max(200),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const merchant = await getMerchant(input.merchantId);
+    if (!merchant) errors.badRequest(`Merchant ${input.merchantId} does not exist.`);
+    if (merchant!.status !== "active") errors.conflict("Cannot create a Merchant login while the merchant is suspended.");
+    return mutate(
+      context,
+      input,
+      {
+        route: "identity.createMerchantUser",
+        entity: "identity_user",
+        entityId: (r) => (r as { id: string }).id,
+        action: "merchant_user.created",
+      },
+      () =>
+        identityService.createUser({
+          name: input.name,
+          phone: input.phone,
+          role: "merchant",
+          roles: ["merchant"],
+          branchId: merchant!.branchId,
+          merchantId: merchant!.id,
+          username: input.username,
+          password: input.password,
+        }),
+    );
+  });
+
+export const updateMerchantUser = adminProc
+  .input(
+    z.object({
+      userId: z.string().min(1),
+      name: z.string().trim().min(2).max(120).optional(),
+      phone: z.string().min(9).max(20).optional(),
+      username: z.string().max(60).nullish(),
+      password: z.string().max(200).nullish(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const target = await identityService.getUserById(input.userId);
+    if (!target || !target.roles.includes("merchant")) errors.notFound("Merchant user");
+    const { userId, ...patch } = input;
+    return mutate(
+      context,
+      input,
+      { route: "identity.updateMerchantUser", entity: "identity_user", entityId: () => userId, action: "merchant_user.updated" },
+      () => adminService.updateUser(context.principal, userId, patch),
+    );
+  });
 
 export const updateUser = adminProc
   .input(
@@ -32,6 +103,13 @@ export const updateUser = adminProc
   )
   .handler(async ({ input, context }) => {
     const { userId, ...patch } = input;
+    const rolePatch = patch.roles ?? (patch.role ? [patch.role] : undefined);
+    if (rolePatch?.includes("merchant")) {
+      errors.badRequest("Merchant portal roles are managed from Administration → Merchant users.");
+    }
+    if (rolePatch && (await identityService.getUserById(userId))?.roles.includes("merchant")) {
+      errors.badRequest("Merchant portal roles are managed from Administration → Merchant users.");
+    }
     if (patch.merchantId && !(await getMerchant(patch.merchantId))) {
       errors.badRequest(`Merchant ${patch.merchantId} does not exist.`);
     }
@@ -111,6 +189,9 @@ export const revokeMySession = authedProc
   );
 
 export const identityAdmin = {
+  listMerchantUsers,
+  createMerchantUser,
+  updateMerchantUser,
   updateUser,
   updateBranch,
   userSessions,

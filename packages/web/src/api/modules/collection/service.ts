@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../../database";
 import { manifest, manifestItem } from "../../database/schema/collection";
 import { prefixedId } from "../../shared/ulid";
@@ -233,6 +233,18 @@ export async function createManifest(
         { awb: p!.awb, currentStatus: p!.status },
       );
     }
+    const [existingAssignment] = await db
+      .select({ code: manifest.code })
+      .from(manifestItem)
+      .innerJoin(manifest, eq(manifest.id, manifestItem.manifestId))
+      .where(and(eq(manifestItem.parcelId, p!.id), ne(manifest.status, "cancelled")))
+      .limit(1);
+    if (existingAssignment) {
+      errors.conflict(`Parcel ${p!.awb} is already on pickup manifest ${existingAssignment.code}.`, {
+        awb: p!.awb,
+        manifestCode: existingAssignment.code,
+      });
+    }
     resolved.push({ parcelId: p!.id, awb: p!.awb });
   }
 
@@ -408,6 +420,7 @@ export async function handoverManifest(
       handoverByName: input.handoverByName,
       signatureUrl: input.signatureUrl ?? null,
       scannedCount: scanned.length,
+      autoKey: null,
     })
     .where(eq(manifest.id, input.manifestId))
     .returning();

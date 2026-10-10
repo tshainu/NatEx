@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, user, otpChallenge, refreshToken } from "../../database/schema/identity";
 import {
@@ -520,12 +520,40 @@ export async function listUsers(scope: Principal) {
   return shaped.filter((r) => r.branchId === scope.branchId);
 }
 
+/** Official/internal staff register; merchant accounts are listed separately. */
+export async function listOfficialUsers(scope: Principal) {
+  return (await listUsers(scope)).filter((r) => !r.roles.includes("merchant"));
+}
+
 export async function listRiders(branchId: string) {
   return db
     .select({ id: user.id, name: user.name, phone: user.phone, deviceId: user.deviceId })
     .from(user)
-    .where(and(eq(user.branchId, branchId), eq(user.role, "rider"), eq(user.status, "active")))
+    .where(
+      and(
+        eq(user.branchId, branchId),
+        eq(user.status, "active"),
+        or(eq(user.role, "rider"), like(user.roles, '%"rider"%')),
+      ),
+    )
     .orderBy(user.name);
+}
+
+/** Validate a merchant's default pickup rider against both role and branch. */
+export async function isActiveRiderInBranch(userId: string, branchId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, userId),
+        eq(user.branchId, branchId),
+        eq(user.status, "active"),
+        or(eq(user.role, "rider"), like(user.roles, '%"rider"%')),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function createUser(input: {

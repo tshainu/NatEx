@@ -6,6 +6,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
+import { addBookingToAutoManifest } from "../collection/auto-assign";
 import { checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
@@ -767,6 +768,20 @@ export async function createParcel(
     from: null,
     to: "Booked",
   });
+
+  // Merchant bookings with a configured default Rider are automatically added
+  // to that Rider's open pickup manifest. Custody still requires Rider scan and
+  // formal handover through the collection workflow.
+  if (actor.role === "merchant" && owner!.pickupRiderId) {
+    await addBookingToAutoManifest({
+      merchantId: owner!.id,
+      merchantName: owner!.name,
+      branchId: owner!.branchId,
+      riderId: owner!.pickupRiderId,
+      parcelId: row!.id,
+      awb: row!.awb,
+    });
+  }
 
   return {
     parcel: row!,

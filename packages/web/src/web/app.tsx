@@ -26,6 +26,7 @@ import OpsRunsheets from "./pages/ops/runsheets";
 import OpsNdr from "./pages/ops/ndr";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
+import AdminMerchantUsers from "./pages/admin/merchant-users";
 import AdminBranches from "./pages/admin/branches";
 import AdminZones from "./pages/admin/zones";
 import AdminRateCards from "./pages/admin/rate-cards";
@@ -187,6 +188,9 @@ function Routes() {
       </Portal>
       <Portal path="/admin/users">
         <AdminUsers />
+      </Portal>
+      <Portal path="/admin/merchant-users">
+        <AdminMerchantUsers />
       </Portal>
       <Portal path="/admin/branches">
         <AdminBranches />

@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * MODULE: collection — pickups, manifests, two-party handover.
@@ -14,6 +15,10 @@ export const manifest = sqliteTable(
     merchantId: text("merchant_id").notNull(),
     branchId: text("branch_id").notNull(),
     riderId: text("rider_id"),
+    /** manual | merchant_default — visible to ops and the Rider app. */
+    assignmentSource: text("assignment_source").notNull().default("manual"),
+    /** Set only while an automatically grouped manifest is open; cleared on handover. */
+    autoKey: text("auto_key"),
     /** YYYY-MM-DD in Asia/Colombo. */
     pickupDate: text("pickup_date").notNull(),
     /** assigned | in_progress | handed_over | cancelled */
@@ -32,6 +37,7 @@ export const manifest = sqliteTable(
   (t) => [
     index("collection_manifest_rider_idx").on(t.riderId),
     index("collection_manifest_branch_idx").on(t.branchId),
+    uniqueIndex("collection_manifest_auto_key_uq").on(t.autoKey).where(sql`${t.autoKey} IS NOT NULL`),
   ],
 );
 

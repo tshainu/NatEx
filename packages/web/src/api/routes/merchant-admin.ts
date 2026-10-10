@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { adminProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
-import { createUser, getBranch, getUserByPhone, getUserByUsername } from "../modules/identity/service";
+import { createUser, getBranch, getUserByPhone, getUserByUsername, isActiveRiderInBranch } from "../modules/identity/service";
 import { assignRateCard } from "../modules/merchants/rate-cards";
 import * as merchantsService from "../modules/merchants/service";
 import { errors } from "../shared/errors";
@@ -19,12 +19,19 @@ import { normaliseLkPhone } from "../shared/sms";
 
 const pod = z.enum(["signature", "otp", "photo"]);
 
+async function validatePickupRider(riderId: string | null | undefined, branchId: string) {
+  if (riderId && !(await isActiveRiderInBranch(riderId, branchId))) {
+    errors.badRequest("Choose an active Rider assigned to the merchant's owning branch.");
+  }
+}
+
 export const update = opsProc
   .input(
     z.object({
       id: z.string().min(1),
       name: z.string().trim().min(2).max(160).optional(),
       branchId: z.string().min(1).optional(),
+      pickupRiderId: z.string().min(1).nullish(),
       vatNo: z.string().trim().max(40).nullish(),
       address: z.string().trim().min(4).optional(),
       contactName: z.string().trim().min(2).max(120).optional(),
@@ -36,6 +43,10 @@ export const update = opsProc
   .handler(async ({ input, context }) => {
     const { id, ...patch } = input;
     if (patch.branchId && !(await getBranch(patch.branchId))) errors.badRequest(`Branch ${patch.branchId} does not exist.`);
+    const before = await merchantsService.getMerchantScoped(id, context.principal);
+    const effectiveBranchId = patch.branchId ?? before.branchId;
+    const effectiveRiderId = patch.pickupRiderId !== undefined ? patch.pickupRiderId : before.pickupRiderId;
+    await validatePickupRider(effectiveRiderId, effectiveBranchId);
     return mutate(
       context,
       input,
@@ -49,6 +60,7 @@ export const onboard = adminProc
     z.object({
       name: z.string().trim().min(2).max(160),
       branchId: z.string().min(1),
+      pickupRiderId: z.string().min(1).nullish(),
       vatNo: z.string().trim().max(40).nullish(),
       address: z.string().trim().min(4),
       contactName: z.string().trim().min(2).max(120),
@@ -72,6 +84,7 @@ export const onboard = adminProc
   )
   .handler(async ({ input, context }) => {
     if (!(await getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
+    await validatePickupRider(input.pickupRiderId, input.branchId);
     if (input.portalUser) {
       const clash = await getUserByPhone(normaliseLkPhone(input.portalUser.phone));
       if (clash) errors.conflict(`Phone ${clash.phone} already belongs to ${clash.name}.`, { userId: clash.id });
@@ -94,6 +107,7 @@ export const onboard = adminProc
           {
             name: input.name,
             branchId: input.branchId,
+            pickupRiderId: input.pickupRiderId ?? null,
             vatNo: input.vatNo ?? null,
             address: input.address,
             contactName: input.contactName,

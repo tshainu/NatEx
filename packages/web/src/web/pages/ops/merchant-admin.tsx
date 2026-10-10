@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { orpc, apiMessage } from "@/lib/api";
 import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -24,6 +24,7 @@ type Pod = "signature" | "otp" | "photo";
 export interface EditableMerchant {
   id: string;
   branchId: string;
+  pickupRiderId: string | null;
   name: string;
   vatNo: string | null;
   address: string;
@@ -34,9 +35,10 @@ export interface EditableMerchant {
   podPolicy: string;
 }
 
-interface MerchantForm {
+export interface MerchantForm {
   name: string;
   branchId: string;
+  pickupRiderId: string;
   vatNo: string;
   address: AddressParts;
   contactName: string;
@@ -45,7 +47,7 @@ interface MerchantForm {
   podPolicy: Pod;
 }
 
-function MerchantFields({
+export function MerchantFields({
   form,
   set,
   branches,
@@ -56,6 +58,11 @@ function MerchantFields({
   branches: { id: string; name: string }[];
   branchLocked?: boolean;
 }) {
+  const riders = useQuery({
+    ...orpc.identity.pickupRiderOptions.queryOptions({ input: { branchId: form.branchId } }),
+    enabled: Boolean(form.branchId),
+    staleTime: 5 * 60 * 1000,
+  });
   return (
     <>
       <Field label="Trading name">
@@ -63,7 +70,14 @@ function MerchantFields({
       </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Owning branch" hint={branchLocked ? "Only an admin may move a merchant." : undefined}>
-          <Select value={form.branchId} disabled={branchLocked} onChange={(e) => set("branchId", e.target.value)}>
+          <Select
+            value={form.branchId}
+            disabled={branchLocked}
+            onChange={(e) => {
+              if (e.target.value !== form.branchId) set("pickupRiderId", "");
+              set("branchId", e.target.value);
+            }}
+          >
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
@@ -75,6 +89,15 @@ function MerchantFields({
           <Input value={form.vatNo} onChange={(e) => set("vatNo", e.target.value)} className="font-mono" />
         </Field>
       </div>
+      <Field label="Default pickup rider" hint="New merchant bookings are added to this Rider's pickup manifest; custody still requires Rider scan and handover.">
+        <Select value={form.pickupRiderId} onChange={(e) => set("pickupRiderId", e.target.value)}>
+          <option value="">No default rider — schedule pickups manually</option>
+          {(riders.data ?? []).map((rider) => (
+            <option key={rider.id} value={rider.id}>{rider.name}</option>
+          ))}
+        </Select>
+        {riders.error ? <span className="text-[12px] text-status-warn">Rider options are unavailable; refresh before saving an assignment.</span> : null}
+      </Field>
       <AddressFields title="Pickup address" value={form.address} onChange={(address) => set("address", address)} />
       <div className="grid grid-cols-2 gap-4">
         <Field label="Contact name">
@@ -103,7 +126,7 @@ function MerchantFields({
   );
 }
 
-function formValid(f: MerchantForm): boolean {
+export function formValid(f: MerchantForm): boolean {
   return (
     f.name.trim().length >= 2 &&
     Boolean(f.branchId) &&
@@ -130,6 +153,7 @@ export function EditMerchantDialog({
   const initial: MerchantForm = {
     name: merchant.name,
     branchId: merchant.branchId,
+    pickupRiderId: merchant.pickupRiderId ?? "",
     vatNo: merchant.vatNo ?? "",
     address: addressPartsFromLegacy(merchant.address),
     contactName: merchant.contactName,
@@ -154,6 +178,7 @@ export function EditMerchantDialog({
     id: string;
     name?: string;
     branchId?: string;
+    pickupRiderId?: string | null;
     vatNo?: string | null;
     address?: string;
     contactName?: string;
@@ -163,6 +188,7 @@ export function EditMerchantDialog({
   } = { id: merchant.id };
   if (form.name.trim() !== initial.name) patch.name = form.name.trim();
   if (form.branchId !== initial.branchId) patch.branchId = form.branchId;
+  if (form.pickupRiderId !== initial.pickupRiderId) patch.pickupRiderId = form.pickupRiderId || null;
   if (form.vatNo.trim() !== initial.vatNo) patch.vatNo = form.vatNo.trim() || null;
   const initialAddress = formatAddress(initial.address);
   const nextAddress = formatAddress(form.address);
@@ -225,6 +251,7 @@ export function OnboardMerchantDialog({
   const blank: MerchantForm = {
     name: "",
     branchId: defaultBranchId,
+    pickupRiderId: "",
     vatNo: "",
     address: { ...EMPTY_ADDRESS },
     contactName: "",
@@ -295,6 +322,7 @@ export function OnboardMerchantDialog({
               onboard.mutate({
                 name: form.name.trim(),
                 branchId: form.branchId,
+                pickupRiderId: form.pickupRiderId || null,
                 vatNo: form.vatNo.trim() || null,
                 address: formatAddress(form.address),
                 contactName: form.contactName.trim(),
@@ -519,7 +547,7 @@ export function PortalUsersSection({ merchantId }: { merchantId: string }) {
         ))}
         {users.data && users.data.length === 0 ? (
           <li className="px-3 py-3 text-[13px] text-muted-foreground">
-            No portal login. Add one under Administration → Users with the Merchant role.
+            No portal login. Add one under Administration → Merchant users.
           </li>
         ) : null}
       </ul>
@@ -534,7 +562,7 @@ export function PortalUsersSection({ merchantId }: { merchantId: string }) {
   );
 }
 
-type PortalUserForEdit = {
+export type PortalUserForEdit = {
   id: string;
   name: string;
   phone: string;
@@ -542,7 +570,7 @@ type PortalUserForEdit = {
   status: string;
 };
 
-function EditMerchantPortalLoginDialog({
+export function EditMerchantPortalLoginDialog({
   user,
   onClose,
 }: {
@@ -559,7 +587,7 @@ function EditMerchantPortalLoginDialog({
   };
 
   const save = useMutation({
-    ...orpc.identity.updateUser.mutationOptions(),
+    ...orpc.identity.updateMerchantUser.mutationOptions(),
     onSuccess: () => {
       void queryClient.invalidateQueries();
       close();

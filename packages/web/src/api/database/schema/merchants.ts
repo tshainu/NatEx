@@ -11,6 +11,8 @@ export const merchant = sqliteTable(
     id: text("id").primaryKey(),
     /** Branch that owns the relationship — row-level scoping (PROJECT.md §5). */
     branchId: text("branch_id").notNull(),
+    /** Default rider for parcels the merchant books; null means ops schedules pickups manually. */
+    pickupRiderId: text("pickup_rider_id"),
     name: text("name").notNull(),
     /** Sri Lankan VAT registration number. */
     vatNo: text("vat_no"),

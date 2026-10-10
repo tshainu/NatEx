@@ -71,6 +71,7 @@ export async function merchantOptions(scope: Principal) {
 export interface CreateMerchantInput {
   name: string;
   branchId: string;
+  pickupRiderId?: string | null;
   vatNo?: string | null;
   address: string;
   lat?: number | null;
@@ -94,6 +95,7 @@ export async function createMerchant(
     .values({
       id: prefixedId("mch"),
       branchId,
+      pickupRiderId: input.pickupRiderId ?? null,
       name: input.name.trim(),
       vatNo: input.vatNo?.trim() || null,
       address: input.address.trim(),
@@ -126,6 +128,7 @@ export async function setMerchantStatus(
 export interface MerchantPatch {
   name?: string;
   branchId?: string;
+  pickupRiderId?: string | null;
   vatNo?: string | null;
   address?: string;
   contactName?: string;
@@ -150,6 +153,7 @@ export async function updateMerchant(
   const next: Partial<typeof merchant.$inferInsert> = {};
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.branchId !== undefined) next.branchId = patch.branchId;
+  if (patch.pickupRiderId !== undefined) next.pickupRiderId = patch.pickupRiderId;
   if (patch.vatNo !== undefined) next.vatNo = patch.vatNo?.trim() || null;
   if (patch.address !== undefined) next.address = patch.address.trim();
   if (patch.contactName !== undefined) next.contactName = patch.contactName.trim();
@@ -190,6 +194,7 @@ export async function seedMerchant(
     .values({
       id: input.id,
       branchId: input.branchId,
+      pickupRiderId: input.pickupRiderId ?? null,
       name: input.name,
       vatNo: input.vatNo ?? null,
       address: input.address,

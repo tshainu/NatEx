@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, refreshToken, user } from "../../database/schema/identity";
 import type { Principal } from "../../shared/auth";
-import { updateUser } from "./admin";
-import { createBranch, createUser, loginWithPassword } from "./service";
+import { changeUserStatus as adminChangeUserStatus, listMerchantUsers, updateUser } from "./admin";
+import { createBranch, createUser, listOfficialUsers, loginWithPassword } from "./service";
 
 const RUN = Date.now().toString(36).toLowerCase();
 const BRANCH_CODE = `T${Date.now().toString().slice(-8)}`;
@@ -15,6 +15,7 @@ const UPDATED_USERNAME = `merchant_updated_${RUN}`;
 const UPDATED_PASSWORD = "merchant-new-test-password-83";
 let branchId: string | null = null;
 let userId: string | null = null;
+let extraUserId: string | null = null;
 
 beforeAll(async () => {
   const createdBranch = await createBranch({
@@ -39,6 +40,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (extraUserId) {
+    await db.delete(refreshToken).where(eq(refreshToken.userId, extraUserId));
+    await db.delete(user).where(eq(user.id, extraUserId));
+  }
   if (userId) {
     await db.delete(refreshToken).where(eq(refreshToken.userId, userId));
     await db.delete(user).where(eq(user.id, userId));
@@ -47,6 +52,36 @@ afterAll(async () => {
 });
 
 describe("merchant username/password sign-in", () => {
+  test("Merchant logins are separated from official users and responses never expose password hashes", async () => {
+    const actor: Principal = {
+      userId: `usr_admin_test_${RUN}`,
+      name: "Test administrator",
+      role: "admin",
+      roles: ["admin"],
+      branchId: branchId!,
+    };
+    const extra = await createUser({
+      branchId: branchId!,
+      role: "merchant",
+      name: "Another Merchant login",
+      phone: `+9471${Date.now().toString().slice(-8)}`,
+      username: `another_${RUN}`,
+      password: PASSWORD,
+      merchantId: `mch_password_test_${RUN}`,
+    });
+    extraUserId = extra.id;
+    expect("passwordHash" in extra).toBe(false);
+    const official = await listOfficialUsers(actor);
+    const merchantUsers = await listMerchantUsers({ page: 1, pageSize: 100 });
+    expect(official.some((entry) => entry.id === userId)).toBe(false);
+    expect(merchantUsers.rows.some((entry) => entry.id === userId)).toBe(true);
+
+    const suspended = await adminChangeUserStatus(actor, userId!, "suspended");
+    expect("passwordHash" in suspended).toBe(false);
+    expect(JSON.stringify(suspended)).not.toContain("argon2id");
+    await adminChangeUserStatus(actor, userId!, "active");
+  });
+
   test("stores a password hash and signs in as the linked merchant", async () => {
     const [stored] = await db.select({ passwordHash: user.passwordHash }).from(user).where(eq(user.id, userId!));
     expect(stored?.passwordHash).toBeTruthy();

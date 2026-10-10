@@ -64,7 +64,7 @@ export default function RiderTodayScreen() {
       {today.isSuccess && manifests.length === 0 ? (
         <Empty
           title="Nothing assigned today"
-          detail="When operations assigns you a pickup it appears here. Pull down to refresh."
+          detail="Merchant bookings assigned to you by default and operations-scheduled pickups appear here. Pull down to refresh."
         />
       ) : null}
 
@@ -78,6 +78,9 @@ export default function RiderTodayScreen() {
                   <View style={styles.flex}>
                     <Title>{row.merchantName}</Title>
                     <Mono color={colors.mutedForeground}>{row.code}</Mono>
+                    {row.assignmentSource === "merchant_default" ? (
+                      <Badge tone="brand">Auto-assigned</Badge>
+                    ) : null}
                   </View>
                   <LifecyclePill status={row.status} />
                 </View>

@@ -17,8 +17,8 @@ import { assignAwbBatch, createAwbBatches } from "../parcels/awb-batches";
 import { createAwbSeries } from "../parcels/awb-series";
 import {
   colomboToday,
-  createManifest,
   handoverManifest,
+  riderToday,
   scanItem,
 } from "./service";
 
@@ -72,6 +72,7 @@ beforeAll(async () => {
   await seedMerchant({
     id: MERCHANT_ID,
     branchId: BRANCH_ID,
+    pickupRiderId: RIDER_ID,
     name: `[handover test] ${RUN}`,
     address: "Disposable handover integration fixture",
     contactName: "Test Merchant",
@@ -123,18 +124,15 @@ describe("merchant pickup custody handover", () => {
     expect(first.parcel.status).toBe("Booked");
     expect(second.parcel.status).toBe("Booked");
 
-    const pickup = await createManifest(
-      {
-        merchantId: MERCHANT_ID,
-        riderId: RIDER_ID,
-        pickupDate: colomboToday(),
-        awbs: [first.parcel.awb, second.parcel.awb],
-      },
-      opsActor,
-    );
-    const assignedManifestId = pickup.manifest.id;
+    const riderPickups = await riderToday(riderActor, colomboToday());
+    expect(riderPickups.manifests).toHaveLength(1);
+    const pickup = riderPickups.manifests[0]!;
+    const assignedManifestId = pickup.id;
     manifestId = assignedManifestId;
-    expect(pickup.manifest.status).toBe("assigned");
+    expect(pickup.status).toBe("assigned");
+    expect(pickup.assignmentSource).toBe("merchant_default");
+    expect(pickup.expectedCount).toBe(2);
+    expect(pickup.scannedCount).toBe(0);
 
     await expect(
       scanItem({ manifestId: assignedManifestId, awb: first.parcel.awb }, opsActor),

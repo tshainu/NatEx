@@ -73,6 +73,7 @@ const ADMIN: PortalConfig = {
   home: "/admin/dashboard",
   nav: [
     { label: "Users", to: "/admin/users" },
+    { label: "Merchant users", to: "/admin/merchant-users" },
     { label: "Branches", to: "/admin/branches" },
     { label: "Zones", to: "/admin/zones" },
     { label: "Rate cards", to: "/admin/rate-cards" },
@@ -90,7 +91,7 @@ const ADMIN: PortalConfig = {
  * them — keep this list and ADMIN_ONLY_PATHS in step with the server gates.
  */
 const OPS_REFERENCE_PATHS = ["/admin/users", "/admin/branches", "/admin/zones", "/admin/rate-cards", "/admin/settings", "/admin/templates"];
-const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/audit", "/admin/monitor", "/admin/awb-batches"];
+const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/audit", "/admin/monitor", "/admin/awb-batches", "/admin/merchant-users"];
 
 /** The whole-company view — adminProc server-side, so admin's sidebar only. */
 const OVERVIEW_NAV: NavItem[] = [{ label: "Company dashboard", to: "/admin/dashboard" }];

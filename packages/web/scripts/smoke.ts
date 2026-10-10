@@ -130,12 +130,12 @@ if (leaked.length === 0) ok("merchant parcel list is scoped", `${merchantParcels
 else bad("merchant parcel scoping", `${leaked.length} foreign parcels leaked`);
 
 await expectFail("rider cannot create a user", 403, () =>
-  clientFor(rider.accessToken).identity.createUser({
+  clientFor(rider.accessToken).identity.createMerchantUser({
+    merchantId: "mch_ceylon_threads",
     name: "Nope",
     phone: "+94770000000",
-    roles: ["ops"],
-    branchId: branches[0]!.id,
-    merchantId: null,
+    username: "not-allowed",
+    password: "not-allowed-password",
   }),
 );
 

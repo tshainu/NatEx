@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export const ALL_ROLES: Role[] = ["rider", "transport", "ops", "finance", "admin", "merchant"];
+export const OFFICIAL_ROLES: Role[] = ["rider", "transport", "ops", "finance", "admin"];
 
 /**
  * Highest privilege first: when several roles are checked the earliest in this
@@ -25,10 +26,12 @@ export function RoleCheckboxGroup({
   value,
   onChange,
   disabled,
+  roles = ALL_ROLES,
 }: {
   value: Role[];
   onChange: (roles: Role[]) => void;
   disabled?: boolean;
+  roles?: Role[];
 }) {
   function toggle(role: Role) {
     const next = value.includes(role) ? value.filter((r) => r !== role) : [...value, role];
@@ -45,7 +48,7 @@ export function RoleCheckboxGroup({
       }
     >
       <div className="grid grid-cols-2 gap-2">
-        {ALL_ROLES.map((role) => {
+        {roles.map((role) => {
           const checked = value.includes(role);
           return (
             <label

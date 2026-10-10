@@ -6,13 +6,13 @@ import {
   publicMutate,
   publicProc,
   staffProc,
+  opsProc,
   deskProc,
 } from "../middleware/pipeline";
 import { changeUserStatus } from "../modules/identity/admin";
 import * as identityService from "../modules/identity/service";
-import { getMerchant } from "../modules/merchants/service";
 import { errors } from "../shared/errors";
-import { ROLES } from "../shared/auth";
+import { isGlobalScope, ROLES } from "../shared/auth";
 import { toE6 } from "../shared/geo";
 import { isDevelopment } from "../shared/env";
 
@@ -132,12 +132,22 @@ export const logout = authedProc.handler(({ context }) =>
 export const listBranches = staffProc.handler(() => identityService.listBranches());
 
 export const listUsers = deskProc.handler(({ context }) =>
-  identityService.listUsers(context.principal),
+  identityService.listOfficialUsers(context.principal),
 );
 
 export const listRiders = staffProc.handler(({ context }) =>
   identityService.listRiders(context.principal.branchId),
 );
+
+/** Active riders available to assign to a merchant; ops cannot cross branches. */
+export const pickupRiderOptions = opsProc
+  .input(z.object({ branchId: z.string().min(1) }))
+  .handler(({ input, context }) => {
+    if (!isGlobalScope(context.principal.role) && input.branchId !== context.principal.branchId) {
+      errors.forbidden("You may only assign a rider from your own branch.");
+    }
+    return identityService.listRiders(input.branchId);
+  });
 
 export const createUser = adminProc
   .input(
@@ -147,18 +157,16 @@ export const createUser = adminProc
       /** One or more roles. The first is the primary role (branch scope, home portal). */
       roles: z.array(z.enum(ROLES as unknown as [string, ...string[]])).min(1),
       branchId: z.string().min(1),
-      merchantId: z.string().nullish(),
       /** Optional username/password sign-in credentials (rider app). */
       username: z.string().min(2).max(60).nullish(),
       password: z.string().min(6).max(200).nullish(),
     }),
   )
   .handler(async ({ input, context }) => {
-    if (!(await identityService.getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
     if (input.roles.includes("merchant")) {
-      if (!input.merchantId) errors.badRequest("A merchant user needs a merchant.");
-      if (!(await getMerchant(input.merchantId!))) errors.badRequest(`Merchant ${input.merchantId} does not exist.`);
+      errors.badRequest("Create Merchant portal accounts from Administration → Merchant users.");
     }
+    if (!(await identityService.getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
     return mutate(
       context,
       input,
@@ -177,7 +185,6 @@ export const createUser = adminProc
           branchId: input.branchId,
           username: input.username ?? null,
           password: input.password ?? null,
-          merchantId: input.roles.includes("merchant") ? (input.merchantId ?? null) : null,
         }),
     );
   });
@@ -251,6 +258,7 @@ export const identity = {
   listBranches,
   listUsers,
   listRiders,
+  pickupRiderOptions,
   createUser,
   setUserStatus,
   createBranch,

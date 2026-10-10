@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { mutate, opsProc, readProc } from "../middleware/pipeline";
 import * as merchantsService from "../modules/merchants/service";
+import * as identityService from "../modules/identity/service";
+import { errors } from "../shared/errors";
+import { isGlobalScope } from "../shared/auth";
+
+async function validatePickupRider(riderId: string | null | undefined, branchId: string) {
+  if (riderId && !(await identityService.isActiveRiderInBranch(riderId, branchId))) {
+    errors.badRequest("Choose an active Rider assigned to the merchant's owning branch.");
+  }
+}
 
 export const list = readProc
   .input(
@@ -25,6 +34,7 @@ export const create = opsProc
     z.object({
       name: z.string().min(2).max(160),
       branchId: z.string().min(1),
+      pickupRiderId: z.string().min(1).nullish(),
       vatNo: z.string().max(40).nullish(),
       address: z.string().min(4),
       lat: z.number().int().nullish(),
@@ -35,8 +45,10 @@ export const create = opsProc
       podPolicy: z.enum(["signature", "otp", "photo"]).default("signature"),
     }),
   )
-  .handler(({ input, context }) =>
-    mutate(
+  .handler(async ({ input, context }) => {
+    const effectiveBranchId = isGlobalScope(context.principal.role) ? input.branchId : context.principal.branchId;
+    await validatePickupRider(input.pickupRiderId, effectiveBranchId);
+    return mutate(
       context,
       input,
       {
@@ -46,8 +58,8 @@ export const create = opsProc
         action: "merchant.created",
       },
       () => merchantsService.createMerchant(input, context.principal),
-    ),
-  );
+    );
+  });
 
 export const setStatus = opsProc
   .input(
