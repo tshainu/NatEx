@@ -82,7 +82,7 @@ const ADMIN: PortalConfig = {
     { label: "Templates", to: "/admin/templates" },
     { label: "Audit log", to: "/admin/audit" },
     { label: "System monitor", to: "/admin/monitor" },
-    { label: "HR & payroll", to: "/hr/employees" },
+    { label: "HR & payroll", to: "/hr/dashboard" },
   ],
 };
 
@@ -114,13 +114,15 @@ const FINANCE: PortalConfig = {
 const HR: PortalConfig = {
   portal: "hr",
   name: "HR & Payroll",
-  home: "/hr/employees",
+  home: "/hr/dashboard",
   nav: [
+    { label: "Overview", to: "/hr/dashboard" },
+    { label: "Attendance", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
+    { label: "Salary operations", to: "/hr/payroll" },
     { label: "Salary packages", to: "/hr/packages" },
+    { label: "Leave", to: "/hr/leave" },
     { label: "Timesheets", to: "/hr/timesheets" },
-    { label: "Leave management", to: "/hr/leave" },
-    { label: "Payroll runs", to: "/hr/payroll" },
   ],
 };
 

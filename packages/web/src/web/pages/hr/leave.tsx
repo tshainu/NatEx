@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { HR_CONTROL_CLASS, todayInColombo } from "./shared";
+import { HrNavigation } from "./navigation";
 
 export default function HrLeave() {
   const queryClient = useQueryClient();
@@ -46,6 +47,7 @@ export default function HrLeave() {
     <Page title="Leave management" description="Configure NatEx leave categories and entitlements, enter leave on behalf of employees, review decisions, and maintain opening balances. Entitlements are deliberately configurable; no statutory accrual has been assumed.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "Leave data could not be loaded or saved.")}</ErrorNote> : null}
+      <HrNavigation />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title="Record leave" description="Requests use half-day units. Paid leave checks the employee's available balance before approval.">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); create.mutate({ employeeId, leaveTypeId, startsOn, endsOn, halfDays: Number(halfDays), reason }); }}>

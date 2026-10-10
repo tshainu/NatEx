@@ -155,6 +155,7 @@ describe("route guards (static inventory)", () => {
   test("HR records and drafts are HR/Admin-only; Finance/Admin review and approve payroll", () => {
     const hrOnly = [
       "hr.branchOptions", "hr.employees", "hr.createEmployee", "hr.updateEmployee",
+      "hr.employeeDocuments", "hr.employeeDocumentUpload", "hr.attachEmployeeDocument", "hr.employeeDocumentView",
       "hr.salaryPackages", "hr.createSalaryPackage", "hr.updateSalaryPackage",
       "hr.assignSalaryPackage", "hr.employeePackages", "hr.timesheets", "hr.saveTimesheets",
       "hr.leaveTypes", "hr.saveLeaveType", "hr.leaveBalances", "hr.leaveRequests",

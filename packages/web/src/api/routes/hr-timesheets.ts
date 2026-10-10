@@ -9,6 +9,7 @@ const row = z.object({
   workDate: isoDay,
   regularMinutes: z.number().int().min(0).max(1440),
   overtimeMinutes: z.number().int().min(0).max(1440),
+  attendanceStatus: z.enum(["present", "absent", "leave", "off_duty"]).optional(),
   note: z.string().max(500).nullish(),
   source: z.enum(["manual", "excel"]),
 });

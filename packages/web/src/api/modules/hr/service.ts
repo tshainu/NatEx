@@ -310,6 +310,7 @@ export interface TimesheetInput {
   workDate: string;
   regularMinutes: number;
   overtimeMinutes: number;
+  attendanceStatus?: "present" | "absent" | "leave" | "off_duty";
   note?: string | null;
   source: "manual" | "excel";
 }
@@ -359,6 +360,7 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
       workDate: row.workDate,
       regularMinutes: row.regularMinutes,
       overtimeMinutes: row.overtimeMinutes,
+      attendanceStatus: row.attendanceStatus ?? "present",
       note: row.note?.trim() || null,
       source: row.source,
       createdBy: actor.userId,
@@ -368,6 +370,7 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
       set: {
         regularMinutes: row.regularMinutes,
         overtimeMinutes: row.overtimeMinutes,
+        attendanceStatus: row.attendanceStatus ?? "present",
         note: row.note?.trim() || null,
         source: row.source,
         updatedBy: actor.userId,
@@ -390,6 +393,7 @@ export async function listTimesheets(input: { from: string; to: string; employee
     workDate: hrTimesheet.workDate,
     regularMinutes: hrTimesheet.regularMinutes,
     overtimeMinutes: hrTimesheet.overtimeMinutes,
+    attendanceStatus: hrTimesheet.attendanceStatus,
     note: hrTimesheet.note,
     source: hrTimesheet.source,
   }).from(hrTimesheet).innerJoin(hrEmployee, eq(hrEmployee.id, hrTimesheet.employeeId)).where(and(...filters)).orderBy(asc(hrTimesheet.workDate), asc(hrEmployee.employeeCode));

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { currentMonthRange, hoursToMinutes, todayInColombo } from "./shared";
+import { HrNavigation } from "./navigation";
 
 const currentRange = currentMonthRange();
 function hours(minutes: number): string {
@@ -171,6 +172,7 @@ export default function HrTimesheets() {
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {localError ? <ErrorNote>{localError}</ErrorNote> : null}
       {save.error ? <ErrorNote>{apiMessage(save.error, "Timesheet rows could not be saved.")}</ErrorNote> : null}
+      <HrNavigation />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title="Manual entry" description="One employee and one work date per row. Decimal hours are converted to minutes before saving.">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={saveManual}>
@@ -193,7 +195,7 @@ export default function HrTimesheets() {
       <Card title="Saved timesheets" description="Rows are grouped by Colombo payroll month. Hours recorded during a draft run are locked until the draft is cancelled.">
         <div className="mb-4 flex items-end gap-3"><Field label="Payroll month"><Input type="month" value={month} onChange={(e) => setMonth(e.target.value || currentRange.from.slice(0, 7))} /></Field><span className="pb-2 text-[12px] text-muted-foreground">{from} → {to}</span></div>
         {rows.error ? <ErrorNote>{apiMessage(rows.error, "Timesheets could not be loaded.")}</ErrorNote> : null}
-        <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Date</th><th className="p-2">Employee</th><th className="p-2 text-right">Regular</th><th className="p-2 text-right">Overtime</th><th className="p-2">Source</th><th className="p-2">Notes</th></tr></thead><tbody>{(rows.data ?? []).map((row) => <tr key={row.id} className="border-b border-border/60"><td className="p-2 font-mono">{row.workDate}</td><td className="p-2"><span className="font-mono">{row.employeeCode}</span> · {row.fullName}</td><td className="p-2 text-right font-mono">{hours(row.regularMinutes)} h</td><td className="p-2 text-right font-mono">{hours(row.overtimeMinutes)} h</td><td className="p-2"><span className="rounded border px-2 py-0.5 text-[11px]">{row.source}</span></td><td className="p-2">{row.note ?? "—"}</td></tr>)}</tbody></table>{!rows.isPending && (rows.data?.length ?? 0) === 0 ? <p className="py-7 text-center text-[13px] text-muted-foreground">No time rows for this month.</p> : null}</div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Date</th><th className="p-2">Employee</th><th className="p-2">Attendance</th><th className="p-2 text-right">Regular</th><th className="p-2 text-right">Overtime</th><th className="p-2">Source</th><th className="p-2">Notes</th></tr></thead><tbody>{(rows.data ?? []).map((row) => <tr key={row.id} className="border-b border-border/60"><td className="p-2 font-mono">{row.workDate}</td><td className="p-2"><span className="font-mono">{row.employeeCode}</span> · {row.fullName}</td><td className="p-2 capitalize">{row.attendanceStatus.replaceAll("_", " ")}</td><td className="p-2 text-right font-mono">{hours(row.regularMinutes)} h</td><td className="p-2 text-right font-mono">{hours(row.overtimeMinutes)} h</td><td className="p-2"><span className="rounded border px-2 py-0.5 text-[11px]">{row.source}</span></td><td className="p-2">{row.note ?? "—"}</td></tr>)}</tbody></table>{!rows.isPending && (rows.data?.length ?? 0) === 0 ? <p className="py-7 text-center text-[13px] text-muted-foreground">No time rows for this month.</p> : null}</div>
       </Card>
     </Page>
   );

@@ -12,6 +12,7 @@ import {
   hrPayrollRun,
   hrSalaryPackage,
   hrSalaryPackageItem,
+  hrEmployeeDocument,
   hrTimesheet,
 } from "../../database/schema/hr";
 import type { Principal } from "../../shared/auth";
@@ -19,6 +20,7 @@ import { createBranch } from "../identity/service";
 import * as hr from "./service";
 import * as leave from "./leave";
 import * as payroll from "./payroll";
+import * as documents from "./documents";
 
 const RUN = Date.now().toString(36).toUpperCase();
 const BRANCH_CODE = `H${RUN.slice(-8)}`;
@@ -41,6 +43,7 @@ let employeeId: string | null = null;
 let secondaryEmployeeId: string | null = null;
 let packageId: string | null = null;
 const runIds: string[] = [];
+const documentIds: string[] = [];
 let originalApitSchedules: (typeof hrApitSchedule.$inferSelect)[] = [];
 let originalLeaveTypes: (typeof hrLeaveType.$inferSelect)[] = [];
 
@@ -166,6 +169,7 @@ afterAll(async () => {
   }
   if (employeeId || secondaryEmployeeId) {
     const ids = [employeeId, secondaryEmployeeId].filter((id): id is string => Boolean(id));
+    if (documentIds.length) await db.delete(hrEmployeeDocument).where(inArray(hrEmployeeDocument.id, documentIds));
     await db.delete(hrTimesheet).where(inArray(hrTimesheet.employeeId, ids));
     await db.delete(hrLeaveRequest).where(inArray(hrLeaveRequest.employeeId, ids));
     await db.delete(hrEmployeePackage).where(inArray(hrEmployeePackage.employeeId, ids));
@@ -213,6 +217,38 @@ afterAll(async () => {
 });
 
 describe("HR and payroll database workflow", () => {
+  test("records explicit attendance states and keeps employee documents scoped to their owner", async () => {
+    await hr.saveTimesheets([{
+      employeeCode: `P${RUN}`,
+      workDate: "2026-07-11",
+      regularMinutes: 0,
+      overtimeMinutes: 0,
+      attendanceStatus: "absent",
+      source: "manual",
+    }], HR_ACTOR);
+    const attendance = await hr.listTimesheets({ from: "2026-07-11", to: "2026-07-11", employeeId: employeeId! });
+    expect(attendance[0]?.attendanceStatus).toBe("absent");
+
+    const document = await documents.attachEmployeeDocument({
+      employeeId: employeeId!,
+      category: "identity",
+      fileName: "identity.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 1024,
+      storageRef: `s3:hr/employees/${employeeId}/test-identity.pdf`,
+    }, HR_ACTOR.userId);
+    documentIds.push(document.id);
+    expect((await documents.listEmployeeDocuments(employeeId!)).map((row) => row.id)).toContain(document.id);
+    await expect(documents.attachEmployeeDocument({
+      employeeId: employeeId!,
+      category: "identity",
+      fileName: "foreign.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 1024,
+      storageRef: "s3:hr/employees/another-employee/foreign.pdf",
+    }, HR_ACTOR.userId)).rejects.toThrow("does not belong to this employee");
+  });
+
   test("calculates statutory payroll, requires manual APIT for secondary employment, enforces maker-checker and locks time records", async () => {
     const balances = await leave.listLeaveBalances(2026, employeeId!);
     const annual = balances.find((row) => row.leaveType === "Annual leave")!;

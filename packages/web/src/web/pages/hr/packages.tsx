@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, HR_CONTROL_CLASS, lkrToCents } from "./shared";
+import { HrNavigation } from "./navigation";
 
 type ItemForm = {
   label: string;
@@ -89,6 +90,7 @@ export default function HrPackages() {
     <Page title="Salary packages" description="Design reusable compensation packages. Contribution and tax-base treatment is stored per component; approved payroll keeps an immutable snapshot.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "Salary packages could not be loaded or saved.")}</ErrorNote> : null}
+      <HrNavigation />
       <Card title={editingId ? "Edit salary package" : "Create salary package"} description="Create a new version rather than changing an already assigned package; historic payslips never recalculate.">
         <form className="space-y-5" onSubmit={submit}>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

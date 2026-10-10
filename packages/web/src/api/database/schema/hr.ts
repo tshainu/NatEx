@@ -102,6 +102,8 @@ export const hrTimesheet = sqliteTable(
     workDate: text("work_date").notNull(),
     regularMinutes: integer("regular_minutes").notNull().default(0),
     overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+    /** present | absent | leave | off_duty; leave balances remain managed separately. */
+    attendanceStatus: text("attendance_status").notNull().default("present"),
     note: text("note"),
     source: text("source").notNull().default("manual"),
     createdBy: text("created_by").notNull(),
@@ -248,4 +250,21 @@ export const hrPayrollLine = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   },
   (t) => [uniqueIndex("hr_payroll_line_employee_uq").on(t.runId, t.employeeId), index("hr_payroll_line_run_idx").on(t.runId)],
+);
+
+export const hrEmployeeDocument = sqliteTable(
+  "hr_employee_document",
+  {
+    id: text("id").primaryKey(),
+    employeeId: text("employee_id").notNull().references(() => hrEmployee.id),
+    category: text("category").notNull(),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Opaque S3 object reference; signed URLs are minted only when HR views it. */
+    storageRef: text("storage_ref").notNull().unique(),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [index("hr_employee_document_employee_idx").on(t.employeeId, t.createdAt)],
 );

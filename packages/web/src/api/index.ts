@@ -10,6 +10,7 @@ import { delivery } from "./routes/delivery";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
 import { hrEmployees } from "./routes/hr-employees";
+import { hrDocuments } from "./routes/hr-documents";
 import { hrLeave } from "./routes/hr-leave";
 import { hrPayroll } from "./routes/hr-payroll";
 import { hrTimesheets } from "./routes/hr-timesheets";
@@ -63,7 +64,7 @@ export const router = {
   notifications,
   cod,
   finance,
-  hr: { ...hrEmployees, ...hrTimesheets, ...hrLeave, ...hrPayroll },
+  hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll },
   disputes,
   sync,
   // M5 — admin portal & hardening (§10 M5).

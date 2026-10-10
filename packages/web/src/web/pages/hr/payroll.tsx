@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { currentMonthRange, centsToLkr, downloadCsv, lkrToCents } from "./shared";
+import { HrNavigation } from "./navigation";
 
 type Line = {
   id: string; employeeId: string; employeeCode: string; employeeName: string; payBasis: string;
@@ -114,10 +115,11 @@ export default function HrPayroll() {
   }
 
   return (
-    <Page title="Payroll" description="Monthly payroll drafts are prepared by HR and approved by a different Finance/Admin user. Calculations use integer cents, retain a payslip snapshot, and require accountant validation before APIT payroll approval.">
+    <Page title="Salary operations" description="Monthly payroll drafts are prepared by HR and approved by a different Finance/Admin user. Calculations use integer cents, retain a payslip snapshot, and require accountant validation before APIT payroll approval.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {formError ? <ErrorNote>{formError}</ErrorNote> : null}
       {errors ? <ErrorNote>{apiMessage(errors, "Payroll data could not be loaded or saved.")}</ErrorNote> : null}
+      <HrNavigation />
       <Card title={`APIT schedule · ${schedule.data?.taxYear ?? "2026/27"}`} description="Automatic APIT uses the configured monthly primary-employment schedule only. Secondary employment and non-standard pay periods require reviewed manual amounts. This release is configured for 2026/27; payroll outside those dates is blocked until a later tax-year schedule is installed and validated.">
         {schedule.data ? <div className="flex flex-wrap items-center gap-3">
           <Badge variant={schedule.data.status === "validated" ? "good" : "warn"}>{schedule.data.status}</Badge>

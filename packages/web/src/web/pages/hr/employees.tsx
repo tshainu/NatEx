@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, todayInColombo, HR_CONTROL_CLASS } from "./shared";
+import { HrNavigation } from "./navigation";
+import { EmployeeDetails } from "./employee-details";
 
 type EmployeeForm = {
   employeeCode: string;
@@ -58,31 +60,19 @@ export default function HrEmployees() {
   const [form, setForm] = React.useState<EmployeeForm>(emptyForm);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string | null>(null);
-  const [packageId, setPackageId] = React.useState("");
-  const [effectiveFrom, setEffectiveFrom] = React.useState(todayInColombo());
+  const [initialPackageId, setInitialPackageId] = React.useState("");
+  const [detailSection, setDetailSection] = React.useState<"profile" | "documents" | "attendance" | "leave" | "salary">("profile");
   const [note, setNote] = React.useState<string | null>(null);
 
   const employees = useQuery({ ...orpc.hr.employees.queryOptions({ input: { q: q || undefined, status: statusFilter === "all" ? undefined : statusFilter as "active" | "inactive", limit: 500 } }) });
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
   const packages = useQuery({ ...orpc.hr.salaryPackages.queryOptions() });
-  const assignments = useQuery({
-    ...orpc.hr.employeePackages.queryOptions({ input: { employeeId: selectedEmployeeId ?? "" } }),
-    enabled: Boolean(selectedEmployeeId),
-  });
-
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: orpc.hr.employees.key() });
     void queryClient.invalidateQueries({ queryKey: orpc.hr.employeePackages.key() });
   };
   const create = useMutation({
     ...orpc.hr.createEmployee.mutationOptions(),
-    onSuccess: (employee) => {
-      setNote(`${employee.employeeCode} was added to the employee register.`);
-      setEditingId(null);
-      setForm(emptyForm());
-      setSelectedEmployeeId(employee.id);
-      refresh();
-    },
   });
   const update = useMutation({
     ...orpc.hr.updateEmployee.mutationOptions(),
@@ -90,16 +80,13 @@ export default function HrEmployees() {
       setNote(`${employee.employeeCode} was updated. Historical payroll snapshots remain unchanged.`);
       setEditingId(null);
       setForm(emptyForm());
+      setInitialPackageId("");
       refresh();
     },
   });
   const assign = useMutation({
     ...orpc.hr.assignSalaryPackage.mutationOptions(),
-    onSuccess: () => {
-      setNote("Salary package assignment was saved with its effective date.");
-      setPackageId("");
-      refresh();
-    },
+    onSuccess: refresh,
   });
 
   function setField<K extends keyof EmployeeForm>(key: K, value: EmployeeForm[K]) {
@@ -133,7 +120,7 @@ export default function HrEmployees() {
     setNote(null);
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setNote(null);
     const multiplier = Number(form.overtimeMultiplier);
@@ -164,17 +151,45 @@ export default function HrEmployees() {
     if (editingId) {
       update.mutate({ employeeId: editingId, ...common, endedOn: form.endedOn || null, status: form.status });
     } else {
-      create.mutate(common);
+      let employee: Awaited<ReturnType<typeof create.mutateAsync>>;
+      try {
+        employee = await create.mutateAsync(common);
+      } catch {
+        return;
+      }
+      let packageAssigned = !initialPackageId;
+      if (initialPackageId) {
+        try {
+          await assign.mutateAsync({ employeeId: employee.id, packageId: initialPackageId, effectiveFrom: form.joinedOn });
+          packageAssigned = true;
+        } catch {
+          // Keep the new employee; HR can finish the assignment from the Salary tab.
+        }
+      }
+      const selectedPackage = packages.data?.find((item) => item.id === initialPackageId);
+      setNote(packageAssigned && selectedPackage
+        ? `${employee.employeeCode} was created and assigned ${selectedPackage.code} effective ${form.joinedOn}.`
+        : packageAssigned
+          ? `${employee.employeeCode} was added to the employee register.`
+          : `${employee.employeeCode} was created, but the package assignment did not save. Review the Salary tab and assign it there.`);
+      setEditingId(null);
+      setForm(emptyForm());
+      setInitialPackageId("");
+      setSelectedEmployeeId(employee.id);
+      setDetailSection(initialPackageId ? "salary" : "profile");
+      refresh();
     }
   }
 
   const error = employees.error ?? branches.error ?? packages.error ?? create.error ?? update.error ?? assign.error;
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || assign.isPending;
+  const initialPackage = packages.data?.find((pkg) => pkg.id === initialPackageId);
 
   return (
     <Page title="Employees" description="Confidential employee records, branch assignment and effective-dated salary package history. HR access is protected by mandatory authenticator MFA.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "The HR data could not be loaded or saved.")}</ErrorNote> : null}
+      <HrNavigation />
       <Card title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users.">
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
           <Field label="Employee code"><Input required maxLength={20} value={form.employeeCode} onChange={(e) => setField("employeeCode", e.target.value.toUpperCase())} /></Field>
@@ -215,14 +230,22 @@ export default function HrEmployees() {
               <option value="active">Active</option><option value="inactive">Inactive</option>
             </select>
           </Field> : null}
+          {!editingId ? <Field label="Starting salary package" hint="Optional. If selected, the package will be assigned from the employee's joined date.">
+            <select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}>
+              <option value="">Create employee without a package</option>
+              {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}
+            </select>
+          </Field> : null}
           <label className="flex items-center gap-2 self-center text-[13px]">
             <input type="checkbox" aria-label="Primary employment for APIT" checked={form.primaryEmployment} onChange={(e) => setField("primaryEmployment", e.target.checked)} />
             Primary employment for APIT
           </label>
           <Field label="Address" className="md:col-span-2 xl:col-span-3"><Textarea value={form.address} onChange={(e) => setField("address", e.target.value)} maxLength={500} /></Field>
+          {!editingId && initialPackage ? <div className="rounded-md border border-brand/25 bg-brand/5 p-3 text-[12px] md:col-span-2 xl:col-span-3"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s). The full breakdown will appear in the employee's Salary record.</p></div> : null}
           <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
             <Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>
-            {editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); }}>Cancel edit</Button> : null}
+            {!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-[12px] font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}
+            {editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}
           </div>
         </form>
       </Card>
@@ -246,7 +269,7 @@ export default function HrEmployees() {
                   <td className="p-2">{employee.department}<span className="block text-[11px] text-muted-foreground">{employee.jobTitle}</span></td>
                   <td className="p-2 font-mono">{employee.epfNumber ?? "—"}</td>
                   <td className="p-2"><Badge variant={employee.status === "active" ? "good" : "outline"}>{employee.status}</Badge></td>
-                  <td className="p-2"><div className="flex gap-1"><Button size="sm" variant="outline" onClick={() => editEmployee(employee)}>Edit</Button><Button size="sm" variant="ghost" aria-label={`Assign salary package for ${employee.employeeCode}`} onClick={() => { setSelectedEmployeeId(employee.id); setPackageId(""); setNote(null); }}>Pay package</Button></div></td>
+                  <td className="p-2"><div className="flex gap-1"><Button size="sm" variant="outline" aria-label={`View HR record for ${employee.employeeCode}`} onClick={() => { setSelectedEmployeeId(employee.id); setDetailSection("profile"); setNote(null); }}>View record</Button><Button size="sm" variant="ghost" aria-label={`Edit HR record for ${employee.employeeCode}`} onClick={() => editEmployee(employee)}>Edit</Button></div></td>
                 </tr>
               ))}
             </tbody>
@@ -258,14 +281,7 @@ export default function HrEmployees() {
       {selectedEmployeeId ? (() => {
         const selected = employees.data?.find((employee) => employee.id === selectedEmployeeId);
         if (!selected) return null;
-        return <Card title={`Salary package · ${selected.employeeCode}`} description="Assignments are effective-dated; an approved payroll run keeps the salary figures used at calculation time.">
-          <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]" onSubmit={(e) => { e.preventDefault(); if (packageId) assign.mutate({ employeeId: selected.id, packageId, effectiveFrom }); }}>
-            <Field label="Package"><select required className={HR_CONTROL_CLASS} value={packageId} onChange={(e) => setPackageId(e.target.value)}><option value="">Select active package</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} ({pkg.payBasis})</option>)}</select></Field>
-            <Field label="Effective from"><Input type="date" required value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} /></Field>
-            <div className="self-end"><Button type="submit" pending={assign.isPending} disabled={!packageId}>Assign package</Button></div>
-          </form>
-          {assignments.data?.length ? <div className="mt-4 space-y-2 border-t pt-4">{assignments.data.map(({ assignment, package: pkg }) => <div key={assignment.id} className="flex flex-wrap justify-between gap-2 text-[13px]"><span><strong>{pkg.code}</strong> · {pkg.name} · {pkg.payBasis} · LKR {centsToLkr(pkg.basePayCents)}</span><span className="font-mono text-muted-foreground">{assignment.effectiveFrom} → {assignment.effectiveTo ?? "current"}</span></div>)}</div> : <p className="mt-4 text-[12px] text-muted-foreground">No package has been assigned yet.</p>}
-        </Card>;
+        return <EmployeeDetails key={`${selected.id}-${detailSection}`} employee={selected} branchName={(branches.data ?? []).find((branch) => branch.id === selected.branchId)?.name ?? selected.branchId} packages={packages.data ?? []} initialSection={detailSection} onClose={() => setSelectedEmployeeId(null)} />;
       })() : null}
     </Page>
   );
