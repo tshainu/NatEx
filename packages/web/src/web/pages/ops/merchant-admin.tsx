@@ -89,9 +89,9 @@ export function MerchantFields({
           <Input value={form.vatNo} onChange={(e) => set("vatNo", e.target.value)} className="font-mono" />
         </Field>
       </div>
-      <Field label="Default pickup rider" hint="New merchant bookings are added to this Rider's pickup manifest; custody still requires Rider scan and handover.">
+      <Field label="Preferred pickup Rider" hint="Only active Riders assigned to the selected branch/hub are listed. New bookings create a pickup-manifest entry and send the Rider a text alert. The Rider must still scan and complete handover before custody changes.">
         <Select value={form.pickupRiderId} onChange={(e) => set("pickupRiderId", e.target.value)}>
-          <option value="">No default rider — schedule pickups manually</option>
+          <option value="">No preferred Rider — schedule pickups manually</option>
           {(riders.data ?? []).map((rider) => (
             <option key={rider.id} value={rider.id}>{rider.name}</option>
           ))}

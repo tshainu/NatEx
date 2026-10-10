@@ -152,6 +152,19 @@ export const DEFAULT_TEMPLATES: {
     pushTitle: "Pickup collected",
     bodyPush: "{{itemCount}} parcel(s) collected on {{manifestCode}}.",
   },
+  {
+    key: "pickup.rider_parcel_assigned",
+    name: "Merchant parcel ready for pickup",
+    description: "Sent to the preferred branch/hub Rider when a merchant books a new parcel for collection.",
+    audience: "rider",
+    channelOrder: "whatsapp,sms,push",
+    bodyWhatsapp:
+      "New pickup for {{merchantName}}. AWB {{awb}} is on manifest {{manifestCode}} for {{pickupDate}}. Open the Rider app for the pickup address, scan the parcel, and confirm handover.",
+    bodySms:
+      "NatEx pickup: {{merchantName}} booked {{awb}}. Manifest {{manifestCode}} for {{pickupDate}}. Open Rider app for the address.",
+    pushTitle: "New merchant pickup",
+    bodyPush: "Collect {{awb}} from {{merchantName}}. Manifest {{manifestCode}}.",
+  },
   /**
    * M4 (§8): the merchant's COD payout left the bank. Client-confirmed as
    * wanted, on `paid` — not on `approved`, because an approved run has no UTR
@@ -197,7 +210,18 @@ export async function listTemplates(): Promise<TemplateRow[]> {
 
 export async function getTemplate(key: string): Promise<TemplateRow | null> {
   const [row] = await db.select().from(notifyTemplate).where(eq(notifyTemplate.key, key));
-  return row ?? null;
+  if (row) return row;
+
+  // Existing production databases may not have run the destructive seed. Add
+  // a missing shipped template on first use, but never overwrite admin edits.
+  const shipped = DEFAULT_TEMPLATES.find((template) => template.key === key);
+  if (!shipped) return null;
+  await db
+    .insert(notifyTemplate)
+    .values({ ...shipped, active: true, version: 1 })
+    .onConflictDoNothing();
+  const [provisioned] = await db.select().from(notifyTemplate).where(eq(notifyTemplate.key, key));
+  return provisioned ?? null;
 }
 
 /** Template editing — exposed to admin in M5, used by tests and seeds now. */
@@ -292,6 +316,8 @@ export const SAMPLE_VARS: Vars = {
   trackUrl: "natex.lk/track/NX2610020001",
   codLine: "Please have Rs. 2,450.00 ready. ",
   riderName: "Karthik",
+  manifestCode: "MF261010-001",
+  pickupDate: "10 Oct 2026",
   date: "2 Oct 2026",
   receivedBy: "Meena Ganesan",
   reason: "Consignee not available",

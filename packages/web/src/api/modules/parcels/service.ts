@@ -7,6 +7,7 @@ import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
+import * as identityService from "../identity/service";
 import { checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
@@ -695,6 +696,16 @@ export async function createParcel(
       merchantStatus: owner!.status,
     });
   }
+  const configuredPickupRiderId = actor.role === "merchant" ? owner!.pickupRiderId : null;
+  const pickupRider = configuredPickupRiderId
+    ? (await identityService.listRiders(owner!.branchId)).find((rider) => rider.id === configuredPickupRiderId)
+    : undefined;
+  if (configuredPickupRiderId && !pickupRider) {
+    errors.conflict(
+      "The preferred pickup Rider is no longer active in this merchant's branch/hub. Contact NatEx to update the assignment before booking.",
+      { riderId: configuredPickupRiderId },
+    );
+  }
   if (input.codAmountCents > 0 && !owner!.codEnabled) {
     errors.badRequest(`Merchant ${owner!.name} is not enabled for cash on delivery.`, {
       codAmountCents: input.codAmountCents,
@@ -772,15 +783,31 @@ export async function createParcel(
   // Merchant bookings with a configured default Rider are automatically added
   // to that Rider's open pickup manifest. Custody still requires Rider scan and
   // formal handover through the collection workflow.
-  if (actor.role === "merchant" && owner!.pickupRiderId) {
-    await addBookingToAutoManifest({
+  if (actor.role === "merchant" && owner!.pickupRiderId && pickupRider) {
+    const assignment = await addBookingToAutoManifest({
       merchantId: owner!.id,
       merchantName: owner!.name,
       branchId: owner!.branchId,
-      riderId: owner!.pickupRiderId,
+      riderId: pickupRider.id,
       parcelId: row!.id,
       awb: row!.awb,
     });
+    if (assignment.added) {
+      await enqueue("notify.dispatch", {
+        templateKey: "pickup.rider_parcel_assigned",
+        vars: {
+          merchantName: owner!.name,
+          awb: row!.awb,
+          manifestCode: assignment.code,
+          pickupDate: colomboDate(),
+        },
+        toPhone: pickupRider.phone,
+        toUserId: pickupRider.id,
+        parcelId: row!.id,
+        awb: row!.awb,
+        merchantId: owner!.id,
+      });
+    }
   }
 
   return {

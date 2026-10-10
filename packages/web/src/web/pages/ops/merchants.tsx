@@ -328,7 +328,7 @@ function MerchantDrawer({
 
             <KeyValueGrid>
               <KeyValue label="Contact">{merchant.contactName}</KeyValue>
-              <KeyValue label="Default pickup rider">{pickupRiderName}</KeyValue>
+              <KeyValue label="Preferred pickup Rider">{pickupRiderName}</KeyValue>
               <KeyValue label="Phone" mono>
                 {merchant.contactPhone}
               </KeyValue>
@@ -529,9 +529,9 @@ function CreateMerchantDialog({
             />
           </Field>
         </div>
-        <Field label="Default pickup rider" hint="New merchant bookings are added to this Rider's pickup manifest; custody still requires Rider scan and handover.">
+        <Field label="Preferred pickup Rider" hint="Only active Riders assigned to the selected branch/hub are listed. New bookings create a pickup-manifest entry and send the Rider a text alert. The Rider must still scan and complete handover before custody changes.">
           <Select value={form.pickupRiderId} onChange={(e) => set("pickupRiderId", e.target.value)}>
-            <option value="">No default rider — schedule pickups manually</option>
+            <option value="">No preferred Rider — schedule pickups manually</option>
             {(riders.data ?? []).map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}
           </Select>
           {riders.error ? <span className="text-[12px] text-status-warn">Rider options are unavailable; refresh before saving an assignment.</span> : null}

@@ -32,7 +32,7 @@ export async function addBookingToAutoManifest(input: AutoPickupAssignmentInput)
       .innerJoin(manifest, eq(manifest.id, manifestItem.manifestId))
       .where(and(eq(manifestItem.parcelId, input.parcelId), eq(manifest.id, manifestId)))
       .limit(1);
-    if (existing) return { manifestId, code };
+    if (existing) return { manifestId, code, added: false };
 
     await tx.insert(manifestItem).values({
       id: prefixedId("mfi"),
@@ -44,7 +44,7 @@ export async function addBookingToAutoManifest(input: AutoPickupAssignmentInput)
       .update(manifest)
       .set({ expectedCount: sql`${manifest.expectedCount} + 1` })
       .where(and(eq(manifest.id, manifestId), inArray(manifest.status, [...OPEN_MANIFEST_STATUSES])));
-    return { manifestId, code };
+    return { manifestId, code, added: true };
   };
 
   try {
@@ -55,7 +55,7 @@ export async function addBookingToAutoManifest(input: AutoPickupAssignmentInput)
         .innerJoin(manifest, eq(manifest.id, manifestItem.manifestId))
         .where(and(eq(manifestItem.parcelId, input.parcelId), ne(manifest.status, "cancelled")))
         .limit(1);
-      if (priorAssignment) return { manifestId: priorAssignment.manifestId, code: priorAssignment.code };
+      if (priorAssignment) return { manifestId: priorAssignment.manifestId, code: priorAssignment.code, added: false };
 
       const [active] = await tx
         .select({ id: manifest.id, code: manifest.code })
@@ -89,7 +89,7 @@ export async function addBookingToAutoManifest(input: AutoPickupAssignmentInput)
         parcelId: input.parcelId,
         awb: input.awb,
       });
-      return { manifestId, code };
+      return { manifestId, code, added: true };
     });
   } catch (error) {
     // A parallel booking may have won the unique autoKey insert. Attach this
