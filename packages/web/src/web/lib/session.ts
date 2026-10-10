@@ -7,7 +7,7 @@
  * subscribes to it for the UI.
  */
 
-export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant";
+export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
 
 export interface SessionUser {
   id: string;

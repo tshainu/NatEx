@@ -12,7 +12,7 @@ import { isDevelopment } from "../../shared/env";
 
 /**
  * MODULE: identity — TOTP second factor (PROJECT.md §2: "TOTP MFA for
- * ops/admin/finance").
+ * ops/admin/finance" plus the dedicated HR role).
  *
  *   sign-in = phone OTP (something you have: the SIM)
  *           + TOTP code (something you have: the enrolled authenticator)
@@ -30,7 +30,7 @@ import { isDevelopment } from "../../shared/env";
  * seeder refuses, and a seeded factor is refused at sign-in.
  */
 
-export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance"];
+export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance", "hr"];
 export const RECOVERY_CODE_COUNT = 10;
 
 /** Fail-closed: anything that is not an explicit dev/test process counts as production (shared/env.ts). */
@@ -44,6 +44,7 @@ export async function mfaRequiredForAny(roles: readonly (Role | string)[]): Prom
 
 export async function mfaRequiredFor(role: Role | string): Promise<boolean> {
   if (!(MFA_ROLES as readonly string[]).includes(role)) return false;
+  if (role === "hr") return true;
   return settingFlag(SETTING_KEYS.MFA_ENFORCED);
 }
 

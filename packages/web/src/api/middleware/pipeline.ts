@@ -40,6 +40,8 @@ export const mfaProc = publicProc.use(withAuthAllowingPendingMfa);
 export const riderProc = authedProc.use(requireRole("rider"));
 export const opsProc = authedProc.use(requireRole("ops", "admin"));
 export const financeProc = authedProc.use(requireRole("finance", "admin"));
+export const hrProc = authedProc.use(requireRole("hr", "admin"));
+export const payrollReadProc = authedProc.use(requireRole("hr", "finance", "admin"));
 /**
  * Hub and linehaul custody actions (§6 role table): the transport role owns
  * them, ops supervises, admin overrides. Riders are deliberately excluded —

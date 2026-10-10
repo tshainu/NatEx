@@ -152,6 +152,25 @@ describe("route guards (static inventory)", () => {
     }
   });
 
+  test("HR records and drafts are HR/Admin-only; Finance/Admin review and approve payroll", () => {
+    const hrOnly = [
+      "hr.branchOptions", "hr.employees", "hr.createEmployee", "hr.updateEmployee",
+      "hr.salaryPackages", "hr.createSalaryPackage", "hr.updateSalaryPackage",
+      "hr.assignSalaryPackage", "hr.employeePackages", "hr.timesheets", "hr.saveTimesheets",
+      "hr.leaveTypes", "hr.saveLeaveType", "hr.leaveBalances", "hr.leaveRequests",
+      "hr.createLeaveRequest", "hr.decideLeaveRequest", "hr.adjustLeaveBalance",
+      "hr.createPayrollRun", "hr.manualApit", "hr.submitPayrollRun", "hr.cancelDraftPayrollRun",
+    ];
+    for (const path of hrOnly) expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["hr", "admin"] });
+    for (const path of ["hr.apitSchedule", "hr.payrollRuns", "hr.payrollRun", "hr.statutoryReport"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["hr", "finance", "admin"] });
+    }
+    for (const path of ["hr.saveApitSchedule", "hr.validateApitSchedule", "hr.approvePayrollRun", "hr.recordPayrollPayment"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["finance", "admin"] });
+    }
+    expect(byPath.get("identity.listUsers")?.roles).not.toContain("hr");
+  });
+
   test("round 6 procedures carry the intended gates", () => {
     expect(byPath.get("dashboard.company")?.roles).toEqual(["admin"]);
     for (const r of FIELD_ROLES) expect(byPath.get("cod.dailyFlow")?.roles).not.toContain(r);

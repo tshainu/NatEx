@@ -21,6 +21,8 @@ import {
   devCodeFor,
   devTotpSecret,
   getFactor,
+  mfaRequiredFor,
+  mfaRequiredForAny,
   seedDevMfaFactors,
   startEnrolment,
   verifyChallenge,
@@ -119,6 +121,13 @@ describe("real enrolment", () => {
 
   test("a real (non-seeded) factor never offers a dev code", async () => {
     expect(await devCodeFor((await getFactor(REAL))!)).toBeNull();
+  });
+});
+
+describe("HR role MFA enforcement", () => {
+  test("HR always requires authenticator MFA, including when held alongside another role", async () => {
+    expect(await mfaRequiredFor("hr")).toBe(true);
+    expect(await mfaRequiredForAny(["rider", "hr"])).toBe(true);
   });
 });
 

@@ -66,6 +66,7 @@ const AS: Record<Role, Principal> = {
   transport: principal("transport"),
   finance: principal("finance"),
   merchant: principal("merchant"),
+  hr: principal("hr"),
 };
 const ALL_ROLES = Object.keys(AS) as Role[];
 /** Full guard evidence, for the tests that are about the table, not the guards. */

@@ -18,10 +18,10 @@ import { useMfaStatus, useMySessions, type SessionRow } from "@/queries/admin";
  * The signed-in user's own security settings (§2): authenticator state,
  * recovery codes, and the sessions signed in as them. Every web role reaches
  * this page; the authenticator card only appears for the roles §2 puts behind
- * TOTP (ops, admin, finance).
+ * TOTP (ops, admin, finance and HR).
  */
 
-const MFA_ROLES = new Set(["ops", "admin", "finance"]);
+const MFA_ROLES = new Set(["ops", "admin", "finance", "hr"]);
 
 export default function SecurityPage() {
   const { session } = useAuth();
@@ -44,7 +44,7 @@ function AuthenticatorCard() {
   return (
     <Card
       title="Authenticator app"
-      description="Ops, admin and finance accounts sign in with a phone OTP and then a 6-digit code from an authenticator app."
+      description="Ops, admin, finance and HR accounts sign in with a phone OTP and then a 6-digit code from an authenticator app."
       actions={
         s?.enrolled ? (
           <Button size="sm" variant="outline" onClick={() => setRegenOpen(true)}>

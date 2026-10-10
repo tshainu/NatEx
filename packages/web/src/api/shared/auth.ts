@@ -15,7 +15,7 @@ import { isDevelopment } from "./env";
 export const ACCESS_TTL_SECONDS = 15 * 60;
 export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant";
+export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
 
 export const ROLES: readonly Role[] = [
   "rider",
@@ -24,6 +24,7 @@ export const ROLES: readonly Role[] = [
   "finance",
   "admin",
   "merchant",
+  "hr",
 ] as const;
 
 /** Returns a request-selected role only when it is in the authenticated user's live role set. */
@@ -222,7 +223,7 @@ export function bearerFrom(headers: Headers): string | null {
 }
 
 /** Roles that see every branch (PROJECT.md §5 row-level scoping). */
-const GLOBAL_ROLES: ReadonlySet<Role> = new Set<Role>(["admin", "finance"]);
+const GLOBAL_ROLES: ReadonlySet<Role> = new Set<Role>(["admin", "finance", "hr"]);
 
 export function isGlobalScope(role: Role): boolean {
   return GLOBAL_ROLES.has(role);

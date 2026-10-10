@@ -19,4 +19,5 @@ export * from "./schema/notifications";
 export * from "./schema/sync";
 export * from "./schema/cod";
 export * from "./schema/settings";
+export * from "./schema/hr";
 export * from "./schema/shared";

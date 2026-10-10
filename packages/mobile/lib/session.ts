@@ -15,7 +15,7 @@ import { getItem, removeItem, setItem } from "./storage";
  * RPC link cannot await a keychain read on each request.
  */
 
-export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant";
+export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
 
 export interface SessionUser {
   id: string;

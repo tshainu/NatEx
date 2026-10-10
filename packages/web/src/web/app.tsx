@@ -41,6 +41,11 @@ import FinanceCod from "./pages/finance/cod-page";
 import FinanceRemittances from "./pages/finance/remittances-page";
 import FinanceInvoices from "./pages/finance/invoices-page";
 import FinanceDisputes from "./pages/finance/disputes-page";
+import HrEmployees from "./pages/hr/employees";
+import HrPackages from "./pages/hr/packages";
+import HrTimesheets from "./pages/hr/timesheets";
+import HrLeave from "./pages/hr/leave";
+import HrPayroll from "./pages/hr/payroll";
 import MerchantDisputes from "./pages/merchant/disputes";
 import MerchantStatement from "./pages/merchant/statement";
 import MerchantAccount from "./pages/merchant/account";
@@ -242,6 +247,16 @@ function Routes() {
       <Portal path="/finance/disputes">
         <FinanceDisputes />
       </Portal>
+
+      {/* HR — employee records, payroll drafts and leave; Finance/Admin approve. */}
+      <Portal path="/hr">
+        <Redirect to="/hr/employees" replace />
+      </Portal>
+      <Portal path="/hr/employees"><HrEmployees /></Portal>
+      <Portal path="/hr/packages"><HrPackages /></Portal>
+      <Portal path="/hr/timesheets"><HrTimesheets /></Portal>
+      <Portal path="/hr/leave"><HrLeave /></Portal>
+      <Portal path="/hr/payroll"><HrPayroll /></Portal>
 
       {/* Merchant portal — Milestone 3: dashboard, booking, bulk CSV, pickups, tracking, NDR */}
       <Portal path="/merchant">

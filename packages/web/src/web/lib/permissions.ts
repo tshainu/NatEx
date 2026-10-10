@@ -8,7 +8,7 @@ import type { Role } from "./session";
  * module service (§5). Hiding a link here never grants or protects anything.
  */
 
-export type Portal = "ops" | "merchant" | "finance" | "admin" | "field";
+export type Portal = "ops" | "merchant" | "finance" | "admin" | "field" | "hr";
 
 export interface NavItem {
   label: string;
@@ -82,6 +82,7 @@ const ADMIN: PortalConfig = {
     { label: "Templates", to: "/admin/templates" },
     { label: "Audit log", to: "/admin/audit" },
     { label: "System monitor", to: "/admin/monitor" },
+    { label: "HR & payroll", to: "/hr/employees" },
   ],
 };
 
@@ -106,6 +107,20 @@ const FINANCE: PortalConfig = {
     { label: "Remittances", to: "/finance/remittances" },
     { label: "Invoices", to: "/finance/invoices" },
     { label: "Disputes", to: "/finance/disputes" },
+    { label: "Payroll approval", to: "/hr/payroll" },
+  ],
+};
+
+const HR: PortalConfig = {
+  portal: "hr",
+  name: "HR & Payroll",
+  home: "/hr/employees",
+  nav: [
+    { label: "Employees", to: "/hr/employees" },
+    { label: "Salary packages", to: "/hr/packages" },
+    { label: "Timesheets", to: "/hr/timesheets" },
+    { label: "Leave management", to: "/hr/leave" },
+    { label: "Payroll runs", to: "/hr/payroll" },
   ],
 };
 
@@ -141,6 +156,8 @@ export function portalFor(role: Role): PortalConfig {
       return ADMIN;
     case "finance":
       return FINANCE;
+    case "hr":
+      return HR;
     case "merchant":
       return MERCHANT;
     case "rider":
@@ -189,6 +206,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   finance: "Finance",
   admin: "Administrator",
   merchant: "Merchant",
+  hr: "HR",
 };
 
 /** Roles that may reach a given path prefix in the UI. */
@@ -205,6 +223,9 @@ export function mayVisit(role: Role, path: string): boolean {
     return role === "ops" && !ADMIN_ONLY_PATHS.some((prefix) => path.startsWith(prefix));
   }
   if (path.startsWith("/finance")) return role === "finance" || role === "admin";
+  if (path.startsWith("/hr")) {
+    return role === "hr" || role === "admin" || (role === "finance" && path.startsWith("/hr/payroll"));
+  }
   if (path.startsWith("/merchant")) return role === "merchant";
   if (path.startsWith("/field")) return role === "rider" || role === "transport";
   return true;
@@ -216,7 +237,7 @@ export function rolesOfUser(user: { role: Role; roles?: Role[] }): Role[] {
 }
 
 /** Priority order for choosing a multi-role user's home portal. */
-const PORTAL_PRIORITY: Role[] = ["admin", "finance", "ops", "merchant", "transport", "rider"];
+const PORTAL_PRIORITY: Role[] = ["admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
 
 /** Home portal for a role set: the highest-privilege portal the user holds. */
 export function portalForRoles(roles: readonly Role[]): PortalConfig {

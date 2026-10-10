@@ -34,7 +34,7 @@ export interface ManagedUser {
   merchantId?: string | null;
 }
 
-const MFA_ROLES = new Set(["ops", "admin", "finance"]);
+const MFA_ROLES = new Set(["ops", "admin", "finance", "hr"]);
 
 export function UserDrawer({
   user,
@@ -106,7 +106,7 @@ export function UserDrawer({
                     {mfa?.seeded ? <Badge variant="muted">Development seed</Badge> : null}
                   </div>
                   <p className="text-[12px] text-muted-foreground">
-                    Required for ops, admin and finance (§2). A reset deletes the authenticator and the
+                    Required for ops, admin, finance and HR accounts. A reset deletes the authenticator and the
                     recovery codes and signs the user out; they enrol again at next sign-in.
                   </p>
                   {mfa ? (

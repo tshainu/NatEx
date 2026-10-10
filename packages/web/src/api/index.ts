@@ -9,6 +9,10 @@ import { dashboard } from "./routes/dashboard";
 import { delivery } from "./routes/delivery";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
+import { hrEmployees } from "./routes/hr-employees";
+import { hrLeave } from "./routes/hr-leave";
+import { hrPayroll } from "./routes/hr-payroll";
+import { hrTimesheets } from "./routes/hr-timesheets";
 import { audit } from "./routes/audit";
 import { identity } from "./routes/identity";
 import { identityAdmin } from "./routes/identity-admin";
@@ -59,6 +63,7 @@ export const router = {
   notifications,
   cod,
   finance,
+  hr: { ...hrEmployees, ...hrTimesheets, ...hrLeave, ...hrPayroll },
   disputes,
   sync,
   // M5 — admin portal & hardening (§10 M5).
