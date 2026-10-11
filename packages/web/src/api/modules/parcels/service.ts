@@ -8,11 +8,13 @@ import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
 import {
+  chargeableWeightLimitMessage,
   DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
   MAX_ACCEPTED_WEIGHT_GRAMS,
   volumetricGrams,
 } from "../merchants/pricing";
 import * as rateCardService from "../merchants/rate-cards";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
 import { chargeByRequest, createRetailChargeInTransaction, entriesForCharge } from "../freight/ledger";
@@ -724,8 +726,13 @@ export async function createParcel(
   const volumetricWeight = input.lengthCm && input.widthCm && input.heightCm
     ? volumetricGrams(input.lengthCm, input.widthCm, input.heightCm, DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG)
     : 0;
-  if (Math.max(input.weightGrams, volumetricWeight) > MAX_ACCEPTED_WEIGHT_GRAMS) {
-    errors.badRequest("Chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  const chargeableWeight = Math.max(input.weightGrams, volumetricWeight);
+  if (chargeableWeight > MAX_ACCEPTED_WEIGHT_GRAMS) {
+    errors.badRequest(chargeableWeightLimitMessage(MAX_ACCEPTED_WEIGHT_GRAMS));
+  }
+  const configuredLimit = await settingValue(SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS);
+  if (chargeableWeight > configuredLimit) {
+    errors.badRequest(chargeableWeightLimitMessage(configuredLimit));
   }
   if (!Number.isInteger(input.codAmountCents) || input.codAmountCents < 0) {
     errors.badRequest("COD must be a non-negative integer number of cents.");

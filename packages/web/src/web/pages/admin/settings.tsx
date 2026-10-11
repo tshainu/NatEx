@@ -33,7 +33,19 @@ const GROUPS: { id: SettingRow["group"]; title: string; description: string }[] 
 function display(row: SettingRow): string {
   if (row.unit === "boolean") return row.value ? "On" : "Off";
   if (row.unit === "count") return String(row.value);
+  if (row.unit === "grams") return `${formatKilograms(row.value)} kg`;
   return `${row.value} ${row.unit}`;
+}
+
+function formatKilograms(grams: number): string {
+  return grams % 1000 === 0 ? String(grams / 1000) : (grams / 1000).toFixed(1);
+}
+
+function parseKilograms(raw: string): number | null {
+  const value = raw.trim();
+  if (!/^\d+(?:\.(?:0|5))?$/.test(value)) return null;
+  const grams = Number(value) * 1000;
+  return Number.isSafeInteger(grams) ? grams : null;
 }
 
 export default function AdminSettings() {
@@ -78,7 +90,7 @@ export default function AdminSettings() {
                     <span className="font-mono text-[13px] font-medium" data-testid={`setting-value-${r.key}`}>
                       {display(r)}
                     </span>
-                    {r.value !== r.defaultValue ? <Badge variant="muted">default {r.unit === "boolean" ? (r.defaultValue ? "on" : "off") : r.defaultValue}</Badge> : null}
+                    {r.value !== r.defaultValue ? <Badge variant="muted">default {r.unit === "boolean" ? (r.defaultValue ? "on" : "off") : r.unit === "grams" ? `${formatKilograms(r.defaultValue)} kg` : r.defaultValue}</Badge> : null}
                     {isAdmin && r.editable ? (
                       <Button variant="outline" size="sm" onClick={() => setEditing(r)} aria-label={`Change ${r.label}`}>
                         Change
@@ -119,7 +131,8 @@ export default function AdminSettings() {
 
 function SettingDialog({ row, onClose, onSaved }: { row: SettingRow; onClose: () => void; onSaved: (text: string) => void }) {
   const queryClient = useQueryClient();
-  const [value, setValue] = React.useState(String(row.value));
+  const isWeightLimit = row.unit === "grams";
+  const [value, setValue] = React.useState(isWeightLimit ? formatKilograms(row.value) : String(row.value));
   const [reason, setReason] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
   const save = useMutation({
@@ -130,9 +143,9 @@ function SettingDialog({ row, onClose, onSaved }: { row: SettingRow; onClose: ()
     },
     onError: (error) => setProblem(apiMessage(error, "This value could not be saved.")),
   });
-  const n = Number(value);
-  const valid = /^\d+$/.test(value.trim()) && n >= row.min && n <= row.max;
-  const changed = n !== row.value;
+  const n = isWeightLimit ? parseKilograms(value) : Number(value);
+  const valid = n !== null && (isWeightLimit || /^\d+$/.test(value.trim())) && n >= row.min && n <= row.max;
+  const changed = n !== null && n !== row.value;
 
   return (
     <Dialog
@@ -150,7 +163,7 @@ function SettingDialog({ row, onClose, onSaved }: { row: SettingRow; onClose: ()
             pending={save.isPending}
             onClick={() => {
               setProblem(null);
-              save.mutate({ key: row.key as Exclude<SettingRow["key"], "max_delivery_attempts">, value: n, reason: reason.trim() });
+              save.mutate({ key: row.key as Exclude<SettingRow["key"], "max_delivery_attempts">, value: n!, reason: reason.trim() });
             }}
           >
             Save
@@ -167,8 +180,22 @@ function SettingDialog({ row, onClose, onSaved }: { row: SettingRow; onClose: ()
             </Select>
           </Field>
         ) : (
-          <Field label={`Value (${row.unit})`} hint={`Between ${row.min} and ${row.max}. Default ${row.defaultValue}.`}>
-            <Input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" className="font-mono" />
+          <Field
+            label={isWeightLimit ? "Maximum weight (kg)" : `Value (${row.unit})`}
+            hint={isWeightLimit
+              ? `Set from ${formatKilograms(row.min)} to ${formatKilograms(row.max)} kg in 0.5 kg steps. This limits the greater of actual and volumetric weight.`
+              : `Between ${row.min} and ${row.max}. Default ${row.defaultValue}.`}
+          >
+            <Input
+              type={isWeightLimit ? "number" : undefined}
+              min={isWeightLimit ? row.min / 1000 : undefined}
+              max={isWeightLimit ? row.max / 1000 : undefined}
+              step={isWeightLimit ? 0.5 : undefined}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              inputMode={isWeightLimit ? "decimal" : "numeric"}
+              className="font-mono"
+            />
           </Field>
         )}
         {row.key === "mfa_enforced" && value === "0" ? (

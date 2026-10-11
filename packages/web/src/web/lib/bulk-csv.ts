@@ -1,4 +1,4 @@
-import { kgToGrams, parseCsv, rupeesToCents } from "./csv";
+import { DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, parseCsv, rupeesToCents } from "./csv";
 import { DISTRICTS_BY_PROVINCE, formatAddress, type AddressParts, type District, type Province } from "./address";
 
 /**
@@ -135,7 +135,7 @@ export function prepareBulkCsv(text: string): PreparedFile {
       else seenAwbs.set(awb, line);
     }
     const destAddress = canonicalAddress(get, errors);
-    const weight = kgToGrams(get("weightKg"));
+    const weight = kgToGrams(get("weightKg"), DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS);
     if ("error" in weight) errors.push({ field: "weight_kg", message: weight.error });
     const cod = rupeesToCents(get("codRs"));
     if ("error" in cod) errors.push({ field: "cod_rs", message: cod.error });

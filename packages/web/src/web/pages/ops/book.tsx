@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, MapPin } from "lucide-react";
 import { client, orpc, apiMessage } from "@/lib/api";
 import { money, toE6, metres } from "@/lib/format";
-import { kgToGrams, rupeesToCents } from "@/lib/csv";
+import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
@@ -62,6 +62,12 @@ export default function OpsBook() {
     ...orpc.merchants.options.queryOptions(),
     staleTime: 5 * 60 * 1000,
   });
+  const bookingLimits = useQuery({
+    ...orpc.settings.bookingLimits.queryOptions(),
+    staleTime: 0,
+    refetchInterval: 30_000,
+  });
+  const maxWeightGrams = bookingLimits.data?.maxChargeableWeightGrams ?? DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS;
 
   const set = <K extends keyof Form>(key: K) => (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -81,7 +87,14 @@ export default function OpsBook() {
   // Money and weight by string arithmetic (lib/csv) — never Math.round(x * 100).
   const declared = rupeesToCents(form.declaredValue);
   const cod = rupeesToCents(form.codAmount);
-  const weight = kgToGrams(form.weightKg);
+  const weight = kgToGrams(form.weightKg, maxWeightGrams);
+  const dimensionValue = (value: string) => value.trim() && /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
+  const chargeableWeight = "grams" in weight
+    ? chargeableWeightGrams(weight.grams, dimensionValue(form.lengthCm), dimensionValue(form.widthCm), dimensionValue(form.heightCm))
+    : null;
+  const weightLimitError = chargeableWeight !== null && chargeableWeight > maxWeightGrams
+    ? `Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`
+    : null;
   const centsOf = (r: ReturnType<typeof rupeesToCents>) => ("cents" in r ? r.cents : 0);
 
   const create = useMutation({
@@ -114,6 +127,7 @@ export default function OpsBook() {
     form.merchantId !== "" &&
     "grams" in weight &&
     weight.grams > 0 &&
+    !weightLimitError &&
     "cents" in declared &&
     "cents" in cod &&
     isCompleteAddress(form.originAddress) &&
@@ -177,7 +191,11 @@ export default function OpsBook() {
               <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" />
             </Field>
             <div className="grid grid-cols-4 gap-3">
-              <Field label="Weight (kg)" error={form.weightKg && "error" in weight ? weight.error : null}>
+              <Field
+                label="Weight (kg)"
+                hint={`Maximum chargeable weight: ${kilogramsLabel(maxWeightGrams)} kg (actual or volumetric).`}
+                error={form.weightKg && "error" in weight ? weight.error : weightLimitError}
+              >
                 <Input
                   value={form.weightKg}
                   onChange={set("weightKg")}

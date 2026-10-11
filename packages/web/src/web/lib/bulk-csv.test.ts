@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { chunk, prepareBulkCsv, TEMPLATE_HEADER } from "./bulk-csv";
-import { kgToGrams, rupeesToCents } from "./csv";
+import { chargeableWeightGrams, kgToGrams, rupeesToCents } from "./csv";
 
 const HEADER = TEMPLATE_HEADER.join(",");
 function row({
@@ -27,6 +27,11 @@ function row({
 describe("kgToGrams", () => {
   test.each([["1", 1000], ["0.75", 750], ["1.005", 1005], ["2.5 kg", 2500], ["1,250", 1_250_000]])("%s → %d g", (raw, grams) => expect(kgToGrams(raw)).toEqual({ grams }));
   test.each(["", "abc", "-1", "1.0005", "1e3"])("%p refused", (raw) => expect("error" in kgToGrams(raw)).toBe(true));
+  test("a booking form can enforce a lower live cap and dimensions count as chargeable weight", () => {
+    expect(kgToGrams("20", 20_000)).toEqual({ grams: 20_000 });
+    expect("error" in kgToGrams("20.5", 20_000)).toBe(true);
+    expect(chargeableWeightGrams(1000, 40, 30, 20)).toBe(4800);
+  });
 });
 
 describe("rupeesToCents (used by bulk rows)", () => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc, mutate, deskProc } from "../middleware/pipeline";
+import { adminProc, mutate, deskProc, authedProc } from "../middleware/pipeline";
 import * as settingsService from "../modules/settings/service";
 import { errors } from "../shared/errors";
 
@@ -15,6 +15,9 @@ import { errors } from "../shared/errors";
 const key = z.enum(Object.values(settingsService.SETTING_KEYS) as [settingsService.SettingKey, ...settingsService.SettingKey[]]);
 
 export const list = deskProc.handler(() => settingsService.listSettings());
+
+/** Only this non-sensitive cap is exposed to app clients; edits remain Admin-only. */
+export const bookingLimits = authedProc.handler(() => settingsService.bookingLimits());
 
 export const set = adminProc
   .input(z.object({ key, value: z.number(), reason: z.string().trim().min(5).max(500) }))
@@ -38,4 +41,4 @@ export const set = adminProc
     );
   });
 
-export const settings = { list, set };
+export const settings = { list, set, bookingLimits };

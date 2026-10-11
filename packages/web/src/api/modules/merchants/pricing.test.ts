@@ -126,6 +126,26 @@ describe("rate-card pricing arithmetic", () => {
     })).toThrow("30 kg");
   });
 
+  test("an Admin-lowered runtime limit applies to actual and volumetric chargeable weight", () => {
+    const limitedVersion = { ...version, maxAcceptedWeightGrams: 20_000 };
+    const atLimit = quote(limitedVersion, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, {
+      band: "local",
+      weightGrams: 20_000,
+    });
+    expect(atLimit.chargeableGrams).toBe(20_000);
+    expect(() => quote(limitedVersion, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, {
+      band: "local",
+      weightGrams: 20_001,
+    })).toThrow("20 kg");
+    expect(() => quote(limitedVersion, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, {
+      band: "local",
+      weightGrams: 1000,
+      lengthCm: 101,
+      widthCm: 50,
+      heightCm: 20,
+    })).toThrow("20 kg");
+  });
+
   test("always-on percent surcharge and requested flat surcharge add up exactly", () => {
     const q = quote(version, bands, slabs, surcharges, {
       band: "local",

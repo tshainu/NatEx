@@ -213,6 +213,15 @@ cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  
   retained; no surcharge was specified. Maximum chargeable weight is 30 kg;
   larger parcels must be rejected. This is one common tariff because every
   supplied category has the same price.
+- **Runtime booking ceiling:** Admin → Settings → Business rules → *Maximum
+  chargeable parcel weight*. Admin-only, reason-required and audited; accepts
+  0.5–30 kg in 0.5 kg steps. It limits the greater of actual and volumetric
+  weight for new Merchant, staff and Counter bookings/quotes; existing parcels
+  and the approved tariff prices are unchanged. The server remains authoritative.
+  Once this feature is deployed with the updated Merchant app, the app refreshes
+  the value automatically (about every 30 seconds while open) and retains the
+  last-known value for offline display; later value changes do not require a new
+  APK. The configured ceiling cannot exceed the tariff's 30 kg coverage.
 - **Current live status:** production has one active standard card assigned to
   all 4 current branches and 4 merchants; demo has one assigned to all 3 current
   branches and 3 merchants. The original production (3) and demo (1) placeholder

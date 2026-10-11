@@ -13,6 +13,7 @@
  *   total        = freight + Σ surcharges
  */
 
+/** Absolute ceiling supported by the approved tariff; Admin may lower, never raise, this limit. */
 export const MAX_ACCEPTED_WEIGHT_GRAMS = 30_000;
 export const DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG = 5000;
 export const DEFAULT_WEIGHT_ROUNDING_GRAMS = 500;
@@ -20,6 +21,8 @@ export const DEFAULT_WEIGHT_ROUNDING_GRAMS = 500;
 export interface PricingVersion {
   volumetricDivisor: number;
   roundingGrams: number;
+  /** Runtime business-rule limit. This is not persisted in the rate-card version. */
+  maxAcceptedWeightGrams?: number;
 }
 export interface PricingBand {
   band: string;
@@ -74,6 +77,24 @@ export function volumetricGrams(l: number, w: number, h: number, divisor: number
   return Math.floor((cm3 * 1000 + divisor - 1) / divisor);
 }
 
+export function chargeableWeightGrams(
+  actualGrams: number,
+  lengthCm?: number | null,
+  widthCm?: number | null,
+  heightCm?: number | null,
+  divisor = DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
+): number {
+  const volumetric = lengthCm && widthCm && heightCm
+    ? volumetricGrams(lengthCm, widthCm, heightCm, divisor)
+    : 0;
+  return Math.max(actualGrams, volumetric);
+}
+
+export function chargeableWeightLimitMessage(maxGrams: number): string {
+  const kg = maxGrams % 1000 === 0 ? String(maxGrams / 1000) : (maxGrams / 1000).toFixed(1);
+  return `Chargeable weight cannot exceed ${kg} kg; larger parcels are not accepted.`;
+}
+
 export function roundUp(grams: number, step: number): number {
   return Math.ceil(grams / step) * step;
 }
@@ -103,12 +124,13 @@ export function quote(
       ? volumetricGrams(input.lengthCm, input.widthCm, input.heightCm, version.volumetricDivisor)
       : 0;
   const chargeable = Math.max(input.weightGrams, vol);
-  if (chargeable > MAX_ACCEPTED_WEIGHT_GRAMS) {
-    throw new PricingError("Chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  const limitGrams = Math.min(version.maxAcceptedWeightGrams ?? MAX_ACCEPTED_WEIGHT_GRAMS, MAX_ACCEPTED_WEIGHT_GRAMS);
+  if (chargeable > limitGrams) {
+    throw new PricingError(chargeableWeightLimitMessage(limitGrams));
   }
   const rounded = roundUp(chargeable, version.roundingGrams);
-  if (rounded > MAX_ACCEPTED_WEIGHT_GRAMS) {
-    throw new PricingError("Rounded chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  if (rounded > limitGrams) {
+    throw new PricingError(chargeableWeightLimitMessage(limitGrams));
   }
 
   const lines: QuoteLine[] = [];

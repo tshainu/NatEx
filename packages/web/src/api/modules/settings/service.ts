@@ -13,11 +13,13 @@
 
 import { db } from "../../database";
 import { settingValue as settingTable } from "../../database/schema/settings";
+import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../merchants/pricing";
 import { MAX_DELIVERY_ATTEMPTS } from "../parcels/state-machine";
 
 export const SETTING_KEYS = {
   NDR_SLA_HOURS: "ndr_sla_hours",
   PICKUP_HORIZON_DAYS: "pickup_horizon_days",
+  MAX_CHARGEABLE_WEIGHT_GRAMS: "max_chargeable_weight_grams",
   DELIVERY_OTP_TTL_MINUTES: "delivery_otp_ttl_minutes",
   CLOCK_SKEW_ALERT_MINUTES: "clock_skew_alert_minutes",
   SESSION_IDLE_MINUTES: "session_idle_minutes",
@@ -33,7 +35,7 @@ interface SettingSpec {
   key: SettingKey;
   group: SettingGroup;
   label: string;
-  unit: "hours" | "days" | "minutes" | "boolean";
+  unit: "hours" | "days" | "minutes" | "grams" | "boolean";
   value: number;
   min: number;
   max: number;
@@ -63,6 +65,17 @@ export const SETTING_SPECS: SettingSpec[] = [
     max: 60,
     description: "How far ahead a merchant may book a pickup",
     note: "M3 default. Not specified in PROJECT.md.",
+  },
+  {
+    key: SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS,
+    group: "business",
+    label: "Maximum chargeable parcel weight",
+    unit: "grams",
+    value: MAX_ACCEPTED_WEIGHT_GRAMS,
+    min: 500,
+    max: MAX_ACCEPTED_WEIGHT_GRAMS,
+    description: "Maximum of actual or volumetric weight accepted for new bookings. Applies to Merchant, staff and Counter booking; existing parcels are unchanged.",
+    note: "The active tariff supports up to 30 kg. Admin may lower the limit in 0.5 kg steps; raising above the approved tariff ceiling is not allowed.",
   },
   {
     key: SETTING_KEYS.DELIVERY_OTP_TTL_MINUTES,
@@ -152,6 +165,13 @@ export async function settingFlag(key: SettingKey): Promise<boolean> {
   return (await settingValue(key)) === 1;
 }
 
+/** Minimal non-sensitive policy returned to authenticated booking clients. */
+export async function bookingLimits(): Promise<{ maxChargeableWeightGrams: number }> {
+  return {
+    maxChargeableWeightGrams: await settingValue(SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS),
+  };
+}
+
 export function specOf(key: SettingKey): SettingSpec {
   return SETTING_SPECS.find((s) => s.key === key)!;
 }
@@ -162,6 +182,9 @@ export function settingProblem(key: SettingKey, value: number): string | null {
   if (!Number.isInteger(value)) return "Must be a whole number.";
   if (spec.unit === "boolean" && value !== 0 && value !== 1) return "A switch is 0 (off) or 1 (on).";
   if (value < spec.min || value > spec.max) return `Must be between ${spec.min} and ${spec.max} ${spec.unit}.`;
+  if (key === SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS && value % 500 !== 0) {
+    return "Maximum chargeable weight must be set in 0.5 kg steps.";
+  }
   return null;
 }
 

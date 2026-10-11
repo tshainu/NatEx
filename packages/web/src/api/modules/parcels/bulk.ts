@@ -3,6 +3,8 @@ import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { normaliseLkPhone } from "../../shared/sms";
 import { getMerchant } from "../merchants/service";
+import { chargeableWeightGrams, chargeableWeightLimitMessage, DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG, MAX_ACCEPTED_WEIGHT_GRAMS } from "../merchants/pricing";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 import { checkMerchantAwb } from "./awb-batches";
 import { createParcel } from "./service";
 import { roleMayCommand } from "./state-machine";
@@ -60,7 +62,7 @@ export const bulkRowSchema = z.object({
     .number({ error: "Weight (grams) is required" })
     .int("Weight is whole grams")
     .min(1, "Weight must be at least 1 g")
-    .max(200_000, "Weight over 200 kg — book as freight"),
+    .max(MAX_ACCEPTED_WEIGHT_GRAMS, "Weight over 30 kg — not accepted"),
   lengthCm: optionalCm,
   widthCm: optionalCm,
   heightCm: optionalCm,
@@ -137,6 +139,7 @@ export async function bulkCreateParcels(
       merchantStatus: owner!.status,
     });
   }
+  const configuredWeightLimit = await settingValue(SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS);
 
   const valid: BulkRow[] = [];
   const rejected: BulkRejected[] = [];
@@ -153,6 +156,19 @@ export async function bulkCreateParcels(
           field: i.path.join(".") || "row",
           message: i.message,
         }));
+
+    if (parsed.success) {
+      const chargeable = chargeableWeightGrams(
+        parsed.data.weightGrams,
+        parsed.data.lengthCm,
+        parsed.data.widthCm,
+        parsed.data.heightCm,
+        DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
+      );
+      if (chargeable > configuredWeightLimit) {
+        rowErrors.push({ field: "weightGrams", message: chargeableWeightLimitMessage(configuredWeightLimit) });
+      }
+    }
 
     if (parsed.success && parsed.data.codAmountCents > 0 && !owner!.codEnabled) {
       rowErrors.push({ field: "codAmountCents", message: `${owner!.name} is not enabled for COD` });

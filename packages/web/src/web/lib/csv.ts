@@ -154,7 +154,9 @@ export async function collectPages<T>(
  * string arithmetic as `rupeesToCents`: "1.25" is 1250 g exactly, a fourth
  * decimal place is refused rather than rounded.
  */
-export function kgToGrams(raw: string): { grams: number } | { error: string } {
+export const DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS = 30_000;
+
+export function kgToGrams(raw: string, maxGrams?: number): { grams: number } | { error: string } {
   const text = raw.trim().replace(/\s*kg$/i, "").replace(/,/g, "");
   if (text === "") return { error: "Weight is required." };
   if (!/^\d+(\.\d+)?$/.test(text)) return { error: `"${raw.trim()}" is not a weight in kg.` };
@@ -162,5 +164,33 @@ export function kgToGrams(raw: string): { grams: number } | { error: string } {
   if (frac.length > 3) return { error: `"${raw.trim()}" is finer than a gram.` };
   const grams = Number(whole) * 1000 + Number(frac.padEnd(3, "0"));
   if (!Number.isSafeInteger(grams)) return { error: `"${raw.trim()}" is too large.` };
+  if (grams <= 0) return { error: "Weight must be above zero." };
+  if (maxGrams !== undefined && grams > maxGrams) {
+    const maxKg = maxGrams % 1000 === 0 ? String(maxGrams / 1000) : (maxGrams / 1000).toFixed(1);
+    return { error: `Weight cannot exceed ${maxKg} kg.` };
+  }
   return { grams };
+}
+
+export function volumetricWeightGrams(
+  lengthCm: number | null,
+  widthCm: number | null,
+  heightCm: number | null,
+  divisor = 5000,
+): number {
+  if (!lengthCm || !widthCm || !heightCm) return 0;
+  return Math.floor((lengthCm * widthCm * heightCm * 1000 + divisor - 1) / divisor);
+}
+
+export function chargeableWeightGrams(
+  actualGrams: number,
+  lengthCm: number | null,
+  widthCm: number | null,
+  heightCm: number | null,
+): number {
+  return Math.max(actualGrams, volumetricWeightGrams(lengthCm, widthCm, heightCm));
+}
+
+export function kilogramsLabel(grams: number): string {
+  return grams % 1000 === 0 ? String(grams / 1000) : (grams / 1000).toFixed(1);
 }

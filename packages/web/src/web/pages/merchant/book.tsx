@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
-import { apiMessage, client } from "@/lib/api";
-import { kgToGrams, rupeesToCents } from "@/lib/csv";
+import { apiMessage, client, orpc } from "@/lib/api";
+import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { FIELD_TO_HEADER } from "@/lib/bulk-csv";
 import { money } from "@/lib/format";
 import { Page, Card, ErrorNote } from "@/components/natex/page";
@@ -120,6 +120,12 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
   const [pending, setPending] = React.useState(false);
   const [booked, setBooked] = React.useState<{ awb: string; cod: number } | null>(null);
   const [checkedAwb, setCheckedAwb] = React.useState("");
+  const bookingLimits = useQuery({
+    ...orpc.settings.bookingLimits.queryOptions(),
+    staleTime: 0,
+    refetchInterval: 30_000,
+  });
+  const maxWeightGrams = bookingLimits.data?.maxChargeableWeightGrams ?? DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS;
   React.useEffect(() => {
     const timer = setTimeout(() => setCheckedAwb(form.awb.trim().toUpperCase()), 400);
     return () => clearTimeout(timer);
@@ -145,7 +151,7 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
     setFieldErrors((fe) => ({ ...fe, destAddress: undefined }));
   };
 
-  const weight = kgToGrams(form.weightKg);
+  const weight = kgToGrams(form.weightKg, maxWeightGrams);
   const cod = rupeesToCents(form.cod);
   const declared = rupeesToCents(form.declared);
 
@@ -155,8 +161,22 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
     if ("error" in weight) local.weightKg = weight.error;
     if ("error" in cod) local.cod = cod.error;
     if ("error" in declared) local.declared = declared.error;
+    const dimensions: Record<"lengthCm" | "widthCm" | "heightCm", number | null> = {
+      lengthCm: null,
+      widthCm: null,
+      heightCm: null,
+    };
     for (const k of ["lengthCm", "widthCm", "heightCm"] as const) {
-      if (form[k].trim() && !/^\d+$/.test(form[k].trim())) local[k] = "Whole centimetres";
+      if (!form[k].trim()) continue;
+      const parsed = Number(form[k].trim());
+      if (!/^\d+$/.test(form[k].trim()) || parsed < 1 || parsed > 500) local[k] = "Use whole centimetres from 1 to 500.";
+      else dimensions[k] = parsed;
+    }
+    if ("grams" in weight && !Object.keys(local).some((key) => ["lengthCm", "widthCm", "heightCm"].includes(key))) {
+      const chargeable = chargeableWeightGrams(weight.grams, dimensions.lengthCm, dimensions.widthCm, dimensions.heightCm);
+      if (chargeable > maxWeightGrams) {
+        local.weightKg = `Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`;
+      }
     }
     if (Object.keys(local).length) {
       setFieldErrors(local);
@@ -307,7 +327,7 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
           <Card title="Parcel">
             <div className="space-y-4">
               <div className="grid grid-cols-4 gap-3">
-                <Field label="Weight (kg)" error={fieldErrors.weightKg}>
+                <Field label="Weight (kg)" hint={`Maximum chargeable weight: ${kilogramsLabel(maxWeightGrams)} kg (greater of actual or volumetric weight).`} error={fieldErrors.weightKg}>
                   <Input value={form.weightKg} onChange={set("weightKg")} inputMode="decimal" className="font-mono" required />
                 </Field>
                 <Field label="L (cm)" error={fieldErrors.lengthCm}>

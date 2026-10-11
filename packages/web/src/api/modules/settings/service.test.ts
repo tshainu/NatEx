@@ -17,4 +17,15 @@ describe("settings validation", () => {
     expect(settingProblem(SETTING_KEYS.SESSION_IDLE_MINUTES, 30)).toBeNull();
     expect(settingProblem(SETTING_KEYS.SESSION_MAX_DAYS, 30)).toBeNull();
   });
+
+  test("chargeable-weight setting is bounded by tariff coverage and accepts 0.5 kg steps", () => {
+    const key = SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS;
+    expect(SETTING_SPECS.find((spec) => spec.key === key)?.value).toBe(30_000);
+    expect(settingProblem(key, 500)).toBeNull();
+    expect(settingProblem(key, 20_000)).toBeNull();
+    expect(settingProblem(key, 30_000)).toBeNull();
+    expect(settingProblem(key, 0)).toContain("between 500 and 30000 grams");
+    expect(settingProblem(key, 30_500)).toContain("between 500 and 30000 grams");
+    expect(settingProblem(key, 20_250)).toContain("0.5 kg steps");
+  });
 });

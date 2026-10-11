@@ -2,7 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Printer, RotateCcw, Search } from "lucide-react";
 import { client, orpc, apiMessage } from "@/lib/api";
-import { kgToGrams, rupeesToCents } from "@/lib/csv";
+import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { addressPartsFromLegacy, formatAddress, isCompleteAddress, EMPTY_ADDRESS, provinceForDistrict, type AddressParts } from "@/lib/address";
 import { money } from "@/lib/format";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
@@ -84,6 +84,12 @@ export default function RetailFreightCounter() {
   const [historyTerm, setHistoryTerm] = React.useState("");
   const [historySearch, setHistorySearch] = React.useState("");
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
+  const bookingLimits = useQuery({
+    ...orpc.settings.bookingLimits.queryOptions(),
+    staleTime: 0,
+    refetchInterval: 30_000,
+  });
+  const maxWeightGrams = bookingLimits.data?.maxChargeableWeightGrams ?? DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS;
   const branches: BranchOption[] = canChooseBranch
     ? branchOptions.data ?? []
     : homeBranch.data
@@ -116,7 +122,7 @@ export default function RetailFreightCounter() {
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => setForm((previous) => ({ ...previous, [key]: event.target.value }));
 
-  const weight = kgToGrams(form.weightKg);
+  const weight = kgToGrams(form.weightKg, maxWeightGrams);
   const declared = form.declaredValue.trim() ? rupeesToCents(form.declaredValue) : null;
   const declaredCents = declared && "cents" in declared ? declared.cents : null;
   const dimension = (value: string) => value.trim() ? Number(value) : null;
@@ -124,6 +130,12 @@ export default function RetailFreightCounter() {
   const widthCm = dimension(form.widthCm);
   const heightCm = dimension(form.heightCm);
   const dimensionsValid = [lengthCm, widthCm, heightCm].every((value) => value === null || (Number.isSafeInteger(value) && value > 0));
+  const chargeableWeight = "grams" in weight && dimensionsValid
+    ? chargeableWeightGrams(weight.grams, lengthCm, widthCm, heightCm)
+    : null;
+  const weightLimitError = chargeableWeight !== null && chargeableWeight > maxWeightGrams
+    ? `Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`
+    : null;
   const destinationAddress = formatAddress(form.destAddress);
   const quoteInput = {
     branchId: form.branchId || "_",
@@ -133,7 +145,7 @@ export default function RetailFreightCounter() {
     heightCm,
     destinationAddress: destinationAddress || "____",
   };
-  const canQuote = Boolean(form.branchId && "grams" in weight && weight.grams > 0 && dimensionsValid && isCompleteAddress(form.destAddress));
+  const canQuote = Boolean(form.branchId && "grams" in weight && weight.grams > 0 && dimensionsValid && !weightLimitError && isCompleteAddress(form.destAddress));
   const priceQuote = useQuery({
     ...orpc.freight.counterQuote.queryOptions({ input: quoteInput }),
     enabled: canQuote,
@@ -224,7 +236,7 @@ export default function RetailFreightCounter() {
 
   const valid = Boolean(
     form.branchId && "grams" in weight && weight.grams > 0 &&
-    dimensionsValid && priceQuote.data && priceQuote.data.totalCents > 0 && !priceQuote.isFetching && !priceQuote.isError &&
+    dimensionsValid && !weightLimitError && priceQuote.data && priceQuote.data.totalCents > 0 && !priceQuote.isFetching && !priceQuote.isError &&
     (!declared || "cents" in declared) &&
     form.description.trim().length >= 3 && form.description.trim().length <= 500 &&
     (!form.awb.trim() || (completeAwbFormat && awbCheck.data?.valid && !awbCheck.isFetching && !awbCheck.isError)) &&
@@ -320,7 +332,7 @@ export default function RetailFreightCounter() {
                     <Input value={form.description} onChange={set("description")} maxLength={500} required placeholder="e.g. Clothing, documents, or household items" />
                   </Field>
                   <div className="grid grid-cols-4 gap-3">
-                    <Field label="Weight (kg)" error={"error" in weight ? weight.error : null}><Input value={form.weightKg} onChange={set("weightKg")} inputMode="decimal" required /></Field>
+                    <Field label="Weight (kg)" hint={`Maximum chargeable weight: ${kilogramsLabel(maxWeightGrams)} kg (actual or volumetric).`} error={"error" in weight ? weight.error : weightLimitError}><Input value={form.weightKg} onChange={set("weightKg")} inputMode="decimal" required /></Field>
                     <Field label="L (cm)"><Input value={form.lengthCm} onChange={set("lengthCm")} inputMode="numeric" /></Field>
                     <Field label="W (cm)"><Input value={form.widthCm} onChange={set("widthCm")} inputMode="numeric" /></Field>
                     <Field label="H (cm)"><Input value={form.heightCm} onChange={set("heightCm")} inputMode="numeric" /></Field>

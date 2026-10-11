@@ -12,6 +12,7 @@ import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import { districtFromAddress } from "../../shared/address";
 import * as identityService from "../identity/service";
+import { SETTING_KEYS, settingValue } from "../settings/service";
 import {
   DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
   DEFAULT_WEIGHT_ROUNDING_GRAMS,
@@ -320,11 +321,12 @@ export async function discardDraft(versionId: string) {
 /** Price a parcel against a specific version (preview — drafts included). */
 export async function quoteVersion(versionId: string, input: QuoteInput) {
   const { card, version, bands, slabs, surcharges } = await getVersion(versionId);
+  const maxAcceptedWeightGrams = await settingValue(SETTING_KEYS.MAX_CHARGEABLE_WEIGHT_GRAMS);
   try {
     return {
       rateCard: { id: card.id, code: card.code, name: card.name, placeholder: card.placeholder },
       version: { id: version.id, version: version.version, status: version.status },
-      ...quote(version, bands, slabs, surcharges, input),
+      ...quote({ ...version, maxAcceptedWeightGrams }, bands, slabs, surcharges, input),
     };
   } catch (error) {
     if (error instanceof PricingError) errors.badRequest(error.message);

@@ -13,6 +13,14 @@ import { Awb, Body, Label, Small, Title } from "../../components/natex/text";
 import { apiMessage, client, orpc } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { parseRupeesToCents } from "../../lib/format";
+import { getItem, setItem } from "../../lib/storage";
+import {
+  chargeableWeightGrams,
+  isValidWeightLimitGrams,
+  kilogramsLabel,
+  MAX_TARIFF_WEIGHT_GRAMS,
+  parseKilograms,
+} from "../../lib/weight";
 import { useColors } from "../../hooks/use-colors";
 import { Space } from "../../constants/theme";
 import { invalidAwbPulse } from "../../lib/feedback";
@@ -45,12 +53,7 @@ const INITIAL: BookingForm = {
   declared: "",
 };
 
-function parseKilograms(raw: string): number | null {
-  const match = /^(\d{1,3})(?:\.(\d{1,3}))?$/.exec(raw.trim());
-  if (!match) return null;
-  const grams = Number(match[1]) * 1000 + Number((match[2] ?? "").padEnd(3, "0"));
-  return grams > 0 && grams <= 200_000 ? grams : null;
-}
+const CACHED_WEIGHT_LIMIT_KEY = "natex.merchant.max-chargeable-weight-grams";
 
 function parseOptionalCm(raw: string): number | null | false {
   if (!raw.trim()) return null;
@@ -63,6 +66,15 @@ export default function MerchantBook() {
   const colors = useColors();
   const queryClient = useQueryClient();
   const merchantId = useAuth().session?.user.merchantId;
+  const bookingLimits = useQuery({
+    queryKey: ["merchant-booking-limits"],
+    queryFn: () => client.settings.bookingLimits(),
+    enabled: Boolean(merchantId),
+    staleTime: 0,
+    refetchInterval: 30_000,
+    retry: 1,
+  });
+  const [cachedWeightLimit, setCachedWeightLimit] = useState<number | null>(null);
   const profile = useQuery({
     ...orpc.merchants.list.queryOptions({ input: { page: 1, pageSize: 1 } }),
     select: (result) => result.rows[0] ?? null,
@@ -77,6 +89,23 @@ export default function MerchantBook() {
   const keyRef = useRef<string | null>(null);
   const codEnabled = profile.data?.codEnabled ?? true;
   const inactive = profile.data ? profile.data.status !== "active" : false;
+  useEffect(() => {
+    let mounted = true;
+    void getItem(CACHED_WEIGHT_LIMIT_KEY).then((stored) => {
+      const grams = Number(stored);
+      if (mounted && isValidWeightLimitGrams(grams)) setCachedWeightLimit(grams);
+    });
+    return () => { mounted = false; };
+  }, []);
+  useEffect(() => {
+    const grams = bookingLimits.data?.maxChargeableWeightGrams;
+    if (!isValidWeightLimitGrams(grams)) return;
+    setCachedWeightLimit(grams);
+    void setItem(CACHED_WEIGHT_LIMIT_KEY, String(grams));
+  }, [bookingLimits.data]);
+  const maxWeightGrams = isValidWeightLimitGrams(bookingLimits.data?.maxChargeableWeightGrams)
+    ? bookingLimits.data.maxChargeableWeightGrams
+    : cachedWeightLimit ?? MAX_TARIFF_WEIGHT_GRAMS;
   const normalizedAwb = checkedAwb.trim().toUpperCase();
   const awbCheck = useQuery({
     queryKey: ["merchant-awb-availability", merchantId, normalizedAwb],
@@ -121,6 +150,29 @@ export default function MerchantBook() {
     setError(null);
   };
 
+  const previewWeightGrams = parseKilograms(form.weightKg);
+  const previewDimensions = {
+    lengthCm: parseOptionalCm(form.lengthCm),
+    widthCm: parseOptionalCm(form.widthCm),
+    heightCm: parseOptionalCm(form.heightCm),
+  };
+  const previewDimensionsValid = !Object.values(previewDimensions).some((value) => value === false);
+  const previewChargeableGrams = previewWeightGrams !== null && previewDimensionsValid
+    ? chargeableWeightGrams(
+        previewWeightGrams,
+        previewDimensions.lengthCm === false ? null : previewDimensions.lengthCm,
+        previewDimensions.widthCm === false ? null : previewDimensions.widthCm,
+        previewDimensions.heightCm === false ? null : previewDimensions.heightCm,
+      )
+    : null;
+  const weightFieldError = form.weightKg.trim()
+    ? previewWeightGrams === null
+      ? `Enter a weight from 0.001 to ${kilogramsLabel(MAX_TARIFF_WEIGHT_GRAMS)} kg.`
+      : previewChargeableGrams !== null && previewChargeableGrams > maxWeightGrams
+        ? `Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`
+        : null
+    : null;
+
   const submit = async () => {
     setError(null);
     if (!merchantId) return setError("This login is not linked to a merchant account. Contact NatEx operations.");
@@ -145,13 +197,22 @@ export default function MerchantBook() {
     if (form.consigneePhone.trim().length < 9) return setError("Enter a valid consignee phone number.");
 
     const weightGrams = parseKilograms(form.weightKg);
-    if (weightGrams === null) return setError("Enter a parcel weight from 0.001 to 200 kg.");
+    if (weightGrams === null) return setError(`Enter a parcel weight from 0.001 to ${kilogramsLabel(MAX_TARIFF_WEIGHT_GRAMS)} kg.`);
     const dimensions = {
       lengthCm: parseOptionalCm(form.lengthCm),
       widthCm: parseOptionalCm(form.widthCm),
       heightCm: parseOptionalCm(form.heightCm),
     };
     if (Object.values(dimensions).some((value) => value === false)) return setError("Dimensions must be whole centimetres from 1 to 500.");
+    const chargeableWeight = chargeableWeightGrams(
+      weightGrams,
+      dimensions.lengthCm === false ? null : dimensions.lengthCm,
+      dimensions.widthCm === false ? null : dimensions.widthCm,
+      dimensions.heightCm === false ? null : dimensions.heightCm,
+    );
+    if (chargeableWeight > maxWeightGrams) {
+      return setError(`Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`);
+    }
 
     const cod = form.cod.trim() ? parseRupeesToCents(form.cod) : 0;
     const declared = form.declared.trim() ? parseRupeesToCents(form.declared) : 0;
@@ -252,7 +313,15 @@ export default function MerchantBook() {
 
           <Card>
             <Title>Parcel details</Title>
-            <Input label="Weight (kg)" value={form.weightKg} onChangeText={set("weightKg")} keyboardType="decimal-pad" placeholder="e.g. 1.25" hint="From 0.001 to 200 kg" />
+            <Input
+              label="Weight (kg)"
+              value={form.weightKg}
+              onChangeText={set("weightKg")}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 1.25"
+              hint={`Max chargeable weight: ${kilogramsLabel(maxWeightGrams)} kg (actual or volumetric).${!bookingLimits.data && cachedWeightLimit !== null ? " Showing the last saved value until online; NatEx rechecks on booking." : " Updates automatically from NatEx settings."}`}
+              error={weightFieldError}
+            />
             <View style={styles.dimensionRow}>
               <Input label="Length (cm)" value={form.lengthCm} onChangeText={set("lengthCm")} keyboardType="number-pad" placeholder="Optional" />
               <Input label="Width (cm)" value={form.widthCm} onChangeText={set("widthCm")} keyboardType="number-pad" placeholder="Optional" />
