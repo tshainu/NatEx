@@ -441,8 +441,14 @@ Live dev server + Turso DB, after the milestone bump and every security edit
   with 6+ digits on the raw `before_json`/`after_json`; all 6 payout rows show `****NNNN`).
   Caveat: a regex scan, not a schema-aware one.
 
+Resolved and shipped:
+- §15 q3 standard tariff — owner-approved, published as `NATEX-STANDARD-2026`
+  v1, deployed and active on production and demo on 2026-10-11. Production
+  assignments: 4/4 branches and 4/4 merchants; demo: 3/3 and 3/3. Nine and
+  seven tariff/assignment audit events were verified respectively. Historical
+  placeholder cards/versions remain preserved.
+
 Open, not invented:
-- §15 q3 standard tariff — values clarified and owner-approved 2026-10-11; local implementation and validation are complete, while publication/deployment and live setup remain pending owner approval. Production/demo remain placeholder-only and unassigned.
 - §15 q10 VAT/SSCL — arithmetic exists, seeded off.
 - Sentry DSN and Uptime Kuma host — not provided; wiring documented only.
 - Rider/transport app never run on a physical phone (Expo web in headless Chrome only).

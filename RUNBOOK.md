@@ -204,7 +204,8 @@ cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  
 
 - The rate-card engine is built: weight bands, zones, versions, a draft →
   publish flow, frozen published versions, assignment per merchant, and quote.
-- **Owner-approved standard schedule (2026-10-11; release still pending):** Rs
+- **Owner-approved standard schedule (deployed and active in production and
+  demo on 2026-10-11; `NATEX-STANDARD-2026`, v1):** Rs
   400 up to 1 kg; add Rs 250 per started extra kg above 1 through 3 kg; add Rs
   150 per started extra kg above 3 through 10 kg; add Rs 130 per started extra
   kg above 10 through 30 kg. Same prices apply local/outstation and
@@ -212,14 +213,16 @@ cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  
   retained; no surcharge was specified. Maximum chargeable weight is 30 kg;
   larger parcels must be rejected. This is one common tariff because every
   supplied category has the same price.
-- **Current live status:** production has three placeholder cards; demo has
-  one. None is assigned to a merchant or branch, so no approved tariff is live
-  yet. Preserve these placeholder/version records for audit; do not hard-delete
-  them. The locally tested code and tariff have not been published or activated.
+- **Current live status:** production has one active standard card assigned to
+  all 4 current branches and 4 merchants; demo has one assigned to all 3 current
+  branches and 3 merchants. The original production (3) and demo (1) placeholder
+  card/version records remain unchanged for history; never hard-delete them.
 - **To publish a card** (admin): Admin → Rate cards → card → *New draft*, edit
   bands, then *Publish* with a reason. The previous version is superseded,
   never edited. Then assign it to a merchant from Ops → Merchants → merchant.
-- **Owner-approved NatEx standard setup:** after the release is approved, run
+- **Owner-approved NatEx standard setup:** the initial production/demo apply
+  completed on 2026-10-11. The idempotent utility remains available for a
+  read-only inspection or safe reconciliation; run
   `bun scripts/apply-standard-rate-card.ts --target=production` in the production
   service environment to inspect the plan (read-only remote queries; no writes).
   Before applying, independently capture the database fingerprint from the exact

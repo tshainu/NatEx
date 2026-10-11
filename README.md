@@ -16,9 +16,9 @@ build log with every verification run is `task.md`.
 | M4 Money | COD ledger, rider cash and deposits, four-way reconciliation, settlements with maker–checker, holds, payout file, invoices and credit notes, AR, disputes and claims, finance portal |
 | M5 Admin & Hardening | Admin portal (users, roles, branches, zones, rate cards, merchant onboarding), SLA/business settings, notification template editor, audit viewer, TOTP MFA + session policy, job monitor, readiness probe, backup/restore drill, load test, security review, runbook |
 
-Nothing is stubbed with fake data. The standard tariff was owner-confirmed on
-2026-10-11 but is awaiting release; genuinely unanswered items remain under
-[Open questions](#open-questions-15).
+Nothing is stubbed with fake data. The owner-approved standard tariff was
+released and activated in production and demo on 2026-10-11. Genuinely
+unanswered items remain under [Open questions](#open-questions-15).
 
 ---
 
@@ -135,18 +135,21 @@ Further gaps worth naming plainly:
 
 ---
 
+## Resolved decisions (§15)
+
+- **q3 — standard tariff (active in production and demo from 2026-10-11).**
+  `NATEX-STANDARD-2026` v1: Rs 400 up to 1 kg; Rs 250 per started extra kg
+  above 1 through 3 kg; Rs 150 per started extra kg above 3 through 10 kg; Rs
+  130 per started extra kg above 10 through 30 kg. Local/outstation and
+  COD/non-COD prices are identical. Existing 500 g rounding and 5,000 cm³/kg
+  volumetric divisor are retained; chargeable weight above 30 kg is refused.
+  Production is assigned to all 4 branches/4 merchants; demo to all 3/3.
+  Historical placeholder cards and versions were preserved. Counter bookings
+  use the assigned branch card. Merchant assignments support quotes, but
+  merchant parcel booking/invoices do not automatically apply those quotes.
+
 ## Open questions (§15)
 
-- **q3 — standard tariff: owner-approved values, release pending (2026-10-11).**
-  Rs 400 up to 1 kg; Rs 250 per started extra kg above 1 through 3 kg; Rs 150
-  per started extra kg above 3 through 10 kg; Rs 130 per started extra kg above
-  10 through 30 kg. Local/outstation and COD/non-COD values are identical; no
-  surcharge was supplied. Existing 500 g rounding and 5,000 cm³/kg volumetric
-  divisor are retained; chargeable weight above 30 kg must be refused. The local
-  implementation is not published yet: production/demo still have only
-  placeholder cards and no assignments. Counter bookings use an assigned
-  branch card; merchant rate cards currently provide quotes but are not
-  automatically applied to merchant parcel booking/invoices.
 - **q10 — VAT / SSCL: OPEN.** The tax arithmetic on invoices exists and is
   seeded **off**. Rates and registration must come from the client's tax advisor.
 
