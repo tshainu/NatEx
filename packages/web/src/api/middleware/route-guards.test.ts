@@ -125,6 +125,10 @@ describe("route guards (static inventory)", () => {
     expect(byPath.get("awbBatches.checkMany")?.roles).toEqual(["merchant"]);
   });
 
+  test("branch AWB live validation is limited to Operations and Admin", () => {
+    expect(byPath.get("awbBatches.checkBranch")?.roles).toEqual(["ops", "admin"]);
+  });
+
   test("only Rider-role sessions can scan pickup manifests or accept custody", () => {
     expect(byPath.get("collection.scan")?.roles).toEqual(["rider"]);
     expect(byPath.get("collection.handover")?.roles).toEqual(["rider"]);

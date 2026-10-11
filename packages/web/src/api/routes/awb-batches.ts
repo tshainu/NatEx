@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc, merchantProc, mutate } from "../middleware/pipeline";
+import { adminProc, merchantProc, mutate, opsProc } from "../middleware/pipeline";
 import * as awbBatchService from "../modules/parcels/awb-batches";
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
@@ -70,4 +70,17 @@ export const checkMany = merchantProc
     return awbBatchService.checkMerchantAwbs(merchantId, input.awbs);
   });
 
-export const awbBatches = { list, generate, assign, labels, check, checkMany };
+/** Live counter-form check; branch operators cannot probe another location's stock. */
+export const checkBranch = opsProc
+  .input(z.object({
+    branchId: z.string().min(1).max(100),
+    awb: z.string().trim().min(1).max(24),
+  }))
+  .handler(({ input, context }) => {
+    if (context.principal.role !== "admin" && context.principal.branchId !== input.branchId) {
+      return errors.forbidden("A branch operator may only validate AWBs assigned to their own branch or hub.");
+    }
+    return awbBatchService.checkBranchAwb(input.branchId, input.awb);
+  });
+
+export const awbBatches = { list, generate, assign, labels, check, checkMany, checkBranch };

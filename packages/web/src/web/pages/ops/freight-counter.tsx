@@ -84,6 +84,37 @@ export default function RetailFreightCounter() {
   const declaredCents = "cents" in declared ? declared.cents : 0;
   const senderAddressProvided = Object.values(form.senderAddress).some((part) => part.trim().length > 0);
   const hasCoordinates = form.destLat.trim() !== "" && form.destLng.trim() !== "";
+  const enteredAwb = form.awb.trim().toUpperCase();
+  const completeAwbFormat = /^NX\d{10}$/.test(enteredAwb);
+  const awbCheck = useQuery({
+    ...orpc.awbBatches.checkBranch.queryOptions({
+      input: { branchId: form.branchId, awb: enteredAwb || "_" },
+    }),
+    enabled: Boolean(form.branchId && completeAwbFormat),
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const awbInlineError = form.awb.trim()
+    ? !form.branchId
+      ? "Select an accepting branch / hub to validate this AWB."
+      : enteredAwb.length >= 12 && !completeAwbFormat
+        ? "Enter a valid 12-character NX AWB (NX followed by 10 digits)."
+        : awbCheck.data && !awbCheck.data.valid
+          ? awbCheck.data.reason
+          : awbCheck.isError
+            ? "Could not verify this AWB. Check your connection and try again."
+            : null
+    : null;
+  const awbHint = !form.awb.trim()
+    ? "Optional. Enter a label to check it immediately against this branch's unused AWB stock."
+    : awbCheck.isFetching
+      ? "Checking branch AWB stock…"
+      : awbCheck.data?.valid
+        ? "Available and assigned to this branch / hub."
+        : enteredAwb.length < 12
+          ? "Type the full 12-character AWB; its branch allocation will be checked automatically."
+          : undefined;
   const serviceability = useQuery({
     ...orpc.routing.checkServiceability.queryOptions({
       input: { lat: Number(form.destLat), lng: Number(form.destLng) },
@@ -123,6 +154,7 @@ export default function RetailFreightCounter() {
   const valid = Boolean(
     form.branchId && "grams" in weight && weight.grams > 0 &&
     "cents" in freight && freightCents > 0 && "cents" in declared &&
+    (!form.awb.trim() || (completeAwbFormat && awbCheck.data?.valid && !awbCheck.isFetching && !awbCheck.isError)) &&
     form.senderName.trim().length >= 2 && form.senderPhone.replace(/\D/g, "").length >= 9 &&
     form.consigneeName.trim().length >= 2 && form.consigneePhone.replace(/\D/g, "").length >= 9 &&
     (!senderAddressProvided || isCompleteAddress(form.senderAddress)) &&
@@ -177,8 +209,15 @@ export default function RetailFreightCounter() {
                     {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}</option>)}
                   </Select>
                 </Field>
-                <Field label="Branch AWB sticker" hint="Optional. If entered, it must be unused stock assigned to this branch/hub; otherwise the next branch label is reserved automatically.">
-                  <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" className="font-mono" autoCapitalize="characters" />
+                <Field label="Branch AWB sticker" hint={awbHint} error={awbInlineError}>
+                  <Input
+                    value={form.awb}
+                    onChange={(event) => setForm((previous) => ({ ...previous, awb: event.target.value.toUpperCase() }))}
+                    placeholder="NX1234567890"
+                    className="font-mono"
+                    autoCapitalize="characters"
+                    aria-invalid={Boolean(awbInlineError)}
+                  />
                 </Field>
                 <div className="grid grid-cols-4 gap-3">
                   <Field label="Weight (kg)" error={"error" in weight ? weight.error : null}><Input value={form.weightKg} onChange={set("weightKg")} inputMode="decimal" required /></Field>

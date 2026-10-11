@@ -6,7 +6,7 @@ import { merchant } from "../../database/schema/merchants";
 import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
-import { assignAwbBatch, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
+import { assignAwbBatch, checkBranchAwb, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
 import { createAwbSeries } from "./awb-series";
 import { createParcel } from "./service";
 
@@ -107,6 +107,16 @@ describe("AWB batch planning and assignment", () => {
     await assignAwbBatch(branchBatch.id, "branch", BRANCH_ID, ACTOR);
     await assignAwbBatch(hubBatch.id, "hub", HUB_ID, ACTOR);
 
+    expect(await checkBranchAwb(BRANCH_ID, branchBatch.awbStart)).toMatchObject({
+      valid: true,
+      awb: branchBatch.awbStart,
+    });
+    expect(await checkBranchAwb(HUB_ID, branchBatch.awbStart)).toMatchObject({
+      valid: false,
+      reason: "This AWB is not allocated to this branch or hub.",
+    });
+    expect((await checkBranchAwb(BRANCH_ID, "not-an-awb")).valid).toBe(false);
+
     expect(await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).toMatchObject({ valid: true, awb: merchantBatch.awbStart });
     expect((await checkMerchantAwb(MERCHANT_IDS[1]!, merchantBatch.awbStart)).valid).toBe(false);
     expect((await checkMerchantAwb(MERCHANT_IDS[0]!, "not-an-awb")).valid).toBe(false);
@@ -144,6 +154,10 @@ describe("AWB batch planning and assignment", () => {
     await reserveOneLabelAsUsed(branchBatch.awbStart, MERCHANT_IDS[1]!, BRANCH_ID);
     await reserveOneLabelAsUsed(hubBatch.awbStart, MERCHANT_IDS[2]!, HUB_ID);
 
+    expect(await checkBranchAwb(BRANCH_ID, branchBatch.awbStart)).toMatchObject({
+      valid: false,
+      reason: "This AWB has already been used. Scan an unused branch sticker.",
+    });
     expect(await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).toMatchObject({
       valid: false,
       reason: "This AWB has already been used. Scan or enter an unused sticker.",
