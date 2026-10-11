@@ -4,7 +4,16 @@
       "developmentClient": true,
       "distribution": "internal"
     },
-    "preview": {},
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "NATEX_APP_VARIANT": "merchant"
+      },
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      }
+    },
     "production": {}
   }
 }

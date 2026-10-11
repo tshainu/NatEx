@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "NX Official",
-    "slug": "mobile",
+    "slug": "nx-merchant",
+    "owner": "natxx",
     "version": "1.0.0",
     "scheme": "runable-natex-pshh6q6",
     "orientation": "portrait",
@@ -21,7 +22,10 @@
     "extra": {
       "apiUrl": "https://204-13-236-153.sslip.io/",
       "applicationId": "natex-pshh6q6",
-      "runableAuthIssuer": "https://api.runable.com/api/auth"
+      "runableAuthIssuer": "https://api.runable.com/api/auth",
+      "eas": {
+        "projectId": "e46c28ba-8ed0-43e8-9658-9429c237cc39"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png",

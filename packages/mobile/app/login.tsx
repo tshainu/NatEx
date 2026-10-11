@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { apiMessage, client } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -55,6 +56,7 @@ export default function LoginScreen() {
 function LoginForm() {
   const colors = useColors();
   const { signIn } = useAuth();
+  const isMerchantApp = Constants.expoConfig?.extra?.appVariant === "merchant";
   const [method, setMethod] = React.useState<"password" | "phone">("password");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -175,16 +177,23 @@ function LoginForm() {
   return (
     <Screen footer={footer}>
       <View style={styles.brand}>
-        <View style={[styles.logoBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.logoFrame, isMerchantApp && styles.merchantLogoFrame]}>
           <Image
-            source={require("../assets/nx-official-icon.png")}
+            source={require("../assets/natex-wordmark.jpg")}
             style={styles.logo}
             resizeMode="contain"
-            accessibilityLabel="NX Official"
+            accessibilityLabel="NatEx — We deliver trust too"
           />
         </View>
+        {isMerchantApp ? (
+          <Small color="#087C16" style={styles.merchantAppLabel}>
+            Merchant App
+          </Small>
+        ) : null}
         <Small color={colors.mutedForeground} style={styles.tagline}>
-          Sign in to NX Official. Your assigned workspace opens after sign-in.
+          {isMerchantApp
+            ? "Sign in to NX Merchant. Your merchant workspace opens after sign-in."
+            : "Sign in to NX Official. Your assigned workspace opens after sign-in."}
         </Small>
       </View>
 
@@ -295,15 +304,16 @@ function LoginForm() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   brand: { alignItems: "center", paddingTop: Space.unit * 3, paddingBottom: Space.unit * 2 },
-  logoBadge: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E3E7ED",
-    borderRadius: Space.radius,
-    paddingHorizontal: Space.unit,
+  logoFrame: { alignItems: "center", justifyContent: "center" },
+  merchantLogoFrame: {
+    borderWidth: 2,
+    borderColor: "#087C16",
+    borderRadius: 10,
+    paddingHorizontal: 6,
     paddingVertical: 4,
   },
-  logo: { width: 128, height: 128 },
+  logo: { width: 248, height: 80 },
+  merchantAppLabel: { marginTop: 6, fontWeight: "700" },
   tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
   passwordToggle: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   accountRow: {
