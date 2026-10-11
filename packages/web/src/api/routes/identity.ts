@@ -131,6 +131,9 @@ export const logout = authedProc.handler(({ context }) =>
 
 export const listBranches = staffProc.handler(() => identityService.listBranches());
 
+/** Current staff member's branch only; used for branch-scoped Counter defaults. */
+export const myBranch = staffProc.handler(({ context }) => identityService.getBranch(context.principal.branchId));
+
 export const listUsers = deskProc.handler(({ context }) =>
   identityService.listOfficialUsers(context.principal),
 );
@@ -256,6 +259,7 @@ export const identity = {
   me,
   logout,
   listBranches,
+  myBranch,
   listUsers,
   listRiders,
   pickupRiderOptions,

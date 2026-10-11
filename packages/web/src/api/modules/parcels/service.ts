@@ -7,6 +7,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
+import * as rateCardService from "../merchants/rate-cards";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
 import { chargeByRequest, createRetailChargeInTransaction, entriesForCharge } from "../freight/ledger";
@@ -872,6 +873,7 @@ export async function createParcel(
 export interface RetailCounterBookingInput {
   requestId: string;
   branchId: string;
+  rateCardVersionId: string;
   awb?: string | null;
   weightGrams: number;
   lengthCm?: number | null;
@@ -883,7 +885,6 @@ export interface RetailCounterBookingInput {
   senderPhone: string;
   senderAddress?: string | null;
   payer: "sender" | "recipient";
-  freightAmountCents: number;
   paymentMethod?: "cash" | "bank_transfer" | "qr" | "card";
   externalReference?: string | null;
   consigneeName: string;
@@ -915,9 +916,6 @@ export async function createRetailCounterBooking(
     errors.forbidden("A branch operator may only book a retail parcel at their own branch.");
   }
   if (input.requestId.trim().length < 8) errors.badRequest("A valid booking request id is required.");
-  if (!Number.isSafeInteger(input.freightAmountCents) || input.freightAmountCents <= 0) {
-    errors.badRequest("Courier freight must be a positive integer number of cents.");
-  }
   if (!Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
     errors.badRequest("Parcel weight must be a positive integer number of grams.");
   }
@@ -978,6 +976,16 @@ export async function createRetailCounterBooking(
   if (charge && !parcelRow) throw new Error("Freight booking exists without its parcel; investigate the integrity incident.");
 
   if (!charge) {
+    const priceQuote = await rateCardService.quoteForCounter(branch!.id, {
+      weightGrams: input.weightGrams,
+      lengthCm: input.lengthCm,
+      widthCm: input.widthCm,
+      heightCm: input.heightCm,
+      destinationAddress: input.destAddress,
+    });
+    if (priceQuote.version.id !== input.rateCardVersionId) {
+      errors.conflict("The Counter rate card changed after the price was quoted. Refresh the quote and review the new amount.");
+    }
     let created = false;
     for (let attempt = 0; attempt < 12 && !created; attempt += 1) {
       const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(null, branch!.id)) ?? (await uniqueAwb());
@@ -1023,7 +1031,8 @@ export async function createRetailCounterBooking(
             branchId: branch!.id,
             branchName: branch!.name,
             payer: input.payer,
-            amountCents: input.freightAmountCents,
+            amountCents: priceQuote.totalCents,
+            pricingSnapshot: priceQuote,
             senderName: input.senderName,
             senderPhone: input.senderPhone,
             senderAddress: input.senderAddress,

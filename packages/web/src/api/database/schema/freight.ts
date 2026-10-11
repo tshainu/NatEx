@@ -20,9 +20,11 @@ export const freightCharge = sqliteTable(
     branchName: text("branch_name").notNull(),
     /** sender | recipient — locked at booking. */
     payer: text("payer").notNull(),
-    /** Manual price snapshot in integer LKR cents. */
+    /** Immutable price snapshot in integer LKR cents. */
     amountCents: integer("amount_cents").notNull(),
     pricingBasis: text("pricing_basis").notNull().default("manual"),
+    /** JSON snapshot of the approved rate card, version, band and price lines. */
+    pricingSnapshotJson: text("pricing_snapshot_json"),
     senderName: text("sender_name").notNull(),
     senderPhone: text("sender_phone").notNull(),
     senderAddress: text("sender_address"),

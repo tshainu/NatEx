@@ -17,6 +17,7 @@ export function AddressFields({
   return (
     <fieldset className="flex flex-col gap-3">
       <legend className="label-xs mb-1 text-muted-foreground">{title}</legend>
+      <p className="-mt-1 text-[11px] text-muted-foreground">Enter each part normally; commas are added automatically.</p>
       <Field label="Address line 1">
         <Input value={value.line1} onChange={(e) => update({ line1: e.target.value })} autoComplete="address-line1" required={required} />
       </Field>

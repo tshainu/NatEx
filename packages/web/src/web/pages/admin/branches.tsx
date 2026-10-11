@@ -28,6 +28,7 @@ interface BranchRow {
   lat: number;
   lng: number;
   type: string;
+  counterRateCardId: string | null;
   createdAt: string | Date;
 }
 
@@ -257,11 +258,13 @@ function CreateBranchDialog({
 
 function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const rateCards = useQuery(orpc.rateCards.list.queryOptions());
   const [name, setName] = React.useState(branch.name);
   const [address, setAddress] = React.useState<AddressParts>(() => addressPartsFromLegacy(branch.address));
   const [lat, setLat] = React.useState(String(branch.lat));
   const [lng, setLng] = React.useState(String(branch.lng));
   const [type, setType] = React.useState(branch.type as "hub" | "branch");
+  const [counterRateCardId, setCounterRateCardId] = React.useState(branch.counterRateCardId ?? "");
   const [problem, setProblem] = React.useState<string | null>(null);
 
   const save = useMutation({
@@ -275,7 +278,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
 
   const latN = Number(lat);
   const lngN = Number(lng);
-  const patch: { id: string; name?: string; address?: string; lat?: number; lng?: number; type?: "hub" | "branch" } = {
+  const patch: { id: string; name?: string; address?: string; lat?: number; lng?: number; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
     id: branch.id,
   };
   if (name.trim() !== branch.name) patch.name = name.trim();
@@ -284,6 +287,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   if (lat !== "" && Number.isFinite(latN) && latN !== branch.lat) patch.lat = latN;
   if (lng !== "" && Number.isFinite(lngN) && lngN !== branch.lng) patch.lng = lngN;
   if (type !== branch.type) patch.type = type;
+  if (counterRateCardId !== (branch.counterRateCardId ?? "")) patch.counterRateCardId = counterRateCardId || null;
   const valid =
     name.trim().length >= 2 &&
     isCompleteAddress(address) &&
@@ -330,6 +334,24 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
           </Field>
         </div>
         <AddressFields title="Branch address" value={address} onChange={setAddress} />
+        <Field
+          label="Counter booking rate card"
+          hint="This approved, published tariff prices walk-in parcels. Same origin district uses the local band; other districts use outstation."
+        >
+          <Select value={counterRateCardId} onChange={(event) => setCounterRateCardId(event.target.value)}>
+            <option value="">Not configured</option>
+            {(rateCards.data ?? []).map((card) => (
+              <option key={card.id} value={card.id} disabled={!card.counterReady}>
+                {card.code} — {card.name}{card.placeholder ? " · placeholder" : !card.activeVersion ? " · no published version" : !card.counterReady ? " · incomplete Counter bands/prices" : ` · v${card.activeVersion.version}`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {!rateCards.isLoading && !(rateCards.data ?? []).some((card) => card.counterReady) ? (
+          <p className="rounded-md border border-status-warn/30 bg-status-warn/5 px-3 py-2 text-[12px] text-muted-foreground">
+            No approved published rate card is available yet. Complete and publish one in Administration → Rate cards before accepting Counter bookings.
+          </p>
+        ) : null}
         <div className="grid grid-cols-2 gap-4">
           <Field label="Latitude">
             <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="font-mono" />

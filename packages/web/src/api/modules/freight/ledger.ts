@@ -25,6 +25,7 @@ export interface CreateChargeInput {
   branchName: string;
   payer: "sender" | "recipient";
   amountCents: number;
+  pricingSnapshot: unknown;
   senderName: string;
   senderPhone: string;
   senderAddress?: string | null;
@@ -89,7 +90,8 @@ export async function createRetailChargeInTransaction(
         branchName: input.branchName,
         payer: input.payer,
         amountCents: input.amountCents,
-        pricingBasis: "manual",
+        pricingBasis: "rate_card",
+        pricingSnapshotJson: JSON.stringify(input.pricingSnapshot),
         senderName: input.senderName.trim(),
         senderPhone: input.senderPhone.trim(),
         senderAddress: input.senderAddress?.trim() || null,

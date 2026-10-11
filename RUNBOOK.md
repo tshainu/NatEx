@@ -211,6 +211,13 @@ cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  
 - **To publish a card** (admin): Admin → Rate cards → card → *New draft*, edit
   bands, then *Publish* with a reason. The previous version is superseded,
   never edited. Then assign it to a merchant from Ops → Merchants → merchant.
+- **Walk-in Counter pricing:** separately open Admin → Branches → edit each
+  branch/hub and assign a published, non-placeholder Counter rate card. Counter
+  quotes use the `local` band when origin and destination districts match, and
+  `outstation` otherwise. The branch address must include its structured
+  district/province. A missing or incomplete card blocks Counter booking;
+  booking snapshots the displayed card version and calculated charge. This
+  setting does not change Merchant pricing or COD.
 - **VAT/SSCL (§15 q10 — OPEN):** the tax calculation exists and is seeded off.
 
 ---

@@ -21,11 +21,23 @@ describe("Sri Lankan structured addresses", () => {
       .toBe("No. 12 Temple Road, Kandy, Central Province");
   });
 
+  test("adds address separators automatically and removes a trailing typed comma", () => {
+    expect(formatAddress({ line1: "No. 12 Temple Road, ", line2: "Near clock tower", district: "Kandy", province: "Central Province" }))
+      .toBe("No. 12 Temple Road, Near clock tower, Kandy, Central Province");
+  });
+
   test("recognizes existing locality text without discarding the original address", () => {
     expect(addressPartsFromLegacy("44 Galle Road, Colombo 04")).toEqual({
       line1: "44 Galle Road, Colombo 04", line2: "", district: "Colombo", province: "Western Province",
     });
     expect(addressPartsFromLegacy("12 Main Street").district).toBe("");
+  });
+
+  test("prefers the structured trailing district over a district name in the street line", () => {
+    expect(addressPartsFromLegacy("No. 7 Colombo Road, Matale, Central Province")).toMatchObject({
+      district: "Matale",
+      province: "Central Province",
+    });
   });
 
   test("does not allow a district from a different province", () => {

@@ -161,7 +161,7 @@ export async function changeUserStatus(
  */
 export async function updateBranch(
   id: string,
-  patch: { name?: string; address?: string; latE6?: number; lngE6?: number; type?: "hub" | "branch" },
+  patch: { name?: string; address?: string; latE6?: number; lngE6?: number; type?: "hub" | "branch"; counterRateCardId?: string | null },
 ) {
   const [before] = await db.select().from(branch).where(eq(branch.id, id));
   if (!before) errors.notFound("Branch");
@@ -171,6 +171,7 @@ export async function updateBranch(
   if (patch.latE6 !== undefined) next.lat = patch.latE6;
   if (patch.lngE6 !== undefined) next.lng = patch.lngE6;
   if (patch.type !== undefined) next.type = patch.type;
+  if (patch.counterRateCardId !== undefined) next.counterRateCardId = patch.counterRateCardId;
   if (Object.keys(next).length === 0) return { before, after: before };
   const [after] = await db.update(branch).set(next).where(eq(branch.id, id)).returning();
   return { before, after: after! };

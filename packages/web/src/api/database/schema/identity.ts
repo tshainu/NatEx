@@ -19,6 +19,8 @@ export const branch = sqliteTable("identity_branch", {
   lng: integer("lng_e6").notNull(),
   /** hub | branch */
   type: text("type").notNull(),
+  /** Active, NatEx-approved rate card used for automatic walk-in Counter pricing. */
+  counterRateCardId: text("counter_rate_card_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),

@@ -10,6 +10,8 @@ import {
 } from "../../database/schema/merchants";
 import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
+import { districtFromAddress } from "../../shared/address";
+import * as identityService from "../identity/service";
 import {
   PricingError,
   quote,
@@ -98,6 +100,15 @@ export async function listRateCards() {
         .from(rateCardVersion)
         .where(inArray(rateCardVersion.rateCardId, cards.map((c) => c.id)))
     : [];
+  const activeVersions = versions.filter((version) => version.status === "active");
+  const activeVersionIds = activeVersions.map((version) => version.id);
+  const [activeBands, activeSlabs, activeSurcharges] = activeVersionIds.length
+    ? await Promise.all([
+        db.select().from(rateBand).where(inArray(rateBand.versionId, activeVersionIds)),
+        db.select().from(rateSlab).where(inArray(rateSlab.versionId, activeVersionIds)),
+        db.select().from(rateSurcharge).where(inArray(rateSurcharge.versionId, activeVersionIds)),
+      ])
+    : [[], [], []];
   const usage = await db
     .select({ rateCardId: merchant.rateCardId, n: count() })
     .from(merchant)
@@ -106,10 +117,22 @@ export async function listRateCards() {
     const own = versions.filter((v) => v.rateCardId === c.id);
     const active = own.find((v) => v.status === "active") ?? null;
     const draft = own.find((v) => v.status === "draft") ?? null;
+    const ownBands = activeBands.filter((row) => row.versionId === active?.id);
+    const ownSlabs = activeSlabs.filter((row) => row.versionId === active?.id);
+    const ownSurcharges = activeSurcharges.filter((row) => row.versionId === active?.id).map((row) => ({
+      code: row.code,
+      label: row.label,
+      kind: row.kind as PricingSurcharge["kind"],
+      amount: row.amount,
+      mode: row.mode as PricingSurcharge["mode"],
+    }));
+    const problems = active ? tariffProblems(active, ownBands, ownSlabs, ownSurcharges) : [];
+    const bandCodes = new Set(ownBands.map((row) => row.band));
     return {
       ...c,
       activeVersion: active ? { id: active.id, version: active.version, activatedAt: active.activatedAt } : null,
       draftVersion: draft ? { id: draft.id, version: draft.version, updatedAt: draft.updatedAt } : null,
+      counterReady: Boolean(active && !c.placeholder && problems.length === 0 && bandCodes.has("local") && bandCodes.has("outstation")),
       versionCount: own.length,
       merchantCount: Number(usage.find((u) => u.rateCardId === c.id)?.n ?? 0),
     };
@@ -328,6 +351,45 @@ export async function assignRateCard(merchantId: string, rateCardId: string | nu
   }
   await db.update(merchant).set({ rateCardId }).where(eq(merchant.id, merchantId));
   return { merchantId, before: m!.rateCardId, after: rateCardId };
+}
+
+/** Counter bookings must never charge a placeholder or an unpublished tariff. */
+export async function assertCounterRateCard(rateCardId: string): Promise<void> {
+  const card = await cardOrThrow(rateCardId);
+  if (card.placeholder) errors.badRequest("A placeholder rate card cannot be used for Counter bookings.");
+  const active = await activeVersionOf(rateCardId);
+  if (!active) errors.conflict("Publish an approved version before assigning this Counter rate card.");
+  const doc = await getVersion(active!.id);
+  const problems = tariffProblems(doc.version, doc.bands, doc.slabs, doc.surcharges);
+  if (problems.length) errors.badRequest(`This Counter rate card is incomplete: ${problems[0]}`);
+  const codes = new Set(doc.bands.map((entry) => entry.band));
+  for (const band of ["local", "outstation"]) {
+    if (!codes.has(band)) errors.badRequest(`Automatic Counter pricing requires a "${band}" band on this rate card.`);
+  }
+}
+
+/** Quote walk-in freight from the assigned, published tariff—not a browser-supplied amount. */
+export async function quoteForCounter(
+  branchId: string,
+  input: Omit<QuoteInput, "band" | "requested"> & { destinationAddress: string },
+) {
+  const branch = await identityService.getBranch(branchId);
+  if (!branch) errors.notFound(`Branch/hub ${branchId}`);
+  const originDistrict = districtFromAddress(branch!.address);
+  const destinationDistrict = districtFromAddress(input.destinationAddress);
+  if (!originDistrict) errors.conflict("Set this branch/hub's district in Administration → Branches before Counter pricing.");
+  if (!destinationDistrict) errors.badRequest("Select a valid delivery district and province before pricing.");
+  if (!branch!.counterRateCardId) errors.conflict("Assign an approved Counter rate card to this branch in Administration → Branches.");
+  await assertCounterRateCard(branch!.counterRateCardId!);
+  const active = await activeVersionOf(branch!.counterRateCardId!);
+  if (!active) errors.conflict("The assigned Counter rate card has no published version.");
+  const band = originDistrict === destinationDistrict ? "local" : "outstation";
+  const { destinationAddress: _destinationAddress, ...dimensions } = input;
+  const result = await quoteVersion(active!.id, { ...dimensions, band, requested: [] });
+  if (!Number.isSafeInteger(result.totalCents) || result.totalCents <= 0) {
+    errors.conflict("The approved Counter rate card returned no payable courier charge. Review its published prices.");
+  }
+  return { ...result, originDistrict, destinationDistrict };
 }
 
 /**

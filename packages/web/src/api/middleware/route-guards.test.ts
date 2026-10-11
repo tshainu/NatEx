@@ -158,7 +158,10 @@ describe("route guards (static inventory)", () => {
 
   test("retail counter booking and freight money operations have separate least-privilege gates", () => {
     expect(byPath.get("freight.counterBooking")?.roles).toEqual(["ops", "admin"]);
+    expect(byPath.get("freight.counterQuote")?.roles).toEqual(["ops", "admin"]);
     expect(byPath.get("freight.counterHistory")?.roles).toEqual(["ops", "admin"]);
+    expect(byPath.get("identity.myBranch")?.roles).toContain("ops");
+    expect(byPath.get("identity.myBranch")?.roles).not.toContain("merchant");
     for (const path of ["freight.charges", "freight.entries", "freight.reconcile", "freight.refund", "freight.receipt"]) {
       expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["finance", "admin"] });
     }

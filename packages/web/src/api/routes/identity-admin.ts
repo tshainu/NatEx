@@ -3,6 +3,7 @@ import { adminProc, authedProc, mutate } from "../middleware/pipeline";
 import * as adminService from "../modules/identity/admin";
 import * as identityService from "../modules/identity/service";
 import { getMerchant } from "../modules/merchants/service";
+import * as rateCardService from "../modules/merchants/rate-cards";
 import { ROLES, type Role } from "../shared/auth";
 import { errors } from "../shared/errors";
 import { toE6 } from "../shared/geo";
@@ -130,10 +131,12 @@ export const updateBranch = adminProc
       lat: z.number().min(-90).max(90).optional(),
       lng: z.number().min(-180).max(180).optional(),
       type: z.enum(["hub", "branch"]).optional(),
+      counterRateCardId: z.string().min(1).nullable().optional(),
     }),
   )
-  .handler(({ input, context }) =>
-    mutate(
+  .handler(async ({ input, context }) => {
+    if (input.counterRateCardId) await rateCardService.assertCounterRateCard(input.counterRateCardId);
+    return mutate(
       context,
       input,
       { route: "identity.updateBranch", entity: "identity_branch", entityId: () => input.id, action: "branch.updated" },
@@ -144,9 +147,10 @@ export const updateBranch = adminProc
           latE6: input.lat === undefined ? undefined : toE6(input.lat),
           lngE6: input.lng === undefined ? undefined : toE6(input.lng),
           type: input.type,
+          counterRateCardId: input.counterRateCardId,
         }),
-    ),
-  );
+    );
+  });
 
 /** Live sessions of any user (admin) — device, MFA level, start and last refresh. */
 export const userSessions = adminProc

@@ -2,11 +2,14 @@ import { z } from "zod";
 import { financeProc, mutate, opsProc } from "../middleware/pipeline";
 import * as ledger from "../modules/freight/ledger";
 import { createRetailCounterBooking } from "../modules/parcels/service";
+import * as rateCardService from "../modules/merchants/rate-cards";
+import { errors } from "../shared/errors";
 
 const paymentMethod = z.enum(["cash", "bank_transfer", "qr", "card"]);
 
 const counterInput = z.object({
   branchId: z.string().min(1),
+  rateCardVersionId: z.string().min(1),
   awb: z.string().trim().max(24).nullish(),
   weightGrams: z.number().int().min(1).max(200_000),
   lengthCm: z.number().int().min(1).max(500).nullish(),
@@ -18,7 +21,6 @@ const counterInput = z.object({
   senderPhone: z.string().trim().min(9).max(24),
   senderAddress: z.string().trim().max(500).nullish(),
   payer: z.enum(["sender", "recipient"]),
-  freightAmountCents: z.number().int().positive().max(100_000_000),
   paymentMethod: paymentMethod.optional(),
   externalReference: z.string().trim().max(120).nullish(),
   consigneeName: z.string().trim().min(2).max(160),
@@ -35,6 +37,23 @@ const counterInput = z.object({
     ctx.addIssue({ code: "custom", path: ["externalReference"], message: "Enter the payment reference." });
   }
 });
+
+export const counterQuote = opsProc
+  .input(z.object({
+    branchId: z.string().min(1),
+    weightGrams: z.number().int().min(1).max(200_000),
+    lengthCm: z.number().int().min(1).max(500).nullish(),
+    widthCm: z.number().int().min(1).max(500).nullish(),
+    heightCm: z.number().int().min(1).max(500).nullish(),
+    destinationAddress: z.string().trim().min(4).max(1000),
+  }))
+  .handler(({ input, context }) => {
+    if (context.principal.role !== "admin" && input.branchId !== context.principal.branchId) {
+      errors.forbidden("You may only quote a Counter parcel for your own branch/hub.");
+    }
+    const { branchId, ...quoteInput } = input;
+    return rateCardService.quoteForCounter(branchId, quoteInput);
+  });
 
 /** Walk-in customer booking, separate from Merchant booking and merchant settlement. */
 export const counterBooking = opsProc
@@ -127,4 +146,4 @@ export const receipt = financeProc
   .input(z.object({ code: z.string().trim().min(5).max(40) }))
   .handler(({ input, context }) => ledger.freightReceipt(input.code, context.principal));
 
-export const freight = { counterBooking, counterHistory, entries, charges, reconcile, refund, receipt };
+export const freight = { counterBooking, counterQuote, counterHistory, entries, charges, reconcile, refund, receipt };

@@ -6,6 +6,7 @@ import { outbox } from "../../database/schema/shared";
 import { parcel, parcelEvent } from "../../database/schema/parcels";
 import { deliveryAttempt, deliveryPod, runsheet, runsheetItem } from "../../database/schema/delivery";
 import { freightCharge, freightEntry, freightReconciliation } from "../../database/schema/freight";
+import { rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "../../database/schema/merchants";
 import type { Principal } from "../../shared/auth";
 import { createBranch, createUser } from "../identity/service";
 import { createRetailCounterBooking, getParcelById, transitionParcel } from "../parcels/service";
@@ -17,6 +18,7 @@ import {
   recordDelivery,
 } from "../delivery/service";
 import { collectionForParcel } from "../cod/service";
+import { createRateCard, newDraft, publishDraft, quoteForCounter, saveDraft } from "../merchants/rate-cards";
 import { entriesForCharge, pageCounterBookings, pageFreightCharges, reconcileFreightEntry, refundFreight } from "./ledger";
 
 const RUN = Date.now().toString(36).toUpperCase();
@@ -37,10 +39,13 @@ const FINANCE: Principal = {
 };
 let branchId: string | null = null;
 let riderId: string | null = null;
+let testRateCardId: string | null = null;
+let testRateCardVersionId: string | null = null;
 
 const bookingInput = (requestId: string, payer: "sender" | "recipient") => ({
   requestId,
   branchId: branchId!,
+  rateCardVersionId: testRateCardVersionId!,
   weightGrams: 750,
   declaredValueCents: null,
   description: "Books and stationery",
@@ -48,11 +53,10 @@ const bookingInput = (requestId: string, payer: "sender" | "recipient") => ({
   senderPhone: "+94770000001",
   senderAddress: "10 Test Road, Colombo",
   payer,
-  freightAmountCents: 4_250,
   paymentMethod: payer === "sender" ? "cash" as const : undefined,
   consigneeName: "Counter Recipient Test",
   consigneePhone: "+94770000002",
-  destAddress: "22 Sample Lane, Colombo 03",
+  destAddress: "22 Sample Lane, Colombo, Western Province",
 });
 
 async function bookingSmsForAwb(awb: string) {
@@ -75,7 +79,7 @@ beforeAll(async () => {
   const createdBranch = await createBranch({
     code: BRANCH_CODE,
     name: "Freight integration test branch",
-    address: "1 Test Street, Colombo",
+    address: "1 Test Street, Colombo, Western Province",
     latE6: 6_927_100,
     lngE6: 79_861_200,
     type: "branch",
@@ -83,6 +87,27 @@ beforeAll(async () => {
   branchId = createdBranch!.id;
   OPS.branchId = branchId;
   FINANCE.branchId = branchId;
+  const tariff = await createRateCard({ code: `T${RUN.slice(-8)}`, name: "Freight integration tariff", placeholder: false, actorName: OPS.name });
+  testRateCardId = tariff.card.id;
+  testRateCardVersionId = tariff.versionId;
+  await saveDraft(tariff.versionId, {
+    volumetricDivisor: 5000,
+    roundingGrams: 500,
+    note: "Disposable integration fixture",
+    bands: [
+      { band: "local", label: "Local", extraPerKgCents: 0 },
+      { band: "outstation", label: "Outstation", extraPerKgCents: 0 },
+    ],
+    slabs: [
+      { band: "local", maxGrams: 1000, priceCents: 4_250 },
+      { band: "local", maxGrams: 2000, priceCents: 5_250 },
+      { band: "outstation", maxGrams: 1000, priceCents: 5_250 },
+      { band: "outstation", maxGrams: 2000, priceCents: 6_250 },
+    ],
+    surcharges: [],
+  }, OPS.name);
+  await publishDraft(tariff.versionId, OPS.name);
+  await db.update(branch).set({ counterRateCardId: tariff.card.id }).where(eq(branch.id, branchId));
   const createdRider = await createUser({
     branchId,
     role: "rider",
@@ -111,10 +136,43 @@ afterAll(async () => {
     if (riderId) await db.delete(user).where(eq(user.id, riderId));
     await db.delete(branch).where(eq(branch.id, branchId));
   }
+  if (testRateCardId) {
+    const versions = await db.select({ id: rateCardVersion.id }).from(rateCardVersion).where(eq(rateCardVersion.rateCardId, testRateCardId));
+    const versionIds = versions.map((row) => row.id);
+    if (versionIds.length) {
+      await db.delete(rateBand).where(inArray(rateBand.versionId, versionIds));
+      await db.delete(rateSlab).where(inArray(rateSlab.versionId, versionIds));
+      await db.delete(rateSurcharge).where(inArray(rateSurcharge.versionId, versionIds));
+      await db.delete(rateCardVersion).where(inArray(rateCardVersion.id, versionIds));
+    }
+    await db.delete(rateCard).where(eq(rateCard.id, testRateCardId));
+  }
 });
 
 describe("retail customer freight remains separate from COD", () => {
   test("sender-paid counter booking creates a receipt and immutable freight collection", async () => {
+    const outstationQuote = await quoteForCounter(branchId!, {
+      weightGrams: 750,
+      destinationAddress: "22 Sample Lane, Kandy, Central Province",
+    });
+    expect(outstationQuote).toMatchObject({ band: "outstation", originDistrict: "Colombo", destinationDistrict: "Kandy", totalCents: 5_250 });
+    const quotedVersionId = testRateCardVersionId!;
+    const nextDraft = await newDraft(testRateCardId!, OPS.name);
+    const nextVersionId = nextDraft.version.id;
+    await saveDraft(nextVersionId, {
+      volumetricDivisor: nextDraft.version.volumetricDivisor,
+      roundingGrams: nextDraft.version.roundingGrams,
+      note: "Republished integration tariff",
+      bands: nextDraft.bands,
+      slabs: nextDraft.slabs,
+      surcharges: nextDraft.surcharges,
+    }, OPS.name);
+    await publishDraft(nextVersionId, OPS.name);
+    await expect(createRetailCounterBooking({
+      ...bookingInput(`freight-stale-quote-${RUN}`, "sender"),
+      rateCardVersionId: quotedVersionId,
+    }, OPS)).rejects.toThrow("changed after the price was quoted");
+    testRateCardVersionId = nextVersionId;
     const booked = await createRetailCounterBooking(bookingInput(`freight-sender-${RUN}`, "sender"), OPS);
 
     expect(booked.parcel.merchantId).toBeNull();
@@ -124,6 +182,9 @@ describe("retail customer freight remains separate from COD", () => {
     expect(booked.parcel.status).toBe("AtOriginHub");
     expect(booked.freightCharge.payer).toBe("sender");
     expect(booked.freightCharge.amountCents).toBe(4_250);
+    expect(booked.freightCharge.pricingBasis).toBe("rate_card");
+    const savedPricing = JSON.parse(booked.freightCharge.pricingSnapshotJson!) as { band: string; originDistrict: string; destinationDistrict: string; totalCents: number; version: { id: string } };
+    expect(savedPricing).toMatchObject({ band: "local", originDistrict: "Colombo", destinationDistrict: "Colombo", totalCents: 4_250, version: { id: testRateCardVersionId } });
     expect(booked.paidReceipt?.entryType).toBe("collection");
     expect(booked.paidReceipt?.paymentMethod).toBe("cash");
     expect(booked.paidReceipt?.code.startsWith("RCP")).toBe(true);
