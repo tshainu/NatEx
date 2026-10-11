@@ -41,7 +41,9 @@ import {
 
 type Mode = "view" | "deliver" | "fail";
 type Relation = "self" | "family" | "neighbour" | "security" | "reception" | "other";
+type FreightMethod = "cash" | "bank_transfer" | "qr" | "card";
 const RELATIONS: Relation[] = ["self", "family", "neighbour", "security", "reception", "other"];
+const FREIGHT_METHODS: FreightMethod[] = ["cash", "bank_transfer", "qr", "card"];
 
 export default function StopScreen() {
   const { awb: raw } = useLocalSearchParams<{ awb: string }>();
@@ -126,8 +128,17 @@ export default function StopScreen() {
         </View>
         <View style={styles.row}>
           <View style={styles.flex}>
-            <Field label="Cash to collect" value={stop.codAmountCents > 0 ? money(stop.codAmountCents) : "None — prepaid"} mono />
+            <Field label="COD · merchant money" value={stop.codAmountCents > 0 ? money(stop.codAmountCents) : "None"} mono />
           </View>
+          <View style={styles.flex}>
+            <Field
+              label="Courier freight · separate"
+              value={stop.freightPayer === "recipient" ? `${money(stop.freightAmountCents)} due` : stop.freightPayer === "sender" ? "Sender prepaid" : "None"}
+              mono
+            />
+          </View>
+        </View>
+        <View style={styles.row}>
           <View style={styles.flex}>
             <Field label="Proof needed" value={podLabel(stop.podPolicy)} />
           </View>
@@ -220,7 +231,16 @@ function EntryNotice({ entry }: { entry: OutboxEntry | null }) {
       </Panel>
     );
   }
-  const r = entry.result as { ndrId?: string | null; rtoId?: string | null; countedAsAttempt?: boolean } | null;
+  const r = entry.result as { ndrId?: string | null; rtoId?: string | null; countedAsAttempt?: boolean; freightReceiptCode?: string | null } | null;
+  if (entry.kind === "delivery.deliver" && r?.freightReceiptCode) {
+    return (
+      <Panel>
+        <Title>Courier-freight receipt</Title>
+        <Mono>{r.freightReceiptCode}</Mono>
+        <Small>Separate from COD. Finance can reprint the customer receipt from the freight register.</Small>
+      </Panel>
+    );
+  }
   if (entry.kind === "delivery.fail" && r) {
     return (
       <Panel>
@@ -247,6 +267,9 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
   const [name, setName] = React.useState("");
   const [relation, setRelation] = React.useState<Relation>("self");
   const [cash, setCash] = React.useState("");
+  const [freightCash, setFreightCash] = React.useState("");
+  const [freightMethod, setFreightMethod] = React.useState<FreightMethod>("cash");
+  const [freightReference, setFreightReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [signature, setSignature] = React.useState<string | null>(null);
   const [photoRef, setPhotoRef] = React.useState<string | null>(null);
@@ -257,6 +280,13 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
   const isCod = stop.codAmountCents > 0;
   const cents = parseRupeesToCents(cash);
   const cashOk = !isCod || cents === stop.codAmountCents;
+  const freightDue = stop.freightPayer === "recipient" ? stop.freightAmountCents : 0;
+  const freightCents = parseRupeesToCents(freightCash);
+  const freightValue = freightCents ?? 0;
+  const freightOk = freightDue === 0 || (
+    freightCents === freightDue &&
+    (freightMethod === "cash" || freightReference.trim().length >= 3)
+  );
 
   const sendOtp = useMutation({ mutationFn: () => client.delivery.otpRequest({ awb: stop.awb }) });
   const verifyOtp = useMutation({
@@ -291,7 +321,11 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
   const proofOk =
     policy === "otp" ? otpVerified : policy === "signature" ? !!signature : !!photoRef;
   const nameOk = name.trim().length >= 2;
-  const ready = proofOk && nameOk && cashOk;
+  const ready = proofOk && nameOk && cashOk && freightOk;
+  const collectionLabel = [
+    isCod ? `COD ${money(stop.codAmountCents)}` : null,
+    freightDue > 0 ? `freight ${money(freightDue)}` : null,
+  ].filter(Boolean).join(" + ");
 
   const save = useMutation({
     // A local write needs no signal. The default ("online") would park this
@@ -305,6 +339,9 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
         signatureData: policy === "signature" ? signature : null,
         photoUrl: policy === "photo" ? photoRef : null,
         codCollectedCents: isCod ? cents : 0,
+        freightCollectedCents: freightDue > 0 ? freightValue : 0,
+        freightPaymentMethod: freightDue > 0 ? freightMethod : null,
+        freightExternalReference: freightDue > 0 && freightMethod !== "cash" ? freightReference.trim() : null,
         notes: notes.trim() || null,
       }),
     onSuccess: () => backToRun(),
@@ -321,14 +358,18 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
           : "Take the doorstep photo"
       : !cashOk
         ? `Cash must be exactly ${money(stop.codAmountCents)}`
-        : undefined;
+        : !freightOk
+          ? freightMethod === "cash"
+            ? `Freight must be exactly ${money(freightDue)}`
+            : "Enter the exact freight amount and payment reference"
+          : undefined;
 
   return (
     <Screen
       footer={
         <>
           <Button
-            title={isCod ? `Confirm delivery · ${money(stop.codAmountCents)} collected` : "Confirm delivery"}
+            title={collectionLabel ? `Confirm delivery · ${collectionLabel} collected` : "Confirm delivery"}
             disabled={!ready}
             loading={save.isPending}
             hint={missing}
@@ -352,7 +393,7 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
 
       {isCod ? (
         <Card>
-          <Label>Cash on delivery</Label>
+          <Label>COD · merchant money</Label>
           <Title>{money(stop.codAmountCents)}</Title>
           <Input
             label="Cash received (Rs.)"
@@ -365,11 +406,37 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
             hint={cashOk && cash ? "Matches to the cent." : "Count the cash, then type the amount you hold."}
           />
         </Card>
-      ) : (
+      ) : freightDue === 0 ? (
         <Panel>
-          <Small>Prepaid — do not collect any cash.</Small>
+          <Small>No COD or recipient freight is due. Do not collect courier charges.</Small>
         </Panel>
-      )}
+      ) : null}
+
+      {freightDue > 0 ? (
+        <Card>
+          <Label>Courier freight · recipient pays (not COD)</Label>
+          <Title>{money(freightDue)}</Title>
+          <Input
+            label="Freight collected (Rs.)"
+            value={freightCash}
+            onChangeText={setFreightCash}
+            keyboardType="decimal-pad"
+            code
+            placeholder={(freightDue / 100).toFixed(2)}
+            error={freightCash && !freightOk ? `Must equal ${money(freightDue)} and include the required payment reference.` : undefined}
+          />
+          <Label>Payment method</Label>
+          <View style={styles.chips}>
+            {FREIGHT_METHODS.map((value) => (
+              <Chip key={value} label={humanise(value)} selected={freightMethod === value} onPress={() => setFreightMethod(value)} />
+            ))}
+          </View>
+          {freightMethod !== "cash" ? (
+            <Input label="Payment reference" value={freightReference} onChangeText={setFreightReference} placeholder="Bank / QR / card reference" />
+          ) : null}
+          <Small>Record this separately from COD. A unique courier-freight receipt is created when delivery syncs.</Small>
+        </Card>
+      ) : null}
 
       <Card>
         {policy === "otp" ? (

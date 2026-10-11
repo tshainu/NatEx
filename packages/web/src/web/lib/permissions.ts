@@ -33,6 +33,7 @@ const OPS: PortalConfig = {
     { label: "Live board", to: "/ops/board" },
     { label: "Parcels", to: "/ops/parcels" },
     { label: "Book a parcel", to: "/ops/book" },
+    { label: "Customer counter booking", to: "/ops/freight-counter" },
     { label: "Pickup manifests", to: "/ops/manifests" },
     { label: "Hub receipt", to: "/ops/hub-receipt" },
     // §8 NDR/SLA queue + the RTO register. Ops-and-admin: closing an NDR and
@@ -106,6 +107,7 @@ const FINANCE: PortalConfig = {
     { label: "COD ledger", to: "/finance/cod" },
     { label: "Remittances", to: "/finance/remittances" },
     { label: "Invoices", to: "/finance/invoices" },
+    { label: "Customer freight", to: "/finance/freight" },
     { label: "Disputes", to: "/finance/disputes" },
     { label: "Payroll approval", to: "/hr/payroll" },
   ],

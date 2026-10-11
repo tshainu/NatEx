@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
+import type { DbTransaction } from "../../database/transaction";
 import { awbBatchLabel, parcel, parcelEvent } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
@@ -8,7 +9,9 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
-import { checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
+import { chargeByRequest, createRetailChargeInTransaction, entriesForCharge } from "../freight/ledger";
+import type { FreightChargeRow, FreightEntryRow } from "../../database/schema/freight";
+import { checkBranchAwb, checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
@@ -90,8 +93,11 @@ interface EventInput {
  * The only writer of parcels_parcel_event, anywhere. Append-only: this function
  * inserts and nothing in this codebase updates or deletes the row.
  */
-async function appendParcelEvent(input: EventInput): Promise<ParcelEventRow> {
-  const [row] = await db
+async function appendParcelEvent(
+  input: EventInput,
+  executor: DbTransaction | typeof db = db,
+): Promise<ParcelEventRow> {
+  const [row] = await executor
     .insert(parcelEvent)
     .values({
       id: prefixedId("pev"),
@@ -598,11 +604,15 @@ export async function topMerchants(
       cod: sql<number>`coalesce(sum(${parcel.codAmountCents}), 0)`,
     })
     .from(parcel)
-    .where(sql`${parcel.createdAt} >= ${since}`)
+    .where(and(sql`${parcel.createdAt} >= ${since}`, isNotNull(parcel.merchantId)))
     .groupBy(parcel.merchantId)
     .orderBy(desc(count()))
     .limit(Math.min(Math.max(limit, 1), 20));
-  return rows.map((r) => ({ merchantId: r.merchantId, parcels: Number(r.parcels), codCents: Number(r.cod) }));
+  return rows.flatMap((r) => r.merchantId ? [{
+    merchantId: r.merchantId,
+    parcels: Number(r.parcels),
+    codCents: Number(r.cod),
+  }] : []);
 }
 
 /** Recent custody events across the branch — the ops live feed. */
@@ -824,6 +834,211 @@ export async function createParcel(
   };
 }
 
+export interface RetailCounterBookingInput {
+  requestId: string;
+  branchId: string;
+  awb?: string | null;
+  weightGrams: number;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+  declaredValueCents: number;
+  senderName: string;
+  senderPhone: string;
+  senderAddress?: string | null;
+  payer: "sender" | "recipient";
+  freightAmountCents: number;
+  paymentMethod?: "cash" | "bank_transfer" | "qr" | "card";
+  externalReference?: string | null;
+  consigneeName: string;
+  consigneePhone: string;
+  destAddress: string;
+  destLat?: number | null;
+  destLng?: number | null;
+  destZoneId?: string | null;
+}
+
+export interface RetailCounterBookingResult extends ParcelDetail {
+  freightCharge: FreightChargeRow;
+  paidReceipt: FreightEntryRow | null;
+}
+
+/**
+ * Walk-in booking has no merchant owner and no COD. A sender-paid freight
+ * receipt is created with the charge in one transaction; the branch then records
+ * Booked → PickedUp → AtOriginHub through the same state machine as every parcel.
+ */
+export async function createRetailCounterBooking(
+  input: RetailCounterBookingInput,
+  actor: Principal,
+): Promise<RetailCounterBookingResult> {
+  if (actor.role !== "ops" && actor.role !== "admin") {
+    errors.forbidden("Only branch Operations or Admin may accept a retail counter parcel.");
+  }
+  if (actor.role !== "admin" && input.branchId !== actor.branchId) {
+    errors.forbidden("A branch operator may only book a retail parcel at their own branch.");
+  }
+  if (input.requestId.trim().length < 8) errors.badRequest("A valid booking request id is required.");
+  if (!Number.isSafeInteger(input.freightAmountCents) || input.freightAmountCents <= 0) {
+    errors.badRequest("Courier freight must be a positive integer number of cents.");
+  }
+  if (!Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
+    errors.badRequest("Parcel weight must be a positive integer number of grams.");
+  }
+  if (!Number.isSafeInteger(input.declaredValueCents) || input.declaredValueCents < 0) {
+    errors.badRequest("Declared value must be a non-negative integer number of cents.");
+  }
+  if (input.senderName.trim().length < 2 || input.consigneeName.trim().length < 2) {
+    errors.badRequest("Enter both sender and recipient names.");
+  }
+  if (input.senderPhone.replace(/\D/g, "").length < 9 || input.consigneePhone.replace(/\D/g, "").length < 9) {
+    errors.badRequest("Enter valid contact phone numbers for the sender and recipient.");
+  }
+  if (!input.destAddress.trim()) errors.badRequest("A delivery address is required.");
+  if (input.payer === "sender") {
+    if (!input.paymentMethod) errors.badRequest("Choose how the sender paid courier freight.");
+    if (input.paymentMethod !== "cash" && (input.externalReference?.trim().length ?? 0) < 3) {
+      errors.badRequest("Enter the bank, QR or card payment reference.");
+    }
+  }
+  const branch = await identityService.getBranch(input.branchId);
+  if (!branch) errors.notFound(`Branch/hub ${input.branchId}`);
+
+  const suppliedAwb = input.awb?.trim().toUpperCase() || null;
+  if (suppliedAwb) {
+    const availability = await checkBranchAwb(branch!.id, suppliedAwb);
+    if (!availability.valid) errors.badRequest(availability.reason, { awb: suppliedAwb });
+  }
+
+  const finishIntake = async (parcelId: string) => {
+    let current = await getParcelById(parcelId);
+    if (!current) errors.notFound(`Parcel ${parcelId}`);
+    if (current!.status === "Booked") {
+      await transitionParcel({
+        awbOrId: current!.awb,
+        to: "PickedUp",
+        notes: `Walk-in parcel accepted from sender at ${branch!.name}.`,
+        clientId: `${input.requestId}:counter-accepted`,
+      }, actor);
+      current = await getParcelById(parcelId);
+    }
+    if (current?.status === "PickedUp") {
+      await transitionParcel({
+        awbOrId: current.awb,
+        to: "AtOriginHub",
+        notes: `Counter intake scanned into ${branch!.name}.`,
+        clientId: `${input.requestId}:counter-origin-hub`,
+      }, actor);
+      current = await getParcelById(parcelId);
+    }
+    return current!;
+  };
+
+  let charge = await chargeByRequest(input.requestId);
+  let parcelRow: ParcelRow | null = charge ? await getParcelById(charge.parcelId) : null;
+  if (charge && !parcelRow) throw new Error("Freight booking exists without its parcel; investigate the integrity incident.");
+
+  if (!charge) {
+    let created = false;
+    for (let attempt = 0; attempt < 12 && !created; attempt += 1) {
+      const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(null, branch!.id)) ?? (await uniqueAwb());
+      const id = prefixedId("pcl");
+      try {
+        const result = await db.transaction(async (tx) => {
+          const [saved] = await tx.insert(parcel).values({
+            id,
+            awb,
+            merchantId: null,
+            branchId: branch!.id,
+            status: "Booked",
+            weightGrams: input.weightGrams,
+            lengthCm: input.lengthCm ?? null,
+            widthCm: input.widthCm ?? null,
+            heightCm: input.heightCm ?? null,
+            declaredValueCents: input.declaredValueCents,
+            codAmountCents: 0,
+            originAddress: branch!.address,
+            originLat: branch!.lat,
+            originLng: branch!.lng,
+            consigneeName: input.consigneeName.trim(),
+            consigneePhone: input.consigneePhone.trim(),
+            destAddress: input.destAddress.trim(),
+            destLat: input.destLat ?? null,
+            destLng: input.destLng ?? null,
+            destZoneId: input.destZoneId ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }).returning();
+          await appendParcelEvent({
+            parcelId: id,
+            fromStatus: null,
+            toStatus: "Booked",
+            actor,
+            notes: `Walk-in freight booking at ${branch!.name}.`,
+            clientId: `${input.requestId}:counter-booked`,
+          }, tx);
+          const freight = await createRetailChargeInTransaction(tx, {
+            parcelId: id,
+            awb,
+            branchId: branch!.id,
+            branchName: branch!.name,
+            payer: input.payer,
+            amountCents: input.freightAmountCents,
+            senderName: input.senderName,
+            senderPhone: input.senderPhone,
+            senderAddress: input.senderAddress,
+            recipientName: input.consigneeName,
+            recipientPhone: input.consigneePhone,
+            destinationAddress: input.destAddress,
+            createdById: actor.userId,
+            createdByName: actor.name,
+            createdByRole: actor.role,
+            requestId: input.requestId,
+            paymentMethod: input.paymentMethod,
+            externalReference: input.externalReference,
+          });
+          return { parcel: saved!, ...freight };
+        });
+        parcelRow = result.parcel;
+        charge = result.charge;
+        created = true;
+      } catch (error) {
+        const message = errorChainText(error);
+        if (message.includes("booking_request_id")) {
+          charge = await chargeByRequest(input.requestId);
+          if (charge) {
+            parcelRow = await getParcelById(charge.parcelId);
+            created = Boolean(parcelRow);
+            break;
+          }
+        }
+        const duplicateAwb = message.includes("parcels_parcel.awb") ||
+          (message.includes("UNIQUE constraint failed") && message.includes("awb"));
+        if (!duplicateAwb) throw error;
+        if (suppliedAwb) errors.conflict("This AWB was just used by another booking. Scan or enter a different branch sticker.", { awb: suppliedAwb });
+      }
+    }
+    if (!created || !charge || !parcelRow) return errors.conflict("Could not reserve a unique branch AWB. Retry the booking.");
+  }
+
+  parcelRow = await finishIntake(parcelRow!.id);
+  const timeline = await db.select().from(parcelEvent)
+    .where(eq(parcelEvent.parcelId, parcelRow!.id))
+    .orderBy(asc(parcelEvent.ts));
+  const entries = await entriesForCharge(charge!.id);
+  const paidReceipt = entries.find((entry) => entry.entryType === "collection" && entry.payer === "sender") ?? null;
+  return {
+    parcel: parcelRow!,
+    timeline,
+    legalNext: legalNext(parcelRow!.status as ParcelStatus),
+    commandable: legalNext(parcelRow!.status as ParcelStatus).filter((to) =>
+      isGenericallyCommandable(parcelRow!.status as ParcelStatus, to, actor.role),
+    ),
+    freightCharge: charge!,
+    paidReceipt,
+  };
+}
+
 export interface TransitionInput {
   /** AWB or internal id. AWB is what scanners produce. */
   awbOrId: string;
@@ -854,6 +1069,13 @@ export interface TransitionResult {
   deduped: boolean;
 }
 
+export type TransitionTransactionHook = (
+  tx: DbTransaction,
+  before: ParcelRow,
+  after: ParcelRow,
+  event: ParcelEventRow,
+) => Promise<void>;
+
 /**
  * THE choke point. Every status change in the system goes through here:
  *
@@ -868,6 +1090,7 @@ export async function transitionParcel(
   input: TransitionInput,
   actor: Principal,
   guards: TransitionGuards = {},
+  transactionHook?: TransitionTransactionHook,
 ): Promise<TransitionResult> {
   const row =
     (await getParcelByAwb(input.awbOrId)) ?? (await getParcelById(input.awbOrId));
@@ -939,49 +1162,60 @@ export async function transitionParcel(
     });
   }
 
-  const now = new Date();
-  const [updated] = await db
-    .update(parcel)
-    .set({
-      status: to,
-      updatedAt: now,
-      // §6: the COD amount is locked the moment a parcel is Delivered.
-      codLockedAt: locksCod(to) ? now : row!.codLockedAt,
-      // A parcel that leaves the origin branch stays accountable to it until a
-      // hub scan moves custody; branch reassignment is M2 (bagging/trips).
-      branchId: row!.branchId,
-    })
-    .where(and(eq(parcel.id, row!.id), eq(parcel.status, from)))
-    .returning();
+  const result = await db.transaction(async (tx): Promise<TransitionResult> => {
+    const [latest] = await tx.select().from(parcel).where(eq(parcel.id, row!.id)).limit(1);
+    if (!latest) errors.notFound(`Parcel ${input.awbOrId}`);
+    if (input.clientId) {
+      const [seen] = await tx.select().from(parcelEvent).where(and(
+        eq(parcelEvent.clientId, input.clientId),
+        eq(parcelEvent.parcelId, row!.id),
+      )).limit(1);
+      if (seen) return { parcel: latest!, event: seen, deduped: true };
+    }
+    if (latest!.status !== from) {
+      errors.conflict(`Parcel ${row!.awb} changed state concurrently. Re-read and retry.`, {
+        awb: row!.awb,
+        currentStatus: latest!.status,
+      });
+    }
+    assertVisible(latest!, actor);
+    const now = new Date();
+    const [updated] = await tx
+      .update(parcel)
+      .set({
+        status: to,
+        updatedAt: now,
+        codLockedAt: locksCod(to) ? now : latest!.codLockedAt,
+        branchId: latest!.branchId,
+      })
+      .where(and(eq(parcel.id, latest!.id), eq(parcel.status, from)))
+      .returning();
+    if (!updated) errors.conflict(`Parcel ${row!.awb} changed state concurrently. Re-read and retry.`, { awb: row!.awb });
+    const event = await appendParcelEvent({
+      parcelId: row!.id,
+      fromStatus: from,
+      toStatus: to,
+      actor,
+      lat: input.lat,
+      lng: input.lng,
+      notes: input.notes,
+      clientId: input.clientId,
+    }, tx);
+    await transactionHook?.(tx, latest!, updated!, event);
+    return { parcel: updated!, event, deduped: false };
+  });
 
-  if (!updated) {
-    // Optimistic guard: another request moved the parcel between our read and
-    // our write. Better a 409 than a lost custody event.
-    errors.conflict(`Parcel ${row!.awb} changed state concurrently. Re-read and retry.`, {
+  if (!result.deduped) {
+    await enqueue("parcel.status_changed", {
+      parcelId: row!.id,
       awb: row!.awb,
+      from,
+      to,
+      consigneePhone: row!.consigneePhone,
     });
   }
 
-  const event = await appendParcelEvent({
-    parcelId: row!.id,
-    fromStatus: from,
-    toStatus: to,
-    actor,
-    lat: input.lat,
-    lng: input.lng,
-    notes: input.notes,
-    clientId: input.clientId,
-  });
-
-  await enqueue("parcel.status_changed", {
-    parcelId: row!.id,
-    awb: row!.awb,
-    from,
-    to,
-    consigneePhone: row!.consigneePhone,
-  });
-
-  return { parcel: updated!, event, deduped: false };
+  return result;
 }
 
 /** Used by the collection module's handover: many parcels, one transition. */

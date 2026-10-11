@@ -315,6 +315,10 @@ export const recordDelivery = doorstepProc
       photoNote: z.string().max(300).nullish(),
       // MONEY: integer cents, never a float (§1).
       codCollectedCents: z.number().int().min(0).nullish(),
+      // Customer freight is a different ledger and receipt from COD.
+      freightCollectedCents: z.number().int().min(0).nullish(),
+      freightPaymentMethod: z.enum(["cash", "bank_transfer", "qr", "card"]).nullish(),
+      freightExternalReference: z.string().trim().max(120).nullish(),
       notes: z.string().max(400).nullish(),
       ...geo,
       clientId,

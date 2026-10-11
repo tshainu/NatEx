@@ -200,11 +200,11 @@ export async function pageNdr(scope: Principal, input: PageNdrInput) {
   ]);
 
   const names = new Map<string, string | null>();
-  for (const id of new Set(rows.map((r) => r.merchantId))) {
+  for (const id of new Set(rows.map((r) => r.merchantId).filter((value): value is string => Boolean(value)))) {
     names.set(id, (await getMerchant(id))?.name ?? null);
   }
   return {
-    rows: rows.map((r) => ({ ...withSla(r, now.getTime()), merchantName: names.get(r.merchantId) ?? null })),
+    rows: rows.map((r) => ({ ...withSla(r, now.getTime()), merchantName: r.merchantId ? names.get(r.merchantId) ?? null : null })),
     total: totalRow?.value ?? 0,
     page,
     pageSize,
@@ -230,7 +230,7 @@ export async function getNdrDetail(id: string, scope: Principal): Promise<NdrDet
 
   const parcelRow = await getParcelById(row!.parcelId);
   if (!parcelRow) errors.notFound(`Parcel ${row!.parcelId}`);
-  const merchant = await getMerchant(row!.merchantId);
+  const merchant = row!.merchantId ? await getMerchant(row!.merchantId) : null;
   const [rtoRow] = await db
     .select()
     .from(rto)
@@ -889,11 +889,11 @@ export async function pageRto(
     db.select({ value: count() }).from(rto).where(where),
   ]);
   const names = new Map<string, string | null>();
-  for (const id of new Set(rows.map((r) => r.merchantId))) {
+  for (const id of new Set(rows.map((r) => r.merchantId).filter((value): value is string => Boolean(value)))) {
     names.set(id, (await getMerchant(id))?.name ?? null);
   }
   return {
-    rows: rows.map((r) => ({ ...r, merchantName: names.get(r.merchantId) ?? null })),
+    rows: rows.map((r) => ({ ...r, merchantName: r.merchantId ? names.get(r.merchantId) ?? null : null })),
     total: totalRow?.value ?? 0,
     page,
     pageSize,
@@ -910,7 +910,7 @@ export async function getRtoDetail(id: string, scope: Principal) {
   if (!row) errors.notFound(`RTO ${id}`);
   assertRtoVisible(row!, scope);
   const parcelRow = await getParcelById(row!.parcelId);
-  const merchant = await getMerchant(row!.merchantId);
+  const merchant = row!.merchantId ? await getMerchant(row!.merchantId) : null;
   const [pod] = await db
     .select()
     .from(deliveryPod)
@@ -979,7 +979,8 @@ export async function rtosForBilling(input: {
 }
 
 /** Merchant contact for the notification ladder — via the merchants service (§4). */
-async function merchantPhone(merchantId: string): Promise<string | null> {
+async function merchantPhone(merchantId: string | null): Promise<string | null> {
+  if (!merchantId) return null;
   const m = await getMerchant(merchantId);
   return m?.contactPhone ?? null;
 }

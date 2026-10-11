@@ -43,6 +43,9 @@ export const runsheet = sqliteTable(
     /** MONEY: integer cents, LKR (§9). COD the rider is expected to bring back. */
     codExpectedCents: integer("cod_expected_cents").notNull().default(0),
     codCollectedCents: integer("cod_collected_cents").notNull().default(0),
+    /** Separate customer freight cash; never included in COD or merchant settlement. */
+    freightExpectedCents: integer("freight_expected_cents").notNull().default(0),
+    freightCollectedCents: integer("freight_collected_cents").notNull().default(0),
 
     /**
      * How the stop order was produced. KNOWN DEVIATION: §5 mandates PostGIS;
@@ -96,6 +99,9 @@ export const runsheetItem = sqliteTable(
     legMetres: integer("leg_metres"),
     /** MONEY: integer cents, LKR (§9). */
     codAmountCents: integer("cod_amount_cents").notNull().default(0),
+    /** Customer freight expected from the recipient on this stop; sender-prepaid is zero. */
+    freightAmountCents: integer("freight_amount_cents").notNull().default(0),
+    freightPayer: text("freight_payer"),
 
     settledAt: integer("settled_at", { mode: "timestamp" }),
     /** Client-minted ULID for offline dedupe (§7). */
@@ -251,7 +257,8 @@ export const ndr = sqliteTable(
     parcelId: text("parcel_id").notNull(),
     awb: text("awb").notNull(),
     branchId: text("branch_id").notNull(),
-    merchantId: text("merchant_id").notNull(),
+    /** Null for a walk-in retail parcel; no merchant instruction/settlement applies. */
+    merchantId: text("merchant_id"),
     /** Attempts at the moment the report was raised or last updated. */
     attempts: integer("attempts").notNull().default(1),
     lastReasonCode: text("last_reason_code"),
@@ -300,7 +307,8 @@ export const rto = sqliteTable(
     parcelId: text("parcel_id").notNull(),
     awb: text("awb").notNull(),
     branchId: text("branch_id").notNull(),
-    merchantId: text("merchant_id").notNull(),
+    /** Null for a walk-in retail parcel; no merchant instruction/settlement applies. */
+    merchantId: text("merchant_id"),
     /** auto_max_attempts | merchant_instruction | ops_decision | consignee_refused */
     trigger: text("trigger").notNull(),
     reason: text("reason").notNull(),

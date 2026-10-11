@@ -15,7 +15,8 @@ export const parcel = sqliteTable(
     id: text("id").primaryKey(),
     /** AWB is the public identity (PROJECT.md §5). */
     awb: text("awb").notNull().unique(),
-    merchantId: text("merchant_id").notNull(),
+    /** Null only for a walk-in customer booking; retail freight is stored separately. */
+    merchantId: text("merchant_id"),
     /** Branch currently accountable for the parcel — row-level scoping. */
     branchId: text("branch_id").notNull(),
     /** Enumerated state, advanced only through legal transitions (PROJECT.md §6). */

@@ -30,6 +30,11 @@ import { MAX_DELIVERY_ATTEMPTS, shouldAutoRto } from "../parcels/state-machine";
 import { getBranch, getUserById } from "../identity/service";
 import { getMerchant } from "../merchants/service";
 import {
+  chargeByParcel,
+  entryByClientId,
+  recordDeliveryFreightInTransaction,
+} from "../freight/ledger";
+import {
   assertDispatchAllowed,
   collectionForParcel,
   recordCollection,
@@ -182,6 +187,8 @@ export interface RunsheetDetail {
   items: (RunsheetItemRow & { status: string | null; podPolicy: string | null })[];
   /** Cash the rider is accountable for right now, in integer cents. */
   cash: { expectedCents: number; collectedCents: number; outstandingCents: number };
+  /** Customer freight is a separate liability; these values never include COD. */
+  freightCash: { expectedCents: number; collectedCents: number; outstandingCents: number };
 }
 
 export async function getRunsheetDetail(
@@ -203,7 +210,7 @@ export async function getRunsheetDetail(
   const enriched = [];
   for (const item of items) {
     const p = await getParcelById(item.parcelId);
-    const merchant = p ? await getMerchant(p.merchantId) : null;
+    const merchant = p?.merchantId ? await getMerchant(p.merchantId) : null;
     enriched.push({
       ...item,
       status: p?.status ?? null,
@@ -220,6 +227,11 @@ export async function getRunsheetDetail(
       expectedCents: row!.codExpectedCents,
       collectedCents: row!.codCollectedCents,
       outstandingCents: row!.codExpectedCents - row!.codCollectedCents,
+    },
+    freightCash: {
+      expectedCents: row!.freightExpectedCents,
+      collectedCents: row!.freightCollectedCents,
+      outstandingCents: row!.freightExpectedCents - row!.freightCollectedCents,
     },
   };
 }
@@ -263,8 +275,9 @@ export async function deliverableParcels(scope: Principal) {
   const blocked: { awb: string; status: string; reason: string }[] = [];
 
   for (const p of rows) {
-    const gate = await reattemptGate(p);
+      const gate = await reattemptGate(p);
     if (gate.ok) {
+      const charge = await chargeByParcel(p.id);
       ready.push({
         id: p.id,
         awb: p.awb,
@@ -275,6 +288,8 @@ export async function deliverableParcels(scope: Principal) {
         destLat: p.destLat,
         destLng: p.destLng,
         codAmountCents: p.codAmountCents,
+        freightAmountCents: charge?.payer === "recipient" ? charge.amountCents : 0,
+        freightPayer: charge?.payer ?? null,
         deliveryAttempts: p.deliveryAttempts,
         merchantId: p.merchantId,
       });
@@ -378,6 +393,8 @@ export async function deliveryCounts(scope: Principal) {
     failed: todays.reduce((n, s) => n + s.failedCount, 0),
     codExpectedCents: todays.reduce((n, s) => n + s.codExpectedCents, 0),
     codCollectedCents: todays.reduce((n, s) => n + s.codCollectedCents, 0),
+    freightExpectedCents: todays.reduce((n, s) => n + s.freightExpectedCents, 0),
+    freightCollectedCents: todays.reduce((n, s) => n + s.freightCollectedCents, 0),
   };
 }
 
@@ -498,6 +515,7 @@ export async function addToRunsheet(
 
   let added = 0;
   let codDelta = 0;
+  let freightDelta = 0;
 
   for (const p of found) {
     if (alreadyOn.has(p.id)) {
@@ -526,6 +544,9 @@ export async function addToRunsheet(
       continue;
     }
 
+    const charge = await chargeByParcel(p.id);
+    const freightDueCents = charge?.payer === "recipient" ? charge.amountCents : 0;
+
     await db.insert(runsheetItem).values({
       id: prefixedId("rsi"),
       runsheetId: sheet!.id,
@@ -541,10 +562,13 @@ export async function addToRunsheet(
       destLat: p.destLat,
       destLng: p.destLng,
       codAmountCents: p.codAmountCents,
+      freightAmountCents: freightDueCents,
+      freightPayer: charge?.payer ?? null,
     });
     alreadyOn.add(p.id);
     added += 1;
     codDelta += p.codAmountCents;
+    freightDelta += freightDueCents;
     lines.push({ awb: p.awb, verdict: "added" });
   }
 
@@ -553,6 +577,7 @@ export async function addToRunsheet(
     .set({
       plannedCount: sheet!.plannedCount + added,
       codExpectedCents: sheet!.codExpectedCents + codDelta,
+      freightExpectedCents: sheet!.freightExpectedCents + freightDelta,
       // Any change invalidates the stop order.
       optimisedAt: added > 0 ? null : sheet!.optimisedAt,
     })
@@ -594,6 +619,7 @@ export async function removeFromRunsheet(
     .set({
       plannedCount: Math.max(0, sheet!.plannedCount - 1),
       codExpectedCents: Math.max(0, sheet!.codExpectedCents - item!.codAmountCents),
+      freightExpectedCents: Math.max(0, sheet!.freightExpectedCents - item!.freightAmountCents),
       optimisedAt: null,
     })
     .where(eq(runsheet.id, sheet!.id))
@@ -799,6 +825,9 @@ export async function dispatchRunsheet(
   const removedCod = pending
     .filter((i) => rejected.some((r) => r.awb === i.awb))
     .reduce((n, i) => n + i.codAmountCents, 0);
+  const removedFreight = pending
+    .filter((i) => rejected.some((r) => r.awb === i.awb))
+    .reduce((n, i) => n + i.freightAmountCents, 0);
 
   const [updated] = await db
     .update(runsheet)
@@ -807,6 +836,7 @@ export async function dispatchRunsheet(
       dispatchedAt: new Date(),
       plannedCount: movedOut.length,
       codExpectedCents: Math.max(0, sheet!.codExpectedCents - removedCod),
+      freightExpectedCents: Math.max(0, sheet!.freightExpectedCents - removedFreight),
     })
     .where(eq(runsheet.id, sheet!.id))
     .returning();
@@ -953,6 +983,10 @@ export interface RecordDeliveryInput {
   photoNote?: string | null;
   /** MONEY: integer cents. Must equal the amount owed, exactly (§1, §9). */
   codCollectedCents?: number | null;
+  /** Separate customer courier freight, never COD. Exact due is required. */
+  freightCollectedCents?: number | null;
+  freightPaymentMethod?: "cash" | "bank_transfer" | "qr" | "card" | null;
+  freightExternalReference?: string | null;
   notes?: string | null;
   lat?: number | null;
   lng?: number | null;
@@ -971,6 +1005,9 @@ export interface RecordDeliveryResult {
   codEntryId?: string | null;
   /** The rider's position against the §8 cash ceiling after this collection. */
   cashCeiling?: { liabilityCents: number; ceilingCents: number; blocked: boolean } | null;
+  freightCollectedCents: number;
+  freightEntryId?: string | null;
+  freightReceiptCode?: string | null;
 }
 
 /**
@@ -990,6 +1027,7 @@ export async function recordDelivery(
 ): Promise<RecordDeliveryResult> {
   const p = await getParcelByAwb(input.awb);
   if (!p) errors.notFound(`Parcel ${input.awb}`);
+  const freightCharge = await chargeByParcel(p!.id);
 
   // §7 offline dedupe: the same client-minted id is never applied twice.
   if (input.clientId) {
@@ -1007,12 +1045,16 @@ export async function recordDelivery(
       if (p!.status === "Delivered" && p!.codAmountCents > 0 && !(await collectionForParcel(p!.id))) {
         await postCollection(p!, p!.codAmountCents, seen.riderId ?? actor.userId, input.clientId, actor);
       }
+      const freightEntry = await entryByClientId(`delivery:${input.clientId}`);
       return {
         parcel: p!,
         attempt: seen,
         podId: seen.podId ?? "",
         deduped: true,
         codCollectedCents: p!.codAmountCents,
+        freightCollectedCents: Math.max(0, freightEntry?.amountCents ?? 0),
+        freightEntryId: freightEntry?.id ?? null,
+        freightReceiptCode: freightEntry?.code ?? null,
       };
     }
   }
@@ -1027,7 +1069,10 @@ export async function recordDelivery(
     errors.badRequest("A delivery needs the name of the person who took the parcel.");
   }
 
-  const merchant = await getMerchant(p!.merchantId);
+  if (p!.merchantId === null && p!.codAmountCents > 0) {
+    errors.conflict("A walk-in retail parcel cannot post COD to a merchant account.");
+  }
+  const merchant = p!.merchantId ? await getMerchant(p!.merchantId) : null;
   const policy = (merchant?.podPolicy ?? "signature") as "otp" | "signature" | "photo";
   const method = input.method ?? policy;
 
@@ -1092,6 +1137,24 @@ export async function recordDelivery(
       collectedCents: collected,
     });
   }
+  const freightCollected = input.freightCollectedCents ?? 0;
+  if (!Number.isSafeInteger(freightCollected) || freightCollected < 0) {
+    errors.badRequest("Customer freight must be a non-negative integer number of cents.");
+  }
+  if (freightCharge?.payer === "recipient") {
+    if (freightCollected !== freightCharge.amountCents) {
+      errors.badRequest(
+        `Courier freight due is ${formatLkr(freightCharge.amountCents)} — ${formatLkr(freightCollected)} was entered. The amounts must match exactly.`,
+        { owedCents: freightCharge.amountCents, collectedCents: freightCollected },
+      );
+    }
+    if (!input.freightPaymentMethod) errors.badRequest("Choose how the recipient paid courier freight.");
+    if (input.freightPaymentMethod !== "cash" && (input.freightExternalReference?.trim().length ?? 0) < 3) {
+      errors.badRequest("Enter the bank, QR or card payment reference for courier freight.");
+    }
+  } else if (freightCollected !== 0 || input.freightPaymentMethod || input.freightExternalReference) {
+    errors.badRequest("This parcel has no courier freight due from the recipient; do not collect extra money.");
+  }
   // §7 "COD collected twice for one parcel → second entry rejected". Asked of
   // the cod module up front, so the refusal leaves no POD, attempt or
   // transition behind; the cod slug is what sync maps to `double_cod`.
@@ -1118,53 +1181,26 @@ export async function recordDelivery(
     .orderBy(desc(runsheetItem.createdAt))
     .limit(1);
 
+  const run = item ? await getRunsheet(item.runsheetId) : null;
+  if (actor.role === "rider") {
+    if (!item || !run) errors.forbidden("A Rider may deliver only a stop assigned on their dispatched runsheet.");
+    if (run!.riderId !== actor.userId || run!.status !== "dispatched") {
+      errors.forbidden("This delivery is not on your active dispatched runsheet.");
+    }
+  }
+  if (item && (!run || run.status !== "dispatched")) {
+    errors.conflict("The runsheet for this stop is not dispatched; delivery cannot be recorded.");
+  }
+  if (item && run!.branchId !== p!.branchId) {
+    errors.forbidden("This stop's runsheet branch does not match the parcel's accountable branch.");
+  }
+
   const podId = prefixedId("pod");
-  await db.insert(deliveryPod).values({
-    id: podId,
-    parcelId: p!.id,
-    awb: p!.awb,
-    method,
-    receivedByName: input.receivedByName.trim(),
-    receivedByRelation: input.receivedByRelation ?? "self",
-    otpVerified,
-    otpChallengeId,
-    signatureData: input.signatureData ?? null,
-    photoUrl: input.photoUrl ?? null,
-    photoNote: input.photoNote ?? null,
-    capturedById: actor.userId,
-    capturedByName: actor.name,
-    deviceId: actor.deviceId ?? null,
-    lat: input.lat ?? null,
-    lng: input.lng ?? null,
-    clientId: input.clientId ?? null,
-    ts: new Date(),
-  });
-
   const attemptNo = p!.deliveryAttempts + 1;
-  const [attempt] = await db
-    .insert(deliveryAttempt)
-    .values({
-      id: prefixedId("att"),
-      parcelId: p!.id,
-      awb: p!.awb,
-      runsheetId: item?.runsheetId ?? null,
-      runsheetItemId: item?.id ?? null,
-      attemptNo,
-      outcome: "delivered",
-      notes: input.notes ?? null,
-      podId,
-      riderId: actor.userId,
-      riderName: actor.name,
-      deviceId: actor.deviceId ?? null,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
-      clientId: input.clientId ?? null,
-      clientTs: input.clientTs ?? null,
-      ts: new Date(),
-    })
-    .returning();
-
-  // Only now does the parcel change state — and this call locks the COD amount.
+  let attempt: AttemptRow | undefined;
+  const freightCollection: { entry: Awaited<ReturnType<typeof recordDeliveryFreightInTransaction>> } = { entry: null };
+  // Status/event, proof, attempt, recipient freight and the rider-run tally are
+  // committed together. A failed payment or custody check leaves none of them.
   const moved = await transitionParcel(
     {
       awbOrId: p!.awb,
@@ -1178,24 +1214,71 @@ export async function recordDelivery(
     },
     actor,
     { podId },
+    async (tx) => {
+      await tx.insert(deliveryPod).values({
+        id: podId,
+        parcelId: p!.id,
+        awb: p!.awb,
+        method,
+        receivedByName: input.receivedByName.trim(),
+        receivedByRelation: input.receivedByRelation ?? "self",
+        otpVerified,
+        otpChallengeId,
+        signatureData: input.signatureData ?? null,
+        photoUrl: input.photoUrl ?? null,
+        photoNote: input.photoNote ?? null,
+        capturedById: actor.userId,
+        capturedByName: actor.name,
+        deviceId: actor.deviceId ?? null,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        clientId: input.clientId ?? null,
+        ts: new Date(),
+      });
+      [attempt] = await tx.insert(deliveryAttempt).values({
+        id: prefixedId("att"),
+        parcelId: p!.id,
+        awb: p!.awb,
+        runsheetId: item?.runsheetId ?? null,
+        runsheetItemId: item?.id ?? null,
+        attemptNo,
+        outcome: "delivered",
+        notes: input.notes ?? null,
+        podId,
+        riderId: actor.userId,
+        riderName: actor.name,
+        deviceId: actor.deviceId ?? null,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        clientId: input.clientId ?? null,
+        clientTs: input.clientTs ?? null,
+        ts: new Date(),
+      }).returning();
+      if (freightCharge) {
+        freightCollection.entry = await recordDeliveryFreightInTransaction(tx, freightCharge, {
+          amountCents: freightCollected,
+          paymentMethod: input.freightPaymentMethod,
+          externalReference: input.freightExternalReference,
+          clientId: input.clientId,
+          runsheetId: item?.runsheetId,
+        }, actor);
+      }
+      if (item) {
+        const [updatedItem] = await tx.update(runsheetItem)
+          .set({ state: "delivered", attemptNo, settledAt: new Date(), clientId: input.clientId ?? null })
+          .where(and(eq(runsheetItem.id, item.id), eq(runsheetItem.state, "pending")))
+          .returning();
+        if (!updatedItem) errors.conflict("This runsheet stop is no longer pending.");
+        const [sheet] = await tx.select().from(runsheet).where(eq(runsheet.id, item.runsheetId)).limit(1);
+        if (!sheet || sheet.status !== "dispatched") errors.conflict("The runsheet is no longer dispatched.");
+        await tx.update(runsheet).set({
+          deliveredCount: sheet!.deliveredCount + 1,
+          codCollectedCents: sheet!.codCollectedCents + collected,
+          freightCollectedCents: sheet!.freightCollectedCents + (freightCollection.entry?.amountCents ?? 0),
+        }).where(eq(runsheet.id, sheet!.id));
+      }
+    },
   );
-
-  if (item) {
-    await db
-      .update(runsheetItem)
-      .set({ state: "delivered", attemptNo, settledAt: new Date() })
-      .where(eq(runsheetItem.id, item.id));
-    const sheet = await getRunsheet(item.runsheetId);
-    if (sheet) {
-      await db
-        .update(runsheet)
-        .set({
-          deliveredCount: sheet.deliveredCount + 1,
-          codCollectedCents: sheet.codCollectedCents + collected,
-        })
-        .where(eq(runsheet.id, sheet.id));
-    }
-  }
 
   // §8 checkpoint 1 — the cash is now the rider's liability. Written after the
   // transition (a refused transition must not leave money on the rider) and
@@ -1230,6 +1313,9 @@ export async function recordDelivery(
     codCollectedCents: collected,
     codEntryId: ledger?.entry.id ?? null,
     cashCeiling: ledger?.ceiling ?? null,
+    freightCollectedCents: freightCollection.entry?.amountCents ?? 0,
+    freightEntryId: freightCollection.entry?.id ?? null,
+    freightReceiptCode: freightCollection.entry?.code ?? null,
   };
 }
 
@@ -1245,10 +1331,11 @@ async function postCollection(
   clientId: string | null | undefined,
   actor: Principal,
 ) {
+  const merchantId = p.merchantId ?? errors.conflict("Retail counter parcels cannot post collections to the merchant COD ledger.");
   return recordCollection({
     parcelId: p.id,
     awb: p.awb,
-    merchantId: p.merchantId,
+    merchantId,
     riderId,
     branchId: p.branchId,
     amountCents,
@@ -1403,6 +1490,7 @@ export async function recordFailure(
           failedCount: sheet.failedCount + 1,
           // The rider is no longer carrying this parcel's cash.
           codExpectedCents: Math.max(0, sheet.codExpectedCents - item.codAmountCents),
+          freightExpectedCents: Math.max(0, sheet.freightExpectedCents - item.freightAmountCents),
         })
         .where(eq(runsheet.id, sheet.id));
     }
@@ -1450,7 +1538,7 @@ export async function recordFailure(
   }
 
   if (isNew) {
-    const merchant = await getMerchant(p!.merchantId);
+    const merchant = p!.merchantId ? await getMerchant(p!.merchantId) : null;
     await enqueue("notify.dispatch", {
       templateKey: "ndr.raised",
       parcelId: p!.id,
@@ -1541,6 +1629,7 @@ export interface CloseRunsheetResult {
   /** Stops that were still pending and were written off as TIME_EXHAUSTED. */
   unattempted: string[];
   cash: { expectedCents: number; collectedCents: number; varianceCents: number };
+  freightCash: { expectedCents: number; collectedCents: number; varianceCents: number };
 }
 
 /**
@@ -1604,6 +1693,11 @@ export async function closeRunsheet(
       expectedCents: fresh?.codExpectedCents ?? 0,
       collectedCents: fresh?.codCollectedCents ?? 0,
       varianceCents: (fresh?.codCollectedCents ?? 0) - (fresh?.codExpectedCents ?? 0),
+    },
+    freightCash: {
+      expectedCents: fresh?.freightExpectedCents ?? 0,
+      collectedCents: fresh?.freightCollectedCents ?? 0,
+      varianceCents: (fresh?.freightCollectedCents ?? 0) - (fresh?.freightExpectedCents ?? 0),
     },
   };
 }

@@ -9,6 +9,7 @@ import { dashboard } from "./routes/dashboard";
 import { delivery } from "./routes/delivery";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
+import { freight } from "./routes/freight";
 import { hrEmployees } from "./routes/hr-employees";
 import { hrDocuments } from "./routes/hr-documents";
 import { hrLeave } from "./routes/hr-leave";
@@ -64,6 +65,7 @@ export const router = {
   notifications,
   cod,
   finance,
+  freight,
   hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll },
   disputes,
   sync,

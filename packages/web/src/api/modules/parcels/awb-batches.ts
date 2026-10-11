@@ -264,9 +264,9 @@ export async function assignAwbBatch(
   });
 }
 
-/** Next unused label: merchant-owned stock first, then the parcel's assigned branch/hub stock. */
-export async function nextUnusedAwbForBooking(merchantId: string, branchId: string): Promise<string | null> {
-  const [merchantLabel] = await db
+/** Next unused label: merchant stock when applicable, then branch/hub stock. */
+export async function nextUnusedAwbForBooking(merchantId: string | null, branchId: string): Promise<string | null> {
+  const [merchantLabel] = merchantId ? await db
     .select({ awb: awbBatchLabel.awb })
     .from(awbBatchLabel)
     .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
@@ -277,7 +277,7 @@ export async function nextUnusedAwbForBooking(merchantId: string, branchId: stri
       isNull(parcel.id),
     ))
     .orderBy(asc(awbBatch.createdAt), asc(awbBatchLabel.awb))
-    .limit(1);
+    .limit(1) : [];
   if (merchantLabel) return merchantLabel.awb;
 
   const [locationLabel] = await db
@@ -332,6 +332,29 @@ export async function checkMerchantAwbs(merchantId: string, values: string[]) {
 /** Check a single typed/scanned sticker. */
 export async function checkMerchantAwb(merchantId: string, value: string) {
   return (await checkMerchantAwbs(merchantId, [value]))[0]!;
+}
+
+/** Walk-in counter labels must come from the branch/hub's own assigned stock. */
+export async function checkBranchAwb(branchId: string, value: string) {
+  const awb = value.trim().toUpperCase();
+  if (!/^NX\d{10}$/.test(awb)) {
+    return { valid: false as const, awb, reason: "Enter a valid 12-character NX AWB from the branch sticker stock." };
+  }
+  const [label] = await db
+    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id })
+    .from(awbBatchLabel)
+    .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
+    .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .where(and(
+      eq(awbBatchLabel.awb, awb),
+      eq(awbBatch.assignmentStatus, "assigned"),
+      inArray(awbBatch.assigneeType, ["branch", "hub"]),
+      eq(awbBatch.assigneeId, branchId),
+    ))
+    .limit(1);
+  if (!label) return { valid: false as const, awb, reason: "This AWB is not allocated to this branch or hub." };
+  if (label.usedParcelId) return { valid: false as const, awb, reason: "This AWB has already been used. Scan an unused branch sticker." };
+  return { valid: true as const, awb, reason: "AWB is allocated to this branch and available." };
 }
 
 /** A batch plus per-label use state, for Excel-compatible or print/PDF export. */

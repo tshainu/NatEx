@@ -12,6 +12,7 @@ import Track from "./pages/track";
 import OpsBoard from "./pages/ops/board";
 import OpsParcels from "./pages/ops/parcels";
 import OpsBook from "./pages/ops/book";
+import OpsFreightCounter from "./pages/ops/freight-counter";
 import OpsManifests from "./pages/ops/manifests";
 import OpsHubReceipt from "./pages/ops/hub-receipt";
 import OpsBagging from "./pages/ops/bagging";
@@ -40,6 +41,7 @@ import FinanceOverview from "./pages/finance/overview";
 import FinanceCod from "./pages/finance/cod-page";
 import FinanceRemittances from "./pages/finance/remittances-page";
 import FinanceInvoices from "./pages/finance/invoices-page";
+import FinanceFreight from "./pages/finance/freight";
 import FinanceDisputes from "./pages/finance/disputes-page";
 import HrEmployees from "./pages/hr/employees";
 import HrDashboard from "./pages/hr/dashboard";
@@ -144,6 +146,9 @@ function Routes() {
       <Portal path="/ops/book">
         <OpsBook />
       </Portal>
+      <Portal path="/ops/freight-counter">
+        <OpsFreightCounter />
+      </Portal>
       <Portal path="/ops/manifests">
         <OpsManifests />
       </Portal>
@@ -245,6 +250,9 @@ function Routes() {
       </Portal>
       <Portal path="/finance/invoices">
         <FinanceInvoices />
+      </Portal>
+      <Portal path="/finance/freight">
+        <FinanceFreight />
       </Portal>
       <Portal path="/finance/disputes">
         <FinanceDisputes />

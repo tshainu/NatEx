@@ -15,6 +15,7 @@ export * from "./schema/collection";
 export * from "./schema/routing";
 export * from "./schema/transport";
 export * from "./schema/delivery";
+export * from "./schema/freight";
 export * from "./schema/notifications";
 export * from "./schema/sync";
 export * from "./schema/cod";
