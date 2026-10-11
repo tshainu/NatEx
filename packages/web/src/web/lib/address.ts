@@ -14,6 +14,13 @@ export type Province = keyof typeof DISTRICTS_BY_PROVINCE;
 export type District = (typeof DISTRICTS_BY_PROVINCE)[Province][number];
 export const PROVINCES = Object.keys(DISTRICTS_BY_PROVINCE) as Province[];
 export const DISTRICTS = Object.values(DISTRICTS_BY_PROVINCE).flat() as District[];
+export const PROVINCE_BY_DISTRICT = Object.fromEntries(
+  PROVINCES.flatMap((province) => DISTRICTS_BY_PROVINCE[province].map((district) => [district, province] as const)),
+) as Record<District, Province>;
+
+export function provinceForDistrict(district: District | ""): Province | "" {
+  return district ? PROVINCE_BY_DISTRICT[district] : "";
+}
 
 export interface AddressParts {
   line1: string;

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import {
@@ -8,6 +8,7 @@ import {
   type FreightChargeRow,
   type FreightEntryRow,
 } from "../../database/schema/freight";
+import { parcel } from "../../database/schema/parcels";
 import { errors } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { insertWithFreshCode, mintDocumentCode } from "../../shared/codes";
@@ -299,6 +300,73 @@ export async function pageFreightCharges(
       paidCents: Number(paidCents),
       dueCents: charge.amountCents - Number(paidCents),
     })),
+    total: totalRow?.value ?? 0,
+    page,
+    pageSize,
+  };
+}
+
+/** Operations Counter history is pinned to the user's home branch. */
+export async function pageCounterBookings(
+  scope: Principal,
+  input: { branchId?: string; search?: string; page: number; pageSize: number },
+) {
+  if (scope.role !== "ops" && scope.role !== "admin") {
+    errors.forbidden("Only Operations/Admin may view Counter booking history.");
+  }
+  const filters: SQL[] = [];
+  if (scope.role !== "admin") filters.push(eq(freightCharge.branchId, scope.branchId));
+  else if (input.branchId) filters.push(eq(freightCharge.branchId, input.branchId));
+  const term = input.search?.trim().replace(/[%_]/g, "");
+  if (term) {
+    filters.push(or(
+      like(freightCharge.awb, `%${term}%`),
+      like(freightCharge.senderName, `%${term}%`),
+      like(freightCharge.senderPhone, `%${term}%`),
+      like(freightCharge.recipientName, `%${term}%`),
+      like(freightCharge.recipientPhone, `%${term}%`),
+      like(freightCharge.code, `%${term}%`),
+    )!);
+  }
+  const where = filters.length ? and(...filters) : undefined;
+  const page = Math.max(1, input.page);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize));
+  const [rows, [totalRow]] = await Promise.all([
+    db.select({ charge: freightCharge, parcel })
+      .from(freightCharge)
+      .innerJoin(parcel, eq(parcel.id, freightCharge.parcelId))
+      .where(where)
+      .orderBy(desc(freightCharge.createdAt), desc(freightCharge.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ value: count() })
+      .from(freightCharge)
+      .innerJoin(parcel, eq(parcel.id, freightCharge.parcelId))
+      .where(where),
+  ]);
+  const chargeIds = rows.map((row) => row.charge.id);
+  const entries = chargeIds.length
+    ? await db.select().from(freightEntry).where(inArray(freightEntry.chargeId, chargeIds)).orderBy(desc(freightEntry.ts))
+    : [];
+  const entriesByCharge = new Map<string, FreightEntryRow[]>();
+  for (const entry of entries) {
+    const group = entriesByCharge.get(entry.chargeId) ?? [];
+    group.push(entry);
+    entriesByCharge.set(entry.chargeId, group);
+  }
+  return {
+    rows: rows.map(({ charge, parcel: parcelRow }) => {
+      const chargeEntries = entriesByCharge.get(charge.id) ?? [];
+      const paidCents = netPaid(chargeEntries);
+      return {
+        parcel: parcelRow,
+        freightCharge: charge,
+        entries: chargeEntries,
+        paidReceipt: chargeEntries.find((entry) => entry.entryType === "collection") ?? null,
+        paidCents,
+        dueCents: charge.amountCents - paidCents,
+      };
+    }),
     total: totalRow?.value ?? 0,
     page,
     pageSize,

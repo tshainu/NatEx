@@ -877,7 +877,8 @@ export interface RetailCounterBookingInput {
   lengthCm?: number | null;
   widthCm?: number | null;
   heightCm?: number | null;
-  declaredValueCents: number;
+  description: string;
+  declaredValueCents: number | null;
   senderName: string;
   senderPhone: string;
   senderAddress?: string | null;
@@ -920,8 +921,11 @@ export async function createRetailCounterBooking(
   if (!Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
     errors.badRequest("Parcel weight must be a positive integer number of grams.");
   }
-  if (!Number.isSafeInteger(input.declaredValueCents) || input.declaredValueCents < 0) {
+  if (input.declaredValueCents !== null && (!Number.isSafeInteger(input.declaredValueCents) || input.declaredValueCents < 0)) {
     errors.badRequest("Declared value must be a non-negative integer number of cents.");
+  }
+  if (input.description.trim().length < 3 || input.description.trim().length > 500) {
+    errors.badRequest("Describe the parcel contents in 3 to 500 characters.");
   }
   if (input.senderName.trim().length < 2 || input.consigneeName.trim().length < 2) {
     errors.badRequest("Enter both sender and recipient names.");
@@ -990,6 +994,7 @@ export async function createRetailCounterBooking(
             lengthCm: input.lengthCm ?? null,
             widthCm: input.widthCm ?? null,
             heightCm: input.heightCm ?? null,
+            description: input.description.trim(),
             declaredValueCents: input.declaredValueCents,
             codAmountCents: 0,
             originAddress: branch!.address,

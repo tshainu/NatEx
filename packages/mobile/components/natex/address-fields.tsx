@@ -19,6 +19,11 @@ export const DISTRICTS_BY_PROVINCE = {
 } as const;
 export type Province = keyof typeof DISTRICTS_BY_PROVINCE;
 export type District = (typeof DISTRICTS_BY_PROVINCE)[Province][number];
+const ALL_DISTRICTS = Object.values(DISTRICTS_BY_PROVINCE).flat() as District[];
+function provinceForDistrict(district: District): Province | "" {
+  const match = Object.entries(DISTRICTS_BY_PROVINCE).find(([, districts]) => (districts as readonly string[]).includes(district));
+  return match ? match[0] as Province : "";
+}
 export interface AddressParts {
   line1: string;
   line2: string;
@@ -42,12 +47,10 @@ export function AddressFields({
   onChange: (next: AddressParts) => void;
 }) {
   const colors = useColors();
-  const [picker, setPicker] = useState<"province" | "district" | null>(null);
-  const provinces = Object.keys(DISTRICTS_BY_PROVINCE) as Province[];
-  const districts = value.province ? DISTRICTS_BY_PROVINCE[value.province] : [];
-  const options: readonly string[] = picker === "province" ? provinces : districts;
+  const [picker, setPicker] = useState<"district" | null>(null);
+  const options: readonly string[] = ALL_DISTRICTS;
   const update = (patch: Partial<AddressParts>) => onChange({ ...value, ...patch });
-  const selected = picker === "province" ? value.province : value.district;
+  const selected = value.district;
 
   return (
     <View style={styles.wrap}>
@@ -55,25 +58,24 @@ export function AddressFields({
       <Input label="Address line 2" value={value.line2} onChangeText={(line2) => update({ line2 })} placeholder="Apartment, floor or landmark (optional)" returnKeyType="next" />
       <View style={styles.row}>
         <View style={styles.flex}>
-          <Small>Province</Small>
-          <Pressable accessibilityRole="button" accessibilityLabel="Choose province" onPress={() => setPicker("province")} style={[styles.select, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Body numberOfLines={1} style={styles.flex}>{value.province || "Select province"}</Body>
+          <Small>District</Small>
+          <Pressable accessibilityRole="button" accessibilityLabel="Choose district" onPress={() => setPicker("district")} style={[styles.select, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Body numberOfLines={1} style={styles.flex}>{value.district || "Select district"}</Body>
             <Ionicons name="chevron-down" size={17} color={colors.mutedForeground} />
           </Pressable>
         </View>
         <View style={styles.flex}>
-          <Small>District</Small>
-          <Pressable accessibilityRole="button" accessibilityLabel="Choose district" disabled={!value.province} onPress={() => setPicker("district")} style={[styles.select, { backgroundColor: colors.surface, borderColor: colors.border, opacity: value.province ? 1 : 0.55 }]}>
-            <Body numberOfLines={1} style={styles.flex}>{value.district || "Select district"}</Body>
-            <Ionicons name="chevron-down" size={17} color={colors.mutedForeground} />
-          </Pressable>
+          <Small>Province (auto-selected)</Small>
+          <View accessibilityLabel="Province selected from district" style={[styles.select, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Body numberOfLines={1} style={styles.flex}>{value.province || "Select district first"}</Body>
+          </View>
         </View>
       </View>
       <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
         <Pressable style={styles.backdrop} onPress={() => setPicker(null)}>
           <Pressable style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={(event) => event.stopPropagation()}>
             <View style={styles.sheetHeader}>
-              <Title>{picker === "province" ? "Choose province" : "Choose district"}</Title>
+              <Title>Choose district</Title>
               <Pressable accessibilityRole="button" accessibilityLabel="Close selector" onPress={() => setPicker(null)} hitSlop={12}>
                 <Ionicons name="close" size={22} color={colors.foreground} />
               </Pressable>
@@ -87,8 +89,8 @@ export function AddressFields({
                   accessibilityRole="button"
                   accessibilityState={{ selected: selected === item }}
                   onPress={() => {
-                    if (picker === "province") update({ province: item as Province, district: "" });
-                    else update({ district: item as District });
+                    const district = item as District;
+                    update({ district, province: provinceForDistrict(district) });
                     setPicker(null);
                   }}
                   style={[styles.option, { borderBottomColor: colors.border }]}

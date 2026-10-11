@@ -12,7 +12,8 @@ const counterInput = z.object({
   lengthCm: z.number().int().min(1).max(500).nullish(),
   widthCm: z.number().int().min(1).max(500).nullish(),
   heightCm: z.number().int().min(1).max(500).nullish(),
-  declaredValueCents: z.number().int().min(0).max(10_000_000_000).default(0),
+  declaredValueCents: z.number().int().min(0).max(10_000_000_000).nullable().default(null),
+  description: z.string().trim().min(3).max(500),
   senderName: z.string().trim().min(2).max(160),
   senderPhone: z.string().trim().min(9).max(24),
   senderAddress: z.string().trim().max(500).nullish(),
@@ -53,6 +54,15 @@ export const counterBooking = opsProc
       return createRetailCounterBooking({ ...input, requestId }, context.principal);
     },
   ));
+
+export const counterHistory = opsProc
+  .input(z.object({
+    branchId: z.string().optional(),
+    search: z.string().trim().max(100).optional(),
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(1).max(100).default(50),
+  }))
+  .handler(({ input, context }) => ledger.pageCounterBookings(context.principal, input));
 
 /** Finance/Admin sees all counter and Rider customer-freight collection events. */
 export const entries = financeProc
@@ -117,4 +127,4 @@ export const receipt = financeProc
   .input(z.object({ code: z.string().trim().min(5).max(40) }))
   .handler(({ input, context }) => ledger.freightReceipt(input.code, context.principal));
 
-export const freight = { counterBooking, entries, charges, reconcile, refund, receipt };
+export const freight = { counterBooking, counterHistory, entries, charges, reconcile, refund, receipt };

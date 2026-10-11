@@ -26,8 +26,10 @@ export const parcel = sqliteTable(
     lengthCm: integer("length_cm"),
     widthCm: integer("width_cm"),
     heightCm: integer("height_cm"),
+    /** Optional customer-declared contents, entered at the branch counter. */
+    description: text("description"),
     /** MONEY: integer cents, LKR (PROJECT.md §9). Never float/double. */
-    declaredValueCents: integer("declared_value_cents").notNull().default(0),
+    declaredValueCents: integer("declared_value_cents").default(0),
     codAmountCents: integer("cod_amount_cents").notNull().default(0),
     /** Locked once Delivered; only Finance may adjust, with audit (PROJECT.md §6). */
     codLockedAt: integer("cod_locked_at", { mode: "timestamp" }),

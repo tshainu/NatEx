@@ -1,6 +1,6 @@
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { DISTRICTS_BY_PROVINCE, PROVINCES, type AddressParts, type Province } from "@/lib/address";
+import { DISTRICTS, provinceForDistrict, type AddressParts, type District } from "@/lib/address";
 
 export function AddressFields({
   value,
@@ -13,7 +13,6 @@ export function AddressFields({
   required?: boolean;
   title?: string;
 }) {
-  const districts = value.province ? DISTRICTS_BY_PROVINCE[value.province as Province] : [];
   const update = (patch: Partial<AddressParts>) => onChange({ ...value, ...patch });
   return (
     <fieldset className="flex flex-col gap-3">
@@ -25,26 +24,21 @@ export function AddressFields({
         <Input value={value.line2} onChange={(e) => update({ line2: e.target.value })} autoComplete="address-line2" />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Province">
-          <Select
-            value={value.province}
-            onChange={(e) => update({ province: e.target.value as Province | "", district: "" })}
-            required={required}
-          >
-            <option value="">Select province…</option>
-            {PROVINCES.map((province) => <option key={province} value={province}>{province}</option>)}
-          </Select>
-        </Field>
         <Field label="District">
           <Select
             value={value.district}
-            onChange={(e) => update({ district: e.target.value as AddressParts["district"] })}
+            onChange={(e) => {
+              const district = e.target.value as District | "";
+              update({ district, province: provinceForDistrict(district) });
+            }}
             required={required}
-            disabled={!value.province}
           >
             <option value="">Select district…</option>
-            {districts.map((district) => <option key={district} value={district}>{district}</option>)}
+            {DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
           </Select>
+        </Field>
+        <Field label="Province (auto-selected)">
+          <Input value={value.province} placeholder="Select district first" readOnly aria-label="Province selected from district" />
         </Field>
       </div>
     </fieldset>

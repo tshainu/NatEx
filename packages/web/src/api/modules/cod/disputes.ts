@@ -170,15 +170,16 @@ export async function openDispute(input: OpenDisputeInput, actor: Principal): Pr
   }
   if (CLAIM_TYPES.includes(input.type)) {
     if (input.claimAmountCents <= 0) errors.badRequest("A loss or damage claim must name an amount.");
-    if (input.claimAmountCents > parcel!.declaredValueCents) {
+    const declaredValueCents = parcel!.declaredValueCents ?? 0;
+    if (input.claimAmountCents > declaredValueCents) {
       fail(
         "BAD_REQUEST",
         problem(
           "claim-exceeds-cap",
           "Claim over the declared value",
           422,
-          `NatEx's liability for ${parcel!.awb} is capped at its declared value of ${formatLkr(parcel!.declaredValueCents)}.`,
-          { capCents: parcel!.declaredValueCents, claimAmountCents: input.claimAmountCents },
+          `NatEx's liability for ${parcel!.awb} is capped at its declared value of ${formatLkr(declaredValueCents)}.`,
+          { capCents: declaredValueCents, claimAmountCents: input.claimAmountCents },
         ),
       );
     }

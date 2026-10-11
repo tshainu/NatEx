@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { addressPartsFromLegacy, DISTRICTS_BY_PROVINCE, formatAddress, isCompleteAddress } from "./address";
+import { addressPartsFromLegacy, DISTRICTS_BY_PROVINCE, formatAddress, isCompleteAddress, provinceForDistrict } from "./address";
 
 describe("Sri Lankan structured addresses", () => {
   test("lists all 25 districts under their provinces", () => {
     expect(Object.values(DISTRICTS_BY_PROVINCE).flat()).toHaveLength(25);
     expect(DISTRICTS_BY_PROVINCE["Western Province"]).toContain("Colombo");
     expect(DISTRICTS_BY_PROVINCE["Northern Province"]).toContain("Jaffna");
+  });
+
+  test("selecting a district automatically resolves its province", () => {
+    expect(provinceForDistrict("Kandy")).toBe("Central Province");
+    expect(provinceForDistrict("Colombo")).toBe("Western Province");
+    expect(provinceForDistrict("")).toBe("");
   });
 
   test("formats line 1, optional line 2, district and province", () => {
