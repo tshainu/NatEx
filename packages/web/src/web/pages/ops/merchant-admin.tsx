@@ -294,7 +294,7 @@ export function OnboardMerchantDialog({
     onError: (error) => setProblem(apiMessage(error, "This merchant could not be onboarded.")),
   });
 
-  const assignable = (cards.data ?? []).filter((c) => c.activeVersion);
+  const assignable = (cards.data ?? []).filter((c) => c.activeVersion && !c.placeholder);
   const chosen = assignable.find((c) => c.id === rateCardId);
   const portalOk =
     !withPortal ||
@@ -349,7 +349,7 @@ export function OnboardMerchantDialog({
     >
       <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
         <MerchantFields form={form} set={set} branches={branches} />
-        <Field label="Rate card" hint="Only cards with a published version can be assigned.">
+        <Field label="Rate card" hint="Only approved cards with a published version can be assigned.">
           <Select value={rateCardId} onChange={(e) => setRateCardId(e.target.value)}>
             <option value="">None yet</option>
             {assignable.map((c) => (
@@ -431,8 +431,7 @@ export function OnboardMerchantDialog({
 export function PlaceholderWarning() {
   return (
     <p className="rounded-md border border-status-warn/40 bg-status-warn/10 px-3 py-2 text-[12px] leading-relaxed text-status-warn">
-      PLACEHOLDER tariff. §15 q3 (zones, weight slabs, surcharges) is not answered and these prices are
-      not client-approved. Do not quote them to a merchant as real prices.
+      This card is marked as a placeholder. Its illustrative prices are not approved and cannot be used for live merchant pricing.
     </p>
   );
 }
@@ -460,7 +459,7 @@ export function RateCardSection({ merchant, isAdmin }: { merchant: EditableMerch
   });
 
   const current = (cards.data ?? []).find((c) => c.id === merchant.rateCardId);
-  const assignable = (cards.data ?? []).filter((c) => c.activeVersion);
+  const assignable = (cards.data ?? []).filter((c) => c.activeVersion && !c.placeholder);
   const next = assignable.find((c) => c.id === choice);
 
   return (

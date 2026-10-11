@@ -13,6 +13,8 @@ import { prefixedId } from "../../shared/ulid";
 import { districtFromAddress } from "../../shared/address";
 import * as identityService from "../identity/service";
 import {
+  DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
+  DEFAULT_WEIGHT_ROUNDING_GRAMS,
   PricingError,
   quote,
   tariffProblems,
@@ -25,9 +27,9 @@ import {
 /**
  * MODULE: merchants — rate cards (§3 puts tariffs in the merchants module).
  *
- * §15 q3 is OPEN. Everything here is a configurable engine; the seeded card is
- * `placeholder = true` and every API response carries that flag so no screen
- * can show a placeholder price without saying so.
+ * Tariff amounts are approved business data stored in immutable published
+ * versions. The seeded example remains `placeholder = true` and must never be
+ * assigned or used for live merchant or Counter pricing.
  *
  * Versioning: draft → active → superseded. Only a draft is edited (as a whole
  * document: bands, slabs and surcharges are replaced together, atomically, in
@@ -170,8 +172,8 @@ function childRows(versionId: string, doc: TariffDocument) {
 
 /** A starting document: two bands, no prices. Nothing is invented. */
 const EMPTY_DOC: TariffDocument = {
-  volumetricDivisor: 5000,
-  roundingGrams: 500,
+  volumetricDivisor: DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
+  roundingGrams: DEFAULT_WEIGHT_ROUNDING_GRAMS,
   note: null,
   bands: [
     { band: "local", label: "Within the origin branch", extraPerKgCents: 0 },
@@ -335,6 +337,8 @@ export async function quoteForMerchant(merchantId: string, input: QuoteInput) {
   const [m] = await db.select().from(merchant).where(eq(merchant.id, merchantId));
   if (!m) errors.notFound("Merchant");
   if (!m!.rateCardId) errors.conflict(`${m!.name} has no rate card assigned.`, { merchantId });
+  const card = await cardOrThrow(m!.rateCardId!);
+  if (card.placeholder) errors.badRequest("A placeholder rate card cannot be used for merchant pricing.");
   const active = await activeVersionOf(m!.rateCardId!);
   if (!active) errors.conflict("The merchant's rate card has no published version.");
   return quoteVersion(active!.id, input);
@@ -344,7 +348,8 @@ export async function assignRateCard(merchantId: string, rateCardId: string | nu
   const [m] = await db.select().from(merchant).where(eq(merchant.id, merchantId));
   if (!m) errors.notFound("Merchant");
   if (rateCardId) {
-    await cardOrThrow(rateCardId);
+    const card = await cardOrThrow(rateCardId);
+    if (card.placeholder) errors.badRequest("A placeholder rate card cannot be assigned to a merchant.");
     if (!(await activeVersionOf(rateCardId))) {
       errors.conflict("Publish a version of this rate card before assigning it to a merchant.");
     }
@@ -394,7 +399,7 @@ export async function quoteForCounter(
 
 /**
  * Seed the pilot placeholder tariff (idempotent). Every number is illustrative
- * and the card is flagged placeholder — §15 q3 is unanswered.
+ * and this card remains flagged placeholder — never use it for live pricing.
  */
 export async function seedPlaceholderRateCard(): Promise<{ id: string; created: boolean }> {
   const [existing] = await db.select().from(rateCard).where(eq(rateCard.code, PLACEHOLDER_CARD_CODE));
@@ -404,7 +409,7 @@ export async function seedPlaceholderRateCard(): Promise<{ id: string; created: 
   const doc: TariffDocument = {
     volumetricDivisor: 5000,
     roundingGrams: 500,
-    note: "PLACEHOLDER — illustrative numbers only. §15 q3 (zones, weight slabs, surcharges) is unanswered; replace before billing anyone.",
+    note: "PLACEHOLDER — illustrative numbers only. This card is not approved and must not be used for live pricing.",
     bands: [
       { band: "local", label: "Within the origin branch", extraPerKgCents: 10_000 },
       { band: "outstation", label: "To another branch", extraPerKgCents: 15_000 },

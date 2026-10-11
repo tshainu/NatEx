@@ -2,8 +2,8 @@
  * Rate-card arithmetic — pure, integer-only, no I/O (§9: money is integer
  * cents; rates are basis points). The DB side lives in rate-cards.ts.
  *
- * §15 q3 (zones, weight slabs, surcharges) is OPEN. This file is the ENGINE the
- * answer will be typed into; it does not encode any client-approved number.
+ * Tariff amounts are versioned business data, not constants in this file. This
+ * module implements only the integer arithmetic and accepted-weight rules.
  *
  *   chargeable g = max(actual g, ⌈L×W×H cm³ × 1000 ÷ divisor⌉)
  *   rounded g    = ⌈chargeable ÷ rounding⌉ × rounding
@@ -12,6 +12,10 @@
  *   surcharge    = flat cents, or ⌊freight × bp ÷ 10 000 + ½⌋ (half-up)
  *   total        = freight + Σ surcharges
  */
+
+export const MAX_ACCEPTED_WEIGHT_GRAMS = 30_000;
+export const DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG = 5000;
+export const DEFAULT_WEIGHT_ROUNDING_GRAMS = 500;
 
 export interface PricingVersion {
   volumetricDivisor: number;
@@ -99,7 +103,13 @@ export function quote(
       ? volumetricGrams(input.lengthCm, input.widthCm, input.heightCm, version.volumetricDivisor)
       : 0;
   const chargeable = Math.max(input.weightGrams, vol);
+  if (chargeable > MAX_ACCEPTED_WEIGHT_GRAMS) {
+    throw new PricingError("Chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  }
   const rounded = roundUp(chargeable, version.roundingGrams);
+  if (rounded > MAX_ACCEPTED_WEIGHT_GRAMS) {
+    throw new PricingError("Rounded chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  }
 
   const lines: QuoteLine[] = [];
   const hit = bandSlabs.find((s) => s.maxGrams >= rounded);
@@ -179,6 +189,7 @@ export function tariffProblems(
     for (let i = 0; i < own.length; i++) {
       const s = own[i]!;
       if (!Number.isInteger(s.maxGrams) || s.maxGrams <= 0) out.push(`Band "${b.band}": slab weights must be whole grams above zero.`);
+      if (s.maxGrams > MAX_ACCEPTED_WEIGHT_GRAMS) out.push(`Band "${b.band}": slab weight cannot exceed the 30 kg acceptance limit.`);
       if (!Number.isInteger(s.priceCents) || s.priceCents < 0) out.push(`Band "${b.band}": slab prices must be ≥ 0 cents.`);
       if (i > 0 && s.maxGrams === own[i - 1]!.maxGrams) out.push(`Band "${b.band}": two slabs end at ${s.maxGrams} g.`);
       if (i > 0 && s.priceCents < own[i - 1]!.priceCents) {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MAX_ACCEPTED_WEIGHT_GRAMS,
   basisPoints,
   quote,
   roundUp,
@@ -9,6 +10,7 @@ import {
   type PricingSlab,
   type PricingSurcharge,
 } from "./pricing";
+import { natexStandardTariffDocument } from "./standard-tariff";
 
 const version = { volumetricDivisor: 5000, roundingGrams: 500 };
 const bands: PricingBand[] = [
@@ -26,6 +28,7 @@ const surcharges: PricingSurcharge[] = [
   { code: "fuel", label: "Fuel", kind: "percent", amount: 750, mode: "always" },
   { code: "fragile", label: "Fragile handling", kind: "flat", amount: 10_000, mode: "on_request" },
 ];
+const approvedTariff = natexStandardTariffDocument();
 
 describe("rate-card pricing arithmetic", () => {
   test("volumetric weight is ⌈L×W×H×1000 ÷ divisor⌉ grams", () => {
@@ -78,6 +81,49 @@ describe("rate-card pricing arithmetic", () => {
     // 6200 → 6500 g; 1500 g over 5000 → 2 started kg × 150.00
     expect(q.roundedGrams).toBe(6500);
     expect(q.freightCents).toBe(90_000 + 2 * 15_000);
+  });
+
+  test("approved progressive schedule totals are identical for local and outstation", () => {
+    for (const band of ["local", "outstation"] as const) {
+      for (const [kg, expectedRupees] of [
+        [1, 400],
+        [2, 650],
+        [3, 900],
+        [4, 1050],
+        [7, 1500],
+        [10, 1950],
+        [11, 2080],
+        [30, 4550],
+      ] as const) {
+        const q = quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, { band, weightGrams: kg * 1000 });
+        expect(q.freightCents).toBe(expectedRupees * 100);
+      }
+    }
+  });
+
+  test("partial kilograms are charged as a started extra kilogram after 500 g rounding", () => {
+    const aboveOne = quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, { band: "local", weightGrams: 1001 });
+    const aboveThree = quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, { band: "local", weightGrams: 3001 });
+    expect(aboveOne.roundedGrams).toBe(1500);
+    expect(aboveOne.freightCents).toBe(65_000);
+    expect(aboveThree.roundedGrams).toBe(3500);
+    expect(aboveThree.freightCents).toBe(105_000);
+  });
+
+  test("30 kg is accepted, but actual or volumetric chargeable weight above 30 kg is rejected", () => {
+    const atLimit = quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, {
+      band: "local",
+      weightGrams: MAX_ACCEPTED_WEIGHT_GRAMS,
+    });
+    expect(atLimit.freightCents).toBe(455_000);
+    expect(() => quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, { band: "local", weightGrams: 30_001 })).toThrow("30 kg");
+    expect(() => quote(version, approvedTariff.bands, approvedTariff.slabs, approvedTariff.surcharges, {
+      band: "local",
+      weightGrams: 1000,
+      lengthCm: 101,
+      widthCm: 50,
+      heightCm: 30,
+    })).toThrow("30 kg");
   });
 
   test("always-on percent surcharge and requested flat surcharge add up exactly", () => {

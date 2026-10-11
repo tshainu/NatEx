@@ -200,24 +200,47 @@ cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  
 
 ---
 
-## 4. Rate cards (§15 q3 — OPEN)
+## 4. Rate cards
 
 - The rate-card engine is built: weight bands, zones, versions, a draft →
   publish flow, frozen published versions, assignment per merchant, and quote.
-- **Every seeded rate (`rtc_pilot_placeholder`) is a PLACEHOLDER.** No merchant
-  has a card assigned. §15 q3 (rate-card structure) is unanswered, so invoices
-  do not price freight automatically. The COD fee is bundled into the delivery
-  rate and held at 0 in `cod_finance_config` (answered 2026-09-30).
+- **Owner-approved standard schedule (2026-10-11; release still pending):** Rs
+  400 up to 1 kg; add Rs 250 per started extra kg above 1 through 3 kg; add Rs
+  150 per started extra kg above 3 through 10 kg; add Rs 130 per started extra
+  kg above 10 through 30 kg. Same prices apply local/outstation and
+  COD/non-COD. Existing 500 g rounding and 5,000 cm³/kg volumetric divisor are
+  retained; no surcharge was specified. Maximum chargeable weight is 30 kg;
+  larger parcels must be rejected. This is one common tariff because every
+  supplied category has the same price.
+- **Current live status:** production has three placeholder cards; demo has
+  one. None is assigned to a merchant or branch, so no approved tariff is live
+  yet. Preserve these placeholder/version records for audit; do not hard-delete
+  them. The locally tested code and tariff have not been published or activated.
 - **To publish a card** (admin): Admin → Rate cards → card → *New draft*, edit
   bands, then *Publish* with a reason. The previous version is superseded,
   never edited. Then assign it to a merchant from Ops → Merchants → merchant.
+- **Owner-approved NatEx standard setup:** after the release is approved, run
+  `bun scripts/apply-standard-rate-card.ts --target=production` in the production
+  service environment to inspect the plan (read-only remote queries; no writes).
+  Before applying, independently capture the database fingerprint from the exact
+  service environment with `--target=production --print-database-fingerprint`.
+  Apply only with `--target=production --apply --confirm-production
+  --expected-database-sha256=<verified-fingerprint>`; use the demo service and
+  `--target=demo --apply --confirm-demo` with demo's separately verified
+  fingerprint. Fingerprint-only mode does not query the database. The command
+  validates the exact tariff, refuses conflicting non-placeholder assignments,
+  batches each mutation with its audit row, and preserves all old cards and
+  versions. It requires the target's existing `DATABASE_URL`/
+  `DATABASE_AUTH_TOKEN` environment; never print those values.
 - **Walk-in Counter pricing:** separately open Admin → Branches → edit each
   branch/hub and assign a published, non-placeholder Counter rate card. Counter
   quotes use the `local` band when origin and destination districts match, and
   `outstation` otherwise. The branch address must include its structured
   district/province. A missing or incomplete card blocks Counter booking;
   booking snapshots the displayed card version and calculated charge. This
-  setting does not change Merchant pricing or COD.
+  setting does not change Merchant booking prices or COD. Merchant card
+  assignment currently supports rate quotes; merchant parcel booking does not
+  automatically create a freight charge from that quote.
 - **VAT/SSCL (§15 q10 — OPEN):** the tax calculation exists and is seeded off.
 
 ---

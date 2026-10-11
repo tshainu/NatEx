@@ -17,29 +17,25 @@ import { VersionPanel } from "./rate-card-editor";
 /**
  * Rate cards (§10 M5; merchants module owns the tables, §4).
  *
- * The ENGINE is real — versioned tariffs, weight slabs per band, volumetric
- * weight, flat and percentage surcharges, integer cents end to end. The
- * NUMBERS are not: §15 q3 (zone structure, slabs, surcharges) is unanswered,
- * so every seeded price is a labelled placeholder. COD has no separate fee
- * (answered 2026-09-30: bundled into the delivery rate).
+ * Versioned tariffs, weight slabs per band, volumetric weight, surcharges and
+ * integer cents end to end. Placeholder examples remain explicitly non-billable;
+ * approved published versions are selected by merchant or Counter-branch assignment.
  *
  * Lifecycle: draft → active → superseded. Only a draft is editable; publishing
  * freezes it and supersedes the previous active version. Admin writes; ops and
  * finance may read and quote.
  */
 
-export function Q3Banner() {
+function NoApprovedRateCardBanner() {
   return (
     <div
       className="rounded-md border border-status-warn/50 bg-status-warn/10 px-4 py-3 text-[13px] leading-relaxed text-status-warn"
-      data-testid="q3-banner"
+      data-testid="no-approved-rate-card-banner"
     >
-      <p className="font-semibold">PLACEHOLDER PRICES — §15 q3 is not answered.</p>
+      <p className="font-semibold">No approved, published rate card is available.</p>
       <p className="mt-1">
-        The rate-card structure (zones, weight slabs, surcharges) has not been confirmed by NatEx, so no
-        tariff here is client-approved. The engine is ready; replace these numbers with the approved tariff
-        before any merchant is billed from it. COD carries no separate fee — it is bundled into the delivery
-        rate (answered 2026-09-30).
+        Placeholder prices are illustrative and cannot be used for live quotes or Counter bookings. Create and publish
+        an approved tariff, then assign it to the merchant or branch that should use it.
       </p>
     </div>
   );
@@ -49,6 +45,7 @@ export default function AdminRateCards() {
   const { session } = useAuth();
   const isAdmin = session!.user.role === "admin";
   const cards = useRateCards();
+  const hasApprovedPublishedCard = cards.data?.some((card) => !card.placeholder && !!card.activeVersion) ?? false;
   const [selected, setSelected] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
 
@@ -93,7 +90,7 @@ export default function AdminRateCards() {
   return (
     <Page
       title="Rate cards"
-      description="Versioned tariffs. A merchant is priced on its card's live version; editing happens on a draft, and publishing freezes it."
+      description="Versioned tariffs for merchant quotes and Counter bookings. Assign a card to the merchant or branch that should use it; publishing freezes the active version."
       actions={
         isAdmin ? (
           <Button onClick={() => setCreating(true)}>
@@ -103,7 +100,7 @@ export default function AdminRateCards() {
         ) : null
       }
     >
-      <Q3Banner />
+      {!cards.isLoading && !hasApprovedPublishedCard ? <NoApprovedRateCardBanner /> : null}
       <DataTable
         columns={columns}
         rows={cards.data ?? []}

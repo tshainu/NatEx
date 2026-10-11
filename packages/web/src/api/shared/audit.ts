@@ -20,8 +20,9 @@ export interface AuditInput {
   deviceId?: string | null;
 }
 
-export async function writeAudit(input: AuditInput): Promise<void> {
-  await db.insert(auditLog).values({
+/** Build redacted audit values for a mutation's transaction or batch. */
+export function auditValues(input: AuditInput): typeof auditLog.$inferInsert {
+  return {
     id: prefixedId("aud"),
     entity: input.entity,
     entityId: input.entityId,
@@ -34,5 +35,14 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     beforeJson: input.before === undefined ? null : JSON.stringify(redactForAudit(input.before)),
     afterJson: input.after === undefined ? null : JSON.stringify(redactForAudit(input.after)),
     ts: new Date(),
-  });
+  };
+}
+
+/** Build an append-only audit insert so callers can batch it with a mutation. */
+export function auditInsert(input: AuditInput) {
+  return db.insert(auditLog).values(auditValues(input));
+}
+
+export async function writeAudit(input: AuditInput): Promise<void> {
+  await auditInsert(input);
 }

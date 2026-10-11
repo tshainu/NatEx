@@ -3,6 +3,7 @@ import { financeProc, mutate, opsProc } from "../middleware/pipeline";
 import * as ledger from "../modules/freight/ledger";
 import { createRetailCounterBooking } from "../modules/parcels/service";
 import * as rateCardService from "../modules/merchants/rate-cards";
+import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../modules/merchants/pricing";
 import { errors } from "../shared/errors";
 
 const paymentMethod = z.enum(["cash", "bank_transfer", "qr", "card"]);
@@ -11,7 +12,7 @@ const counterInput = z.object({
   branchId: z.string().min(1),
   rateCardVersionId: z.string().min(1),
   awb: z.string().trim().max(24).nullish(),
-  weightGrams: z.number().int().min(1).max(200_000),
+  weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
   lengthCm: z.number().int().min(1).max(500).nullish(),
   widthCm: z.number().int().min(1).max(500).nullish(),
   heightCm: z.number().int().min(1).max(500).nullish(),
@@ -41,7 +42,7 @@ const counterInput = z.object({
 export const counterQuote = opsProc
   .input(z.object({
     branchId: z.string().min(1),
-    weightGrams: z.number().int().min(1).max(200_000),
+    weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
     lengthCm: z.number().int().min(1).max(500).nullish(),
     widthCm: z.number().int().min(1).max(500).nullish(),
     heightCm: z.number().int().min(1).max(500).nullish(),

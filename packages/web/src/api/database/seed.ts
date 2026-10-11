@@ -749,8 +749,8 @@ export async function seed() {
   const parcels = await seedParcels();
   await seedManifests(parcels);
   const custody = await seedTransport(parcels);
-  // M5: the PLACEHOLDER rate card (§15 q3 is open — not client-approved
-  // pricing) and the development-only TOTP factors for the seeded ops, admin
+  // M5: the PLACEHOLDER rate card (illustrative, never client-approved or live)
+  // and the development-only TOTP factors for the seeded ops, admin
   // and finance users (identity/mfa.ts; refused in production).
   const rateCards = await seedPlaceholderRateCard();
   const mfa = await seedDevMfaFactors();

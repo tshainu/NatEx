@@ -9,6 +9,7 @@ import {
 } from "../middleware/pipeline";
 import * as parcelsService from "../modules/parcels/service";
 import { BULK_ROW_LIMIT, bulkCreateParcels, type BulkReport } from "../modules/parcels/bulk";
+import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../modules/merchants/pricing";
 import {
   ENABLED_STATUSES,
   EXPOSED_MILESTONE,
@@ -83,7 +84,7 @@ export const create = authedProc
       merchantId: z.string().min(1),
       awb: z.string().trim().min(1).max(24).nullish(),
       branchId: z.string().min(1).optional(),
-      weightGrams: z.number().int().min(1).max(200_000),
+      weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
       lengthCm: z.number().int().min(1).max(500).nullish(),
       widthCm: z.number().int().min(1).max(500).nullish(),
       heightCm: z.number().int().min(1).max(500).nullish(),

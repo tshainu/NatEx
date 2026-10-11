@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Card, ErrorNote, SuccessNote } from "@/components/natex/page";
 import { useRateCardVersion, type RateCardVersionDoc } from "@/queries/admin";
+import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../../../api/modules/merchants/pricing";
 
 /**
  * One tariff version: read-only when live or superseded, an editor when it is
@@ -146,8 +147,8 @@ function ReadOnlyVersion({ doc }: { doc: RateCardVersionDoc }) {
       description={`Updated ${dateTime(v.updatedAt)}${v.updatedByName ? ` by ${v.updatedByName}` : ""}${v.status !== "draft" ? " · frozen" : ""}`}
     >
       <div className="flex flex-col gap-5 text-[13px]">
-        <p className="text-muted-foreground">
-          Volumetric divisor <span className="font-mono text-foreground">{v.volumetricDivisor}</span> cm³/kg · rounded up to{" "}
+            <p className="text-muted-foreground">
+            Volumetric divisor <span className="font-mono text-foreground">{v.volumetricDivisor}</span> cm³/kg · rounded up to{" "}
           <span className="font-mono text-foreground">{v.roundingGrams} g</span>
         </p>
         {v.note ? <p className="whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2 text-[12px]">{v.note}</p> : null}
@@ -173,13 +174,16 @@ function ReadOnlyVersion({ doc }: { doc: RateCardVersionDoc }) {
                     </tr>
                   ))}
                 <tr className="border-t border-border text-muted-foreground">
-                  <td className="py-1">Each started kg above</td>
+                  <td className="py-1">Each started kg above the last slab (through 30 kg)</td>
                   <td className="py-1 text-right font-mono">{money(b.extraPerKgCents)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
         ))}
+        <p className="text-[12px] text-muted-foreground">
+          Maximum chargeable weight: {grams(MAX_ACCEPTED_WEIGHT_GRAMS)}. Parcels above this limit are rejected.
+        </p>
         <div>
           <h4 className="font-medium">Surcharges</h4>
           <ul className="mt-2 flex flex-col gap-1 text-[12px]">
@@ -346,8 +350,8 @@ function DraftEditor({ doc, onGone }: { doc: RateCardVersionDoc; onGone: () => v
             </Button>
           </div>
           <p className="text-[12px] text-muted-foreground">
-            A band is a delivery distance class (the zone structure is §15 q3 and still open). The per-kg rate prices
-            weight above the heaviest slab.
+            A band is a delivery distance class: same district as the origin branch is local; another district is outstation.
+            The per-kg rate prices weight above the heaviest slab, up to the 30 kg limit.
           </p>
           {draft.bands.map((b, i) => (
             <div key={i} className="grid grid-cols-[140px_1fr_140px_auto] items-end gap-2">
@@ -597,7 +601,7 @@ function DraftEditor({ doc, onGone }: { doc: RateCardVersionDoc; onGone: () => v
             </p>
             {doc.card.placeholder ? (
               <p className="rounded-md border border-status-warn/40 bg-status-warn/10 px-3 py-2 text-[12px] text-status-warn">
-                This card is a PLACEHOLDER (§15 q3 unanswered). Publishing does not make these prices approved.
+                This card is marked as a placeholder. Publishing does not approve its illustrative prices or make them usable for live pricing.
               </p>
             ) : null}
             <Field label="Reason" hint="Recorded in the audit log. At least 5 characters.">

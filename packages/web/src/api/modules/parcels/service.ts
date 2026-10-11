@@ -7,6 +7,11 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { getMerchant } from "../merchants/service";
+import {
+  DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
+  MAX_ACCEPTED_WEIGHT_GRAMS,
+  volumetricGrams,
+} from "../merchants/pricing";
 import * as rateCardService from "../merchants/rate-cards";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
@@ -713,6 +718,15 @@ export async function createParcel(
   input: CreateParcelInput,
   actor: Principal,
 ): Promise<ParcelDetail> {
+  if (!Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
+    errors.badRequest("Parcel weight must be a positive integer number of grams.");
+  }
+  const volumetricWeight = input.lengthCm && input.widthCm && input.heightCm
+    ? volumetricGrams(input.lengthCm, input.widthCm, input.heightCm, DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG)
+    : 0;
+  if (Math.max(input.weightGrams, volumetricWeight) > MAX_ACCEPTED_WEIGHT_GRAMS) {
+    errors.badRequest("Chargeable weight cannot exceed 30 kg; larger parcels are not accepted.");
+  }
   if (!Number.isInteger(input.codAmountCents) || input.codAmountCents < 0) {
     errors.badRequest("COD must be a non-negative integer number of cents.");
   }
@@ -918,6 +932,9 @@ export async function createRetailCounterBooking(
   if (input.requestId.trim().length < 8) errors.badRequest("A valid booking request id is required.");
   if (!Number.isSafeInteger(input.weightGrams) || input.weightGrams <= 0) {
     errors.badRequest("Parcel weight must be a positive integer number of grams.");
+  }
+  if (input.weightGrams > MAX_ACCEPTED_WEIGHT_GRAMS) {
+    errors.badRequest("Parcels over 30 kg cannot be accepted.");
   }
   if (input.declaredValueCents !== null && (!Number.isSafeInteger(input.declaredValueCents) || input.declaredValueCents < 0)) {
     errors.badRequest("Declared value must be a non-negative integer number of cents.");

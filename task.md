@@ -9,7 +9,7 @@ Source of truth: `/home/user/Attachments/pasted-1_0jWrxs.txt` (PROJECT.md). Sect
 - M2 — Transport & Custody: **verified** (ops web + Expo rider/transport tabs driven end to end in a browser 2026-09-30; see Mobile verification log below).
 - M3 — Delivery & Merchant: **verified** 2026-10-01 (`SHIPPED_MILESTONE = 3`). Full regression on the final code listed under "M3 closing regression" below. Caveat: the rider app has only run in Expo web, never on a physical phone.
 - M4 — Money: **verified** 2026-10-02 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 4`; M4 owns no parcel statuses). Backend plus the finance portal and the merchant statement. Regression on the final code is under "M4 closing regression" below.
-- M5 — Admin & Hardening: **verified** 2026-10-03 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 5`). Regression on the final code is under "M5 closing regression" below. Blocked on the client: Sentry DSN, Uptime Kuma host, §15 q3 and q10.
+- M5 — Admin & Hardening: **verified** 2026-10-03 (`SHIPPED_MILESTONE = EXPOSED_MILESTONE = 5`). Regression on the final code is under "M5 closing regression" below. Blocked on the client: Sentry DSN, Uptime Kuma host, and §15 q10.
 
 ## M2 plan (§10)
 
@@ -442,7 +442,7 @@ Live dev server + Turso DB, after the milestone bump and every security edit
   Caveat: a regex scan, not a schema-aware one.
 
 Open, not invented:
-- §15 q3 rate-card structure — engine is configurable, seeded card is PLACEHOLDER.
+- §15 q3 standard tariff — values clarified and owner-approved 2026-10-11; local implementation and validation are complete, while publication/deployment and live setup remain pending owner approval. Production/demo remain placeholder-only and unassigned.
 - §15 q10 VAT/SSCL — arithmetic exists, seeded off.
 - Sentry DSN and Uptime Kuma host — not provided; wiring documented only.
 - Rider/transport app never run on a physical phone (Expo web in headless Chrome only).

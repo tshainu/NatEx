@@ -19,6 +19,7 @@ import {
 } from "../delivery/service";
 import { collectionForParcel } from "../cod/service";
 import { createRateCard, newDraft, publishDraft, quoteForCounter, saveDraft } from "../merchants/rate-cards";
+import { NATEX_STANDARD_CARD_NAME, natexStandardTariffDocument } from "../merchants/standard-tariff";
 import { entriesForCharge, pageCounterBookings, pageFreightCharges, reconcileFreightEntry, refundFreight } from "./ledger";
 
 const RUN = Date.now().toString(36).toUpperCase();
@@ -41,6 +42,7 @@ let branchId: string | null = null;
 let riderId: string | null = null;
 let testRateCardId: string | null = null;
 let testRateCardVersionId: string | null = null;
+let standardRateCardId: string | null = null;
 
 const bookingInput = (requestId: string, payer: "sender" | "recipient") => ({
   requestId,
@@ -136,8 +138,9 @@ afterAll(async () => {
     if (riderId) await db.delete(user).where(eq(user.id, riderId));
     await db.delete(branch).where(eq(branch.id, branchId));
   }
-  if (testRateCardId) {
-    const versions = await db.select({ id: rateCardVersion.id }).from(rateCardVersion).where(eq(rateCardVersion.rateCardId, testRateCardId));
+  for (const cardId of [testRateCardId, standardRateCardId]) {
+    if (!cardId) continue;
+    const versions = await db.select({ id: rateCardVersion.id }).from(rateCardVersion).where(eq(rateCardVersion.rateCardId, cardId));
     const versionIds = versions.map((row) => row.id);
     if (versionIds.length) {
       await db.delete(rateBand).where(inArray(rateBand.versionId, versionIds));
@@ -145,7 +148,7 @@ afterAll(async () => {
       await db.delete(rateSurcharge).where(inArray(rateSurcharge.versionId, versionIds));
       await db.delete(rateCardVersion).where(inArray(rateCardVersion.id, versionIds));
     }
-    await db.delete(rateCard).where(eq(rateCard.id, testRateCardId));
+    await db.delete(rateCard).where(eq(rateCard.id, cardId));
   }
 });
 
@@ -218,6 +221,59 @@ describe("retail customer freight remains separate from COD", () => {
     expect(repeated.paidReceipt?.id).toBe(booked.paidReceipt?.id);
     expect((await entriesForCharge(booked.freightCharge.id)).filter((entry) => entry.entryType === "collection")).toHaveLength(1);
     expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(1);
+  });
+
+  test("Counter quotes and bookings reject actual or volumetric weight above 30 kg", async () => {
+    await expect(quoteForCounter(branchId!, {
+      weightGrams: 30_001,
+      destinationAddress: "22 Sample Lane, Kandy, Central Province",
+    })).rejects.toThrow("30 kg");
+    await expect(quoteForCounter(branchId!, {
+      weightGrams: 1000,
+      lengthCm: 101,
+      widthCm: 50,
+      heightCm: 30,
+      destinationAddress: "22 Sample Lane, Kandy, Central Province",
+    })).rejects.toThrow("30 kg");
+    await expect(createRetailCounterBooking({
+      ...bookingInput(`freight-overweight-${RUN}`, "sender"),
+      weightGrams: 30_001,
+    }, OPS)).rejects.toThrow("30 kg");
+  });
+
+  test("approved standard card publishes the progressive schedule and quotes both bands", async () => {
+    const created = await createRateCard({
+      code: `NST${RUN.slice(-8)}`,
+      name: NATEX_STANDARD_CARD_NAME,
+      placeholder: false,
+      actorName: OPS.name,
+    });
+    standardRateCardId = created.card.id;
+    const document = natexStandardTariffDocument();
+    const saved = await saveDraft(created.versionId, document, OPS.name);
+    expect(saved.problems).toEqual([]);
+    await publishDraft(created.versionId, OPS.name);
+    await db.update(branch).set({ counterRateCardId: created.card.id }).where(eq(branch.id, branchId!));
+
+    try {
+      const local = await quoteForCounter(branchId!, {
+        weightGrams: 7000,
+        destinationAddress: "22 Sample Lane, Colombo, Western Province",
+      });
+      const outstation = await quoteForCounter(branchId!, {
+        weightGrams: 7000,
+        destinationAddress: "22 Sample Lane, Kandy, Central Province",
+      });
+      const atLimit = await quoteForCounter(branchId!, {
+        weightGrams: 30_000,
+        destinationAddress: "22 Sample Lane, Kandy, Central Province",
+      });
+      expect(local).toMatchObject({ band: "local", totalCents: 150_000 });
+      expect(outstation).toMatchObject({ band: "outstation", totalCents: 150_000 });
+      expect(atLimit.totalCents).toBe(455_000);
+    } finally {
+      await db.update(branch).set({ counterRateCardId: testRateCardId }).where(eq(branch.id, branchId!));
+    }
   });
 
   test("Finance reconciles and refunds the original sender collection without deleting it", async () => {

@@ -16,8 +16,9 @@ build log with every verification run is `task.md`.
 | M4 Money | COD ledger, rider cash and deposits, four-way reconciliation, settlements with maker–checker, holds, payout file, invoices and credit notes, AR, disputes and claims, finance portal |
 | M5 Admin & Hardening | Admin portal (users, roles, branches, zones, rate cards, merchant onboarding), SLA/business settings, notification template editor, audit viewer, TOTP MFA + session policy, job monitor, readiness probe, backup/restore drill, load test, security review, runbook |
 
-Nothing is stubbed with fake data. Two things are deliberately **not** final
-because the client has not answered them — see [Open questions](#open-questions-15).
+Nothing is stubbed with fake data. The standard tariff was owner-confirmed on
+2026-10-11 but is awaiting release; genuinely unanswered items remain under
+[Open questions](#open-questions-15).
 
 ---
 
@@ -136,12 +137,16 @@ Further gaps worth naming plainly:
 
 ## Open questions (§15)
 
-- **q3 — rate card structure: OPEN.** The rate-card engine (bands, zones,
-  versions, publish, assignment, quote) is built and configurable, but the
-  seeded card `rtc_pilot_placeholder` is labelled PLACEHOLDER and **no
-  merchant has a card assigned**. Invoices therefore do not price freight
-  automatically. The COD-fee part was answered (2026-09-30): bundled into the
-  delivery rate, held at 0 in `cod_finance_config`.
+- **q3 — standard tariff: owner-approved values, release pending (2026-10-11).**
+  Rs 400 up to 1 kg; Rs 250 per started extra kg above 1 through 3 kg; Rs 150
+  per started extra kg above 3 through 10 kg; Rs 130 per started extra kg above
+  10 through 30 kg. Local/outstation and COD/non-COD values are identical; no
+  surcharge was supplied. Existing 500 g rounding and 5,000 cm³/kg volumetric
+  divisor are retained; chargeable weight above 30 kg must be refused. The local
+  implementation is not published yet: production/demo still have only
+  placeholder cards and no assignments. Counter bookings use an assigned
+  branch card; merchant rate cards currently provide quotes but are not
+  automatically applied to merchant parcel booking/invoices.
 - **q10 — VAT / SSCL: OPEN.** The tax arithmetic on invoices exists and is
   seeded **off**. Rates and registration must come from the client's tax advisor.
 

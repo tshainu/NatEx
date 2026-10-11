@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { adminProc, mutate, deskProc } from "../middleware/pipeline";
 import * as rateCardService from "../modules/merchants/rate-cards";
+import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../modules/merchants/pricing";
 
 /**
  * rateCards routes (§10 M5 "rate cards"; §3 merchants module).
  *
- * §15 q3 is OPEN: the engine is real, the numbers are not. Every read carries
- * the card's `placeholder` flag. Admin writes; staff may read and quote.
+ * Every read carries the card's `placeholder` flag. Admin writes; staff may
+ * read and quote. Quote and slab inputs are capped at the accepted 30 kg limit.
  */
 
 const band = z.object({
@@ -16,7 +17,7 @@ const band = z.object({
 });
 const slab = z.object({
   band: z.string().trim().min(2).max(24),
-  maxGrams: z.number().int().min(1).max(1_000_000),
+  maxGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
   priceCents: z.number().int().min(0).max(100_000_000),
 });
 const surcharge = z.object({
@@ -28,7 +29,7 @@ const surcharge = z.object({
 });
 const quoteInput = z.object({
   band: z.string().min(1),
-  weightGrams: z.number().int().min(1).max(1_000_000),
+  weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
   lengthCm: z.number().int().min(1).max(1000).nullish(),
   widthCm: z.number().int().min(1).max(1000).nullish(),
   heightCm: z.number().int().min(1).max(1000).nullish(),
