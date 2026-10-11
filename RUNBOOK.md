@@ -17,6 +17,7 @@ build (2026-10-03) unless it says otherwise.
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
 | `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| `PUBLIC_TRACKING_ORIGIN` | no | Optional HTTPS origin for direct AWB links in booking SMS; defaults to the production or demo public host based on `NODE_ENV`. Set this if the public NatEx domain changes. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
 

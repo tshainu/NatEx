@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, like, or } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, user } from "../../database/schema/identity";
+import { outbox } from "../../database/schema/shared";
 import { parcel, parcelEvent } from "../../database/schema/parcels";
 import { deliveryAttempt, deliveryPod, runsheet, runsheetItem } from "../../database/schema/delivery";
 import { freightCharge, freightEntry, freightReconciliation } from "../../database/schema/freight";
@@ -53,6 +54,22 @@ const bookingInput = (requestId: string, payer: "sender" | "recipient") => ({
   destAddress: "22 Sample Lane, Colombo 03",
 });
 
+async function bookingSmsForAwb(awb: string) {
+  const rows = await db
+    .select({ payloadJson: outbox.payloadJson })
+    .from(outbox)
+    .where(eq(outbox.topic, "sms.send"));
+  return rows
+    .map((entry) => JSON.parse(entry.payloadJson) as {
+      to: string;
+      body: string;
+      purpose: string;
+      parcelId: string;
+      awb: string;
+    })
+    .filter((entry) => entry.awb === awb);
+}
+
 beforeAll(async () => {
   const createdBranch = await createBranch({
     code: BRANCH_CODE,
@@ -80,6 +97,7 @@ afterAll(async () => {
     const allRuns = (await db.select({ id: runsheet.id }).from(runsheet).where(eq(runsheet.branchId, branchId))).map((row) => row.id);
     if (allRuns.length) await db.delete(runsheetItem).where(inArray(runsheetItem.runsheetId, allRuns));
     if (parcelIds.length) {
+      await db.delete(outbox).where(or(...parcelIds.map((id) => like(outbox.payloadJson, `%${id}%`))));
       await db.delete(freightReconciliation).where(inArray(freightReconciliation.branchId, [branchId]));
       await db.delete(freightEntry).where(inArray(freightEntry.parcelId, parcelIds));
       await db.delete(freightCharge).where(inArray(freightCharge.parcelId, parcelIds));
@@ -107,6 +125,17 @@ describe("retail customer freight remains separate from COD", () => {
     expect(booked.paidReceipt?.paymentMethod).toBe("cash");
     expect(booked.paidReceipt?.code.startsWith("RCP")).toBe(true);
     expect(await collectionForParcel(booked.parcel.id)).toBeNull();
+    const bookingSms = await bookingSmsForAwb(booked.parcel.awb);
+    expect(bookingSms).toHaveLength(1);
+    expect(bookingSms[0]).toMatchObject({
+      to: "+94770000002",
+      purpose: "notification",
+      parcelId: booked.parcel.id,
+      awb: booked.parcel.awb,
+    });
+    expect(bookingSms[0]!.body).toContain(`AWB/Tracking: ${booked.parcel.awb}`);
+    expect(bookingSms[0]!.body).toContain(`/track/${booked.parcel.awb}`);
+    expect(bookingSms[0]!.body.length).toBeLessThanOrEqual(159);
     const chargeRegister = await pageFreightCharges(FINANCE, { page: 1, pageSize: 100 });
     expect(chargeRegister.rows.find((row) => row.charge.id === booked.freightCharge.id)?.dueCents).toBe(0);
 
@@ -114,6 +143,7 @@ describe("retail customer freight remains separate from COD", () => {
     expect(repeated.parcel.id).toBe(booked.parcel.id);
     expect(repeated.paidReceipt?.id).toBe(booked.paidReceipt?.id);
     expect((await entriesForCharge(booked.freightCharge.id)).filter((entry) => entry.entryType === "collection")).toHaveLength(1);
+    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(1);
   });
 
   test("Finance reconciles and refunds the original sender collection without deleting it", async () => {

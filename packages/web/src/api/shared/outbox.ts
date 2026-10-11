@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { db } from "../database";
+import type { DbTransaction } from "../database/transaction";
 import { outbox } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 
@@ -48,9 +49,13 @@ export type OutboxTopic =
   | "cod.settlement_paid"
   | "cod.dispute_opened";
 
-export async function enqueue(topic: OutboxTopic, payload: unknown): Promise<string> {
+export async function enqueue(
+  topic: OutboxTopic,
+  payload: unknown,
+  executor: DbTransaction | typeof db = db,
+): Promise<string> {
   const id = prefixedId("obx");
-  await db.insert(outbox).values({
+  await executor.insert(outbox).values({
     id,
     topic,
     payloadJson: JSON.stringify(payload),

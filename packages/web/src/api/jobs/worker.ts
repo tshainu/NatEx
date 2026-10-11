@@ -27,6 +27,8 @@ interface SmsSendPayload {
   to: string;
   body: string;
   purpose: string;
+  parcelId?: string;
+  awb?: string;
 }
 
 interface StatusChangedPayload {

@@ -76,6 +76,37 @@ function errorChainText(error: unknown): string {
   return `${error.message} ${cause === undefined ? "" : errorChainText(cause)}`;
 }
 
+function publicTrackingOrigin(): string {
+  const configured = process.env.PUBLIC_TRACKING_ORIGIN?.trim();
+  const fallback = process.env.NODE_ENV === "development"
+    ? "https://demo.204-13-236-153.sslip.io"
+    : "https://204-13-236-153.sslip.io";
+  const url = new URL(configured || fallback);
+  if (url.protocol !== "https:") throw new Error("PUBLIC_TRACKING_ORIGIN must use HTTPS.");
+  return url.origin;
+}
+
+export function parcelBookedSmsBody(awb: string): string {
+  if (!/^NX\d{10}$/.test(awb)) throw new Error("Cannot compose tracking SMS for an invalid NatEx AWB.");
+  const trackUrl = `${publicTrackingOrigin()}/track/${encodeURIComponent(awb)}`;
+  const body = `NatEx: Your parcel is booked. AWB/Tracking: ${awb}. Track: ${trackUrl}`;
+  if (body.length > 159) throw new Error(`Parcel booking SMS is ${body.length} characters; maximum is 159.`);
+  return body;
+}
+
+async function enqueueParcelBookedSms(
+  executor: DbTransaction | typeof db,
+  row: Pick<ParcelRow, "id" | "awb" | "consigneePhone">,
+): Promise<void> {
+  await enqueue("sms.send", {
+    to: row.consigneePhone,
+    body: parcelBookedSmsBody(row.awb),
+    purpose: "notification",
+    parcelId: row.id,
+    awb: row.awb,
+  }, executor);
+}
+
 // ------------------------------------------------------------- event appending
 
 interface EventInput {
@@ -736,33 +767,53 @@ export async function createParcel(
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(input.merchantId, input.branchId)) ?? (await uniqueAwb());
     try {
-      [row] = await db
-        .insert(parcel)
-        .values({
-          id: prefixedId("pcl"),
-          awb,
-          merchantId: input.merchantId,
-          branchId: input.branchId,
-          status: "Booked",
-          weightGrams: input.weightGrams,
-          lengthCm: input.lengthCm ?? null,
-          widthCm: input.widthCm ?? null,
-          heightCm: input.heightCm ?? null,
-          declaredValueCents: input.declaredValueCents,
-          codAmountCents: input.codAmountCents,
-          originAddress: input.originAddress,
-          originLat: input.originLat ?? null,
-          originLng: input.originLng ?? null,
-          consigneeName: input.consigneeName,
-          consigneePhone: input.consigneePhone,
-          destAddress: input.destAddress,
-          destLat: input.destLat ?? null,
-          destLng: input.destLng ?? null,
-          destZoneId: input.destZoneId ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
+      row = await db.transaction(async (tx) => {
+        const [saved] = await tx
+          .insert(parcel)
+          .values({
+            id: prefixedId("pcl"),
+            awb,
+            merchantId: input.merchantId,
+            branchId: input.branchId,
+            status: "Booked",
+            weightGrams: input.weightGrams,
+            lengthCm: input.lengthCm ?? null,
+            widthCm: input.widthCm ?? null,
+            heightCm: input.heightCm ?? null,
+            declaredValueCents: input.declaredValueCents,
+            codAmountCents: input.codAmountCents,
+            originAddress: input.originAddress,
+            originLat: input.originLat ?? null,
+            originLng: input.originLng ?? null,
+            consigneeName: input.consigneeName,
+            consigneePhone: input.consigneePhone,
+            destAddress: input.destAddress,
+            destLat: input.destLat ?? null,
+            destLng: input.destLng ?? null,
+            destZoneId: input.destZoneId ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        if (!saved) throw new Error("The parcel booking was not saved.");
+        await appendParcelEvent({
+          parcelId: saved.id,
+          fromStatus: null,
+          toStatus: "Booked",
+          actor,
+          notes: "Parcel booked.",
+        }, tx);
+        // The booking, initial custody event and queued receiver alert commit
+        // together. The worker sends the SMS after this request completes.
+        await enqueue("parcel.status_changed", {
+          parcelId: saved.id,
+          awb: saved.awb,
+          from: null,
+          to: "Booked",
+        }, tx);
+        await enqueueParcelBookedSms(tx, saved);
+        return saved;
+      });
       break;
     } catch (error) {
       const message = errorChainText(error);
@@ -773,22 +824,6 @@ export async function createParcel(
     }
   }
   if (!row) return errors.conflict("Could not allocate a unique AWB. Retry the booking.");
-
-  await appendParcelEvent({
-    parcelId: row!.id,
-    fromStatus: null,
-    toStatus: "Booked",
-    actor,
-    notes: "Parcel booked.",
-  });
-
-  // Enqueued, not sent inline (§4: outbox, never a send inside the handler).
-  await enqueue("parcel.status_changed", {
-    parcelId: row!.id,
-    awb: row!.awb,
-    from: null,
-    to: "Booked",
-  });
 
   // Merchant bookings with a configured default Rider are automatically added
   // to that Rider's open pickup manifest. Custody still requires Rider scan and
@@ -997,6 +1032,7 @@ export async function createRetailCounterBooking(
             paymentMethod: input.paymentMethod,
             externalReference: input.externalReference,
           });
+          await enqueueParcelBookedSms(tx, saved!);
           return { parcel: saved!, ...freight };
         });
         parcelRow = result.parcel;

@@ -76,6 +76,22 @@ let manifestId: string | null = null;
 const batchIds: string[] = [];
 let hadPickupTemplate = false;
 
+async function bookingSmsForAwb(awb: string) {
+  const rows = await db
+    .select({ payloadJson: outbox.payloadJson })
+    .from(outbox)
+    .where(eq(outbox.topic, "sms.send"));
+  return rows
+    .map((entry) => JSON.parse(entry.payloadJson) as {
+      to: string;
+      body: string;
+      purpose: string;
+      parcelId: string;
+      awb: string;
+    })
+    .filter((entry) => entry.awb === awb);
+}
+
 beforeAll(async () => {
   await db.insert(branch).values({
     id: BRANCH_ID,
@@ -171,6 +187,20 @@ describe("merchant pickup custody handover", () => {
     parcelIds.push(first.parcel.id, second.parcel.id);
     expect(first.parcel.status).toBe("Booked");
     expect(second.parcel.status).toBe("Booked");
+
+    for (const booked of [first.parcel, second.parcel]) {
+      const messages = await bookingSmsForAwb(booked.awb);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        to: input.consigneePhone,
+        purpose: "notification",
+        parcelId: booked.id,
+        awb: booked.awb,
+      });
+      expect(messages[0]!.body).toContain(`AWB/Tracking: ${booked.awb}`);
+      expect(messages[0]!.body).toContain(`/track/${booked.awb}`);
+      expect(messages[0]!.body.length).toBeLessThanOrEqual(159);
+    }
 
     const riderPickups = await riderToday(riderActor, colomboToday());
     expect(riderPickups.manifests).toHaveLength(1);
@@ -282,6 +312,7 @@ describe("merchant pickup custody handover", () => {
       { ...merchantActor, merchantId: NO_RIDER_MERCHANT_ID },
     );
     parcelIds.push(booked.parcel.id);
+    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(1);
     const notificationRows = await db
       .select({ payloadJson: outbox.payloadJson })
       .from(outbox)
