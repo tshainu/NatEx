@@ -93,6 +93,8 @@ const link = new RPCLink({
    */
   fetch: async (input, init) => {
     const request = (init ?? undefined) as RequestInit | undefined;
+    // Keep an unused clone because the first fetch consumes the Request body.
+    const retryInput = input.clone();
     const response = await fetch(input as RequestInfo, request);
     if (response.status !== 401 || !refreshTokenValue()) return response;
 
@@ -102,7 +104,7 @@ const link = new RPCLink({
     const token = accessToken();
     const headers = new Headers(request?.headers);
     if (token) headers.set("authorization", `Bearer ${token}`);
-    return fetch(input as RequestInfo, { ...request, headers });
+    return fetch(retryInput as RequestInfo, { ...request, headers });
   },
 });
 

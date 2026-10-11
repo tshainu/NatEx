@@ -3,6 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "../../api";
+import { cloneRequestForReplay } from "./request-replay";
 import {
   accessToken,
   deviceId,
@@ -77,9 +78,10 @@ const link = new RPCLink<ApiCallContext>({
   },
   /**
    * Access tokens live 15 minutes (§2). Rather than tracking expiry in every
-   * component, one 401 triggers a single rotation and the request is replayed.
-   */
+  * component, one 401 triggers a single rotation and the request is replayed.
+  */
   fetch: async (input, init) => {
+    const retryInput = cloneRequestForReplay(input);
     const response = await fetch(input as RequestInfo, init);
     if (response.status !== 401 || !refreshTokenValue()) return response;
 
@@ -89,7 +91,7 @@ const link = new RPCLink<ApiCallContext>({
     const token = accessToken();
     const headers = new Headers((init as RequestInit | undefined)?.headers);
     if (token) headers.set("authorization", `Bearer ${token}`);
-    return fetch(input as RequestInfo, { ...(init as RequestInit | undefined), headers });
+    return fetch(retryInput as RequestInfo, { ...(init as RequestInit | undefined), headers });
   },
 });
 
