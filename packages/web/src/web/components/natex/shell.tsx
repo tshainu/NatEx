@@ -89,12 +89,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           ))}
         </nav>
-
-        <div className="border-t border-ink-600 px-4 py-3">
-          <p className="font-mono text-[10px] leading-relaxed text-text-lo/70">
-            Milestones 1–5 shipped · pilot build
-          </p>
-        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -127,14 +121,6 @@ function TopBar({ onSignOut }: { onSignOut: () => void }) {
         <span className="font-medium text-text-hi">{branchName || "—"}</span>
       </div>
       <div className="flex items-center gap-3">
-        {user.deviceId ? (
-          <span
-            className="hidden font-mono text-[11px] text-text-lo md:inline"
-            title="Device bound to this session"
-          >
-            {user.deviceId}
-          </span>
-        ) : null}
         <span className="text-[13px] text-text-hi">{user.name}</span>
         <Link
           href="/security"

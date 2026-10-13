@@ -83,6 +83,12 @@ export default function MerchantMore() {
         onPress={() => router.push("/(merchant)/ndr")}
       />
       <ActionRow
+        icon="chatbox-ellipses-outline"
+        title="Disputes & claims"
+        subtitle="Open a case and follow its progress with NatEx Finance"
+        onPress={() => router.push("/(merchant)/disputes")}
+      />
+      <ActionRow
         icon="bicycle-outline"
         title="Pickup requests"
         subtitle="Review requested and scheduled collections"

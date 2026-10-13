@@ -97,6 +97,7 @@ export default function MerchantLayout() {
           <Tabs.Screen name="shipment/[awb]" options={{ href: null, tabBarStyle: { display: "none" } }} />
           <Tabs.Screen name="statement" options={{ href: null, tabBarStyle: { display: "none" } }} />
           <Tabs.Screen name="ndr" options={{ href: null, tabBarStyle: { display: "none" } }} />
+          <Tabs.Screen name="disputes" options={{ href: null, tabBarStyle: { display: "none" } }} />
         </Tabs>
       </RoleGate>
     </ThemeOverrideProvider>
