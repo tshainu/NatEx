@@ -252,9 +252,9 @@ export const stateMachine = authedProc.handler(({ context }) => ({
 
 /**
  * Public consignee tracking (§10 M2, `/track/:awb`). UNAUTHENTICATED by design:
- * a consignee has no NatEx account, only the AWB from the tracking SMS.
+ * a consignee has no NatEx account; the printed tracking number is their lookup key.
  *
- * PDPA No. 9 of 2022 (§9) purpose limitation: an AWB is guessable, so this
+ * PDPA No. 9 of 2022 (§9) purpose limitation: a tracking number is guessable, so this
  * returns the minimum a consignee needs to know where their parcel is and
  * nothing more. Deliberately NOT returned: consignee name, phone, full address,
  * COD amount, declared value, merchant identity, actor names, device ids, GPS.

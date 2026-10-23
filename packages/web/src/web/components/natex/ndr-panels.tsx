@@ -105,7 +105,7 @@ export function NdrQueue({ role, merchantView = false }: { role: Role; merchantV
   const tally = counts.data;
 
   const columns: Column<NdrQueueRow>[] = [
-    { key: "awb", header: "AWB", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     ...(merchantView
       ? []
       : [
@@ -190,9 +190,9 @@ export function NdrQueue({ role, merchantView = false }: { role: Role; merchantV
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="AWB"
+                  placeholder="Tracking number"
                   className="pl-8 font-mono"
-                  aria-label="Search NDRs by AWB"
+                  aria-label="Search NDRs by tracking number"
                 />
               </div>
             </Field>
@@ -234,7 +234,7 @@ export function NdrQueue({ role, merchantView = false }: { role: Role; merchantV
               <ExportCsvButton<NdrQueueRow>
                 filename={`natex-ndr-${colomboToday()}.csv`}
                 header={[
-                  "awb",
+                  "tracking_number",
                   "merchant",
                   "state",
                   "attempts",
@@ -580,7 +580,7 @@ export function RtoQueue({ role, merchantView = false }: { role: Role; merchantV
   const mayInitiate = role === "ops" || role === "admin";
 
   const columns: Column<RtoQueueRow>[] = [
-    { key: "awb", header: "AWB", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     ...(merchantView
       ? []
       : [
@@ -632,9 +632,9 @@ export function RtoQueue({ role, merchantView = false }: { role: Role; merchantV
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="AWB"
+                  placeholder="Tracking number"
                   className="pl-8 font-mono"
-                  aria-label="Search returns by AWB"
+                  aria-label="Search returns by tracking number"
                 />
               </div>
             </Field>
@@ -651,7 +651,7 @@ export function RtoQueue({ role, merchantView = false }: { role: Role; merchantV
             <div className="ml-auto flex items-end gap-2 self-end">
               <ExportCsvButton<RtoQueueRow>
                 filename={`natex-rto-${colomboToday()}.csv`}
-                header={["awb", "merchant", "trigger", "reason", "state", "attempts", "initiated_at", "dispatched_at", "delivered_at", "received_by"]}
+                header={["tracking_number", "merchant", "trigger", "reason", "state", "attempts", "initiated_at", "dispatched_at", "delivered_at", "received_by"]}
                 toRow={(r) => [
                   r.awb,
                   r.merchantName ?? r.merchantId,
@@ -739,7 +739,7 @@ function InitiateRtoDialog({
         }
       >
         <div className="space-y-3">
-          <Field label="AWB">
+          <Field label="Tracking number">
             <Input value={awb} onChange={(e) => setAwb(e.target.value.toUpperCase())} className="font-mono" placeholder="NX1234567890" />
           </Field>
           <Field label="Reason" hint="At least 10 characters — it goes on the merchant's statement.">

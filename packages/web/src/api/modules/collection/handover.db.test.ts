@@ -164,9 +164,9 @@ afterAll(async () => {
 });
 
 describe("merchant pickup custody handover", () => {
-  test("a rider scan records presence only; custody moves at handover for scanned AWBs only", async () => {
+  test("a rider scan records presence only; custody moves at handover for scanned tracking numbers only", async () => {
     const [batch] = await createAwbBatches(1, adminActor);
-    if (!batch) throw new Error("Could not create the test AWB sticker batch.");
+    if (!batch) throw new Error("Could not create the test tracking number sticker batch.");
     batchIds.push(batch.id);
     await assignAwbBatch(batch.id, "merchant", MERCHANT_ID, adminActor);
     const secondAwb = createAwbSeries(batch.awbStart.slice(2), 2)[1]!;
@@ -189,17 +189,7 @@ describe("merchant pickup custody handover", () => {
     expect(second.parcel.status).toBe("Booked");
 
     for (const booked of [first.parcel, second.parcel]) {
-      const messages = await bookingSmsForAwb(booked.awb);
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toMatchObject({
-        to: input.consigneePhone,
-        purpose: "notification",
-        parcelId: booked.id,
-        awb: booked.awb,
-      });
-      expect(messages[0]!.body).toContain(`AWB/Tracking: ${booked.awb}`);
-      expect(messages[0]!.body).toContain(`/track/${booked.awb}`);
-      expect(messages[0]!.body.length).toBeLessThanOrEqual(159);
+      expect(await bookingSmsForAwb(booked.awb)).toHaveLength(0);
     }
 
     const riderPickups = await riderToday(riderActor, colomboToday());
@@ -292,7 +282,7 @@ describe("merchant pickup custody handover", () => {
 
   test("a merchant without a preferred Rider receives no Rider pickup alert", async () => {
     const [batch] = await createAwbBatches(1, adminActor);
-    if (!batch) throw new Error("Could not create the no-Rider test AWB sticker batch.");
+    if (!batch) throw new Error("Could not create the no-Rider test tracking number sticker batch.");
     batchIds.push(batch.id);
     await assignAwbBatch(batch.id, "merchant", NO_RIDER_MERCHANT_ID, adminActor);
 
@@ -312,7 +302,7 @@ describe("merchant pickup custody handover", () => {
       { ...merchantActor, merchantId: NO_RIDER_MERCHANT_ID },
     );
     parcelIds.push(booked.parcel.id);
-    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(1);
+    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(0);
     const notificationRows = await db
       .select({ payloadJson: outbox.payloadJson })
       .from(outbox)

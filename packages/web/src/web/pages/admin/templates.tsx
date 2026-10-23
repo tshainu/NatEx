@@ -174,7 +174,7 @@ function TemplateEditor({
             ))}
           </p>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Channel order" hint="Tried left to right, e.g. whatsapp,sms,push.">
+            <Field label="Channel order" hint="Tried left to right. SMS is reserved for Proof of Delivery; Tracking numbers and links are never included in SMS.">
               <Input
                 value={draft.channelOrder}
                 readOnly={!isAdmin}
@@ -199,9 +199,9 @@ function TemplateEditor({
           </Field>
           <Field
             label="SMS"
-            hint={p ? `${p.smsLength} characters with sample values · ${p.smsSegments} billed part${p.smsSegments === 1 ? "" : "s"}` : undefined}
+            hint={template.key !== "parcel.delivered" ? "SMS is disabled for this non-POD notification. Sign-in OTP is separate." : p ? `${p.smsLength} characters with sample values · ${p.smsSegments} billed part${p.smsSegments === 1 ? "" : "s"}` : undefined}
           >
-            <Textarea value={draft.bodySms ?? ""} readOnly={!isAdmin} rows={3} onChange={(e) => set("bodySms", e.target.value)} />
+            <Textarea value={draft.bodySms ?? ""} readOnly={!isAdmin || template.key !== "parcel.delivered"} rows={3} onChange={(e) => set("bodySms", e.target.value)} />
           </Field>
           <div className="grid grid-cols-[1fr_2fr] gap-4">
             <Field label="Push title">

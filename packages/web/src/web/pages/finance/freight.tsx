@@ -114,7 +114,7 @@ export default function FinanceFreight() {
       <Card title="Freight charges &amp; amounts due" description="Includes charges not yet collected, so recipient-paid parcels stay visible until the Rider records payment.">
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <Field label="Search" className="min-w-[240px] flex-1">
-            <div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" placeholder="AWB, charge, customer, phone" aria-label="Search freight charges" /></div>
+            <div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-8" placeholder="tracking number, charge, customer, phone" aria-label="Search freight charges" /></div>
           </Field>
           <Field label="Payer" className="w-[190px]"><Select value={payerFilter} onChange={(event) => setPayerFilter(event.target.value as typeof payerFilter)}><option value="all">All payers</option><option value="sender">Sender</option><option value="recipient">Recipient</option></Select></Field>
           <Button variant="outline" size="sm" onClick={() => { setSearch(""); setEntryType("all"); setPayerFilter("all"); setPage(1); setChargePage(1); }}><RefreshCw aria-hidden />Reset</Button>
@@ -122,7 +122,7 @@ export default function FinanceFreight() {
         {chargeList.isError ? <ErrorNote>The freight charge register could not be loaded.</ErrorNote> : null}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] border-collapse text-left text-[12px]">
-            <thead><tr className="border-b text-muted-foreground"><th className="p-2">Booked / charge</th><th className="p-2">AWB / customers</th><th className="p-2">Freight payer</th><th className="p-2 text-right">Charge</th><th className="p-2 text-right">Net paid</th><th className="p-2 text-right">Balance</th><th className="p-2">Action</th></tr></thead>
+            <thead><tr className="border-b text-muted-foreground"><th className="p-2">Booked / charge</th><th className="p-2">tracking number / customers</th><th className="p-2">Freight payer</th><th className="p-2 text-right">Charge</th><th className="p-2 text-right">Net paid</th><th className="p-2 text-right">Balance</th><th className="p-2">Action</th></tr></thead>
             <tbody>
               {(chargeList.data?.rows ?? []).map((row) => (
                 <tr key={row.charge.id} className="border-b align-top hover:bg-muted/30">
@@ -142,14 +142,14 @@ export default function FinanceFreight() {
         <div className="mt-4 flex items-center justify-between text-[12px] text-muted-foreground"><span>{chargeList.data ? `${chargeList.data.total} freight charges · page ${chargeList.data.page}` : "Loading charges…"}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={chargePage <= 1} onClick={() => setChargePage((value) => value - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!chargeList.data || chargePage * chargeList.data.pageSize >= chargeList.data.total} onClick={() => setChargePage((value) => value + 1)}>Next</Button></div></div>
       </Card>
 
-      <Card title="Freight collection register" description="Search by AWB, receipt, sender, recipient or phone number.">
+      <Card title="Freight collection register" description="Search by tracking number, receipt, sender, recipient or phone number.">
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <Field label="Entry type" className="w-[180px]"><Select value={entryType} onChange={(event) => setEntryType(event.target.value as typeof entryType)}><option value="all">All entries</option><option value="collection">Collections</option><option value="refund">Refunds</option><option value="adjustment">Adjustments</option></Select></Field>
         </div>
         {list.isError ? <ErrorNote>The courier-freight ledger could not be loaded.</ErrorNote> : null}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px] border-collapse text-left text-[12px]">
-            <thead><tr className="border-b text-muted-foreground"><th className="p-2">Date / receipt</th><th className="p-2">AWB / customer</th><th className="p-2">Payer / route</th><th className="p-2">Entry</th><th className="p-2 text-right">Amount</th><th className="p-2">Collected by</th><th className="p-2">Reconciliation</th><th className="p-2">Actions</th></tr></thead>
+            <thead><tr className="border-b text-muted-foreground"><th className="p-2">Date / receipt</th><th className="p-2">tracking number / customer</th><th className="p-2">Payer / route</th><th className="p-2">Entry</th><th className="p-2 text-right">Amount</th><th className="p-2">Collected by</th><th className="p-2">Reconciliation</th><th className="p-2">Actions</th></tr></thead>
             <tbody>
               {(list.data?.rows ?? []).map((row) => (
                 <tr key={row.entry.id} className="border-b align-top hover:bg-muted/30">
@@ -175,7 +175,7 @@ export default function FinanceFreight() {
           {mode === "reconcile" ? (
             <div className="space-y-4">
               <p className="text-sm">Confirm the bank deposit, cash bag or other clearing reference for receipt <span className="font-mono">{selected.entry.code}</span>.</p>
-              <KeyValueGrid columns={2}><KeyValue label="AWB" mono>{selected.charge.awb}</KeyValue><KeyValue label="Amount" mono>{money(selected.entry.amountCents)}</KeyValue></KeyValueGrid>
+              <KeyValueGrid columns={2}><KeyValue label="Tracking number" mono>{selected.charge.awb}</KeyValue><KeyValue label="Amount" mono>{money(selected.entry.amountCents)}</KeyValue></KeyValueGrid>
               <Field label="Clearing / deposit reference"><Input value={reference} onChange={(event) => setReference(event.target.value)} required /></Field>
               <Field label="Note (optional)"><Textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
               {actionError ? <ErrorNote>{actionError}</ErrorNote> : null}
@@ -184,7 +184,7 @@ export default function FinanceFreight() {
           ) : (
             <div className="space-y-4">
               <p className="text-sm">Refunds create a signed reversal entry. They never delete the original customer payment.</p>
-              <KeyValueGrid columns={2}><KeyValue label="AWB" mono>{selected.charge.awb}</KeyValue><KeyValue label="Charge" mono>{money(selected.charge.amountCents)}</KeyValue></KeyValueGrid>
+              <KeyValueGrid columns={2}><KeyValue label="Tracking number" mono>{selected.charge.awb}</KeyValue><KeyValue label="Charge" mono>{money(selected.charge.amountCents)}</KeyValue></KeyValueGrid>
               <Field label="Refund amount (Rs.)" error={"error" in cents ? cents.error : null}><Input value={refundRupees} onChange={(event) => setRefundRupees(event.target.value)} inputMode="decimal" /></Field>
               <Field label="Refund method"><Select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value as typeof refundMethod)}><option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="qr">QR payment</option><option value="card">Card</option></Select></Field>
               {refundMethod !== "cash" ? <Field label="Transfer / refund reference"><Input value={refundReference} onChange={(event) => setRefundReference(event.target.value)} /></Field> : null}
@@ -211,7 +211,7 @@ function ReceiptSlip({ row }: { row: Row }) {
       <section className="freight-ledger-slip max-w-3xl rounded-lg border border-border bg-card p-6" aria-label="Printable courier freight receipt">
         <div className="flex items-start justify-between border-b pb-4"><div><h2 className="text-xl font-bold">NatEx · Customer Freight {isRefund ? "Refund" : "Receipt"}</h2><p className="mt-1 text-sm text-muted-foreground">Retail consignment · independent of COD</p></div><div className="text-right"><p className="font-mono font-semibold">{entry.code}</p><p className="text-xs">{dateTime(entry.ts)}</p></div></div>
         <div className="grid grid-cols-2 gap-4 py-4 text-sm"><div><p className="font-semibold">Sender</p><p>{charge.senderName}</p><p>{charge.senderPhone}</p></div><div><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p></div></div>
-        <table><tbody><tr><td>AWB</td><td className="right">{charge.awb}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Entry</td><td className="right">{humanise(entry.entryType)}</td></tr><tr><td>Amount {isRefund ? "refunded" : "received"}</td><td className="right">{money(Math.abs(entry.amountCents))}</td></tr><tr><td>Payment method</td><td className="right">{humanise(entry.paymentMethod)}</td></tr><tr><td>Collected / refunded by</td><td className="right">{entry.collectorName}</td></tr>{entry.externalReference ? <tr><td>Payment reference</td><td className="right">{entry.externalReference}</td></tr> : null}</tbody></table>
+        <table><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Entry</td><td className="right">{humanise(entry.entryType)}</td></tr><tr><td>Amount {isRefund ? "refunded" : "received"}</td><td className="right">{money(Math.abs(entry.amountCents))}</td></tr><tr><td>Payment method</td><td className="right">{humanise(entry.paymentMethod)}</td></tr><tr><td>Collected / refunded by</td><td className="right">{entry.collectorName}</td></tr>{entry.externalReference ? <tr><td>Payment reference</td><td className="right">{entry.externalReference}</td></tr> : null}</tbody></table>
         <p className="mt-5 border-t pt-3 text-xs text-muted-foreground">Keep this document for your records. Customer courier freight is separate from Cash on Delivery and Merchant settlements. This is a payment receipt, not a VAT tax invoice.</p>
       </section>
     </>
@@ -226,7 +226,7 @@ function ChargeSlip({ row }: { row: ChargeRow }) {
       <section className="freight-charge-slip max-w-3xl rounded-lg border border-border bg-card p-6" aria-label="Printable customer freight charge notice">
         <div className="flex items-start justify-between border-b pb-4"><div><h2 className="text-xl font-bold">NatEx · Customer Freight Charge</h2><p className="mt-1 text-sm text-muted-foreground">Retail parcel booking · separate from COD</p></div><div className="text-right"><p className="font-mono font-semibold">{charge.code}</p><p className="text-xs">{dateTime(charge.createdAt)}</p></div></div>
         <div className="grid grid-cols-2 gap-4 py-4 text-sm"><div><p className="font-semibold">Sender</p><p>{charge.senderName}</p><p>{charge.senderPhone}</p><p>{charge.senderAddress ?? ""}</p></div><div><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p><p>{charge.destinationAddress}</p></div></div>
-        <table><tbody><tr><td>AWB</td><td className="right">{charge.awb}</td></tr><tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Freight payer</td><td className="right">{charge.payer === "sender" ? "Sender · counter" : "Recipient · delivery"}</td></tr><tr><td>Paid so far</td><td className="right">{money(paidCents)}</td></tr><tr><td>Balance due</td><td className="right">{money(dueCents)}</td></tr><tr><td>Payment status</td><td className="right">{dueCents <= 0 ? "Settled" : "Due"}</td></tr><tr><td>COD</td><td className="right">Rs. 0.00 · not a COD parcel</td></tr></tbody></table>
+        <table><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Freight payer</td><td className="right">{charge.payer === "sender" ? "Sender · counter" : "Recipient · delivery"}</td></tr><tr><td>Paid so far</td><td className="right">{money(paidCents)}</td></tr><tr><td>Balance due</td><td className="right">{money(dueCents)}</td></tr><tr><td>Payment status</td><td className="right">{dueCents <= 0 ? "Settled" : "Due"}</td></tr><tr><td>COD</td><td className="right">Rs. 0.00 · not a COD parcel</td></tr></tbody></table>
         <p className="mt-5 border-t pt-3 text-xs text-muted-foreground">A recipient-paid charge is collected by the Rider at delivery. This notice records the courier freight charge; a separate receipt is issued after payment. This is not a VAT tax invoice.</p>
       </section>
     </>

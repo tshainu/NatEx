@@ -44,7 +44,7 @@ describe("rupeesToCents (used by bulk rows)", () => {
 });
 
 describe("prepareBulkCsv", () => {
-  test("maps supplied AWB and structured address to canonical API payload", () => {
+  test("maps supplied tracking number and structured address to canonical API payload", () => {
     const f = prepareBulkCsv(`${HEADER}\n${row()}`);
     expect(f.fileErrors).toEqual([]);
     expect(f.rows).toHaveLength(1);
@@ -65,16 +65,23 @@ describe("prepareBulkCsv", () => {
     });
   });
 
-  test("accepts legacy delivery_address plus AWB header aliases and any column order", () => {
+  test("accepts legacy delivery_address plus tracking number header aliases and any column order", () => {
     const f = prepareBulkCsv(`Sticker,Phone,Customer Name,Address,Weight,COD\nNX1234567890,0771234567,Kamal,12 Hill St Kandy,1,100`);
     expect(f.fileErrors).toEqual([]);
     expect(f.rows[0]!.payload).toMatchObject({ awb: "NX1234567890", consigneeName: "Kamal", destAddress: "12 Hill St Kandy", weightGrams: 1000, codAmountCents: 10000 });
   });
 
-  test("requires AWB and at least one address representation in the header", () => {
+  test("uses tracking_number in the template and still accepts a legacy awb header", () => {
+    expect(TEMPLATE_HEADER).toContain("tracking_number");
+    const f = prepareBulkCsv(`awb,consignee_name,consignee_phone,delivery_address,weight_kg\nNX1234567890,Kamal,0771234567,12 Hill St Kandy,1`);
+    expect(f.fileErrors).toEqual([]);
+    expect(f.rows[0]!.payload).toMatchObject({ awb: "NX1234567890" });
+  });
+
+  test("requires tracking number and at least one address representation in the header", () => {
     const f = prepareBulkCsv("consignee_name,consignee_phone,weight_kg\nA,0771234567,1");
     expect(f.rows).toEqual([]);
-    expect(f.fileErrors[0]).toContain("awb");
+    expect(f.fileErrors[0]).toContain("tracking_number");
     expect(f.fileErrors[0]).toContain("delivery_address or address_line1 + district + province");
   });
 
@@ -90,11 +97,11 @@ describe("prepareBulkCsv", () => {
     expect(f.rows[0]!.errors.map((e) => e.field).sort()).toEqual(["cod_rs", "district", "length_cm", "weight_kg"]);
   });
 
-  test("bad and duplicate AWBs are caught locally", () => {
+  test("bad and duplicate tracking numbers are caught locally", () => {
     const f = prepareBulkCsv(`${HEADER}\n${row({ awb: "bad" })}\n${row({ ref: "ORD-2" })}\n${row({ ref: "ORD-3" })}`);
     expect(f.rows[0]!.errors[0]?.field).toBe("awb");
     expect(f.rows[1]!.errors).toEqual([]);
-    expect(f.rows[2]!.errors).toEqual([{ field: "awb", message: "Duplicate AWB — first used on line 3." }]);
+    expect(f.rows[2]!.errors).toEqual([{ field: "awb", message: "Duplicate tracking number — first used on line 3." }]);
   });
 
   test("duplicate order refs are caught across the whole file", () => {

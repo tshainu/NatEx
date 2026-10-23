@@ -78,7 +78,7 @@ export default function RootLayout() {
                 />
               </AuthProvider>
             ) : (
-              // Fonts are part of the design contract (mono AWBs are how a
+              // Fonts are part of the design contract (mono tracking numbers are how a
               // mistyped digit gets caught), so the shell holds rather than
               // flashing a system-font frame.
               <View style={{ flex: 1, backgroundColor: shell.background }} />

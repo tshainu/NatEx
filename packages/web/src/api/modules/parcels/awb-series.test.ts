@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AWB_LABELS_PER_BATCH, createAwbSeries, randomAwbSeriesStart } from "./awb-series";
 
-describe("AWB label series", () => {
+describe("tracking number label series", () => {
   test("creates exactly 1,000 consecutive, zero-padded NX numbers", () => {
     const series = createAwbSeries("4820000000");
     expect(series).toHaveLength(AWB_LABELS_PER_BATCH);

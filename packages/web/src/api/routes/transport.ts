@@ -310,7 +310,7 @@ export const inbound = staffProc
 
 /**
  * Two-party hub receipt (§7). The presented seal and the physically scanned
- * AWBs are both inputs, and both named parties are recorded; any disagreement
+ * tracking numbers are both inputs, and both named parties are recorded; any disagreement
  * with the origin hub's manifest becomes an exception in the response.
  */
 export const bagReceive = transportProc
@@ -353,7 +353,7 @@ export const scans = staffProc
   )
   .handler(({ input, context }) => transportService.scanLog(context.principal, input));
 
-/** The full chain of custody for one AWB: timeline + bag + trip + scans. */
+/** The full chain of custody for one tracking number: timeline + bag + trip + scans. */
 export const custody = staffProc
   .input(z.object({ awb }))
   .handler(({ input, context }) => transportService.custodyChain(input.awb, context.principal));

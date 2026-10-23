@@ -87,7 +87,7 @@ export function LedgerTab() {
         </span>
       ),
     },
-    { key: "awb", header: "AWB", width: "w-[140px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : <span className="text-muted-foreground">—</span>) },
+    { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : <span className="text-muted-foreground">—</span>) },
     { key: "merchant", header: "Merchant", cell: (r) => <span className="truncate">{r.merchantId ? merchantName(r.merchantId) : "—"}</span> },
     {
       key: "amount",
@@ -127,10 +127,10 @@ export function LedgerTab() {
             <Field label="Merchant" className="w-[220px]">
               <MerchantSelect value={merchantId} onChange={setMerchantId} allLabel="All merchants" />
             </Field>
-            <Field label="AWB" className="w-[180px]">
+            <Field label="Tracking number" className="w-[180px]">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input value={awb} onChange={(e) => setAwb(e.target.value)} placeholder="NX…" className="pl-8 font-mono" aria-label="Filter by AWB" />
+                <Input value={awb} onChange={(e) => setAwb(e.target.value)} placeholder="NX…" className="pl-8 font-mono" aria-label="Filter by tracking number" />
               </div>
             </Field>
             <Field label="Rider id" className="w-[180px]">
@@ -152,7 +152,7 @@ export function LedgerTab() {
             <div className="ml-auto">
               <ExportCsvButton<Entry>
                 filename={`natex-cod-ledger-${colomboToday()}.csv`}
-                header={["seq", "posted", "type", "debit", "credit", "amount_lkr", "awb", "merchant_id", "rider_id", "deposit_id", "settlement_id", "reversal_of", "reversed_by", "actor", "note"]}
+                header={["seq", "posted", "type", "debit", "credit", "amount_lkr", "tracking_number", "merchant_id", "rider_id", "deposit_id", "settlement_id", "reversal_of", "reversed_by", "actor", "note"]}
                 toRow={(r) => [
                   r.seq,
                   dateTime(r.ts),
@@ -238,7 +238,7 @@ function EntryDrawer({
             <KeyValue label="Credit" mono>{entry.creditAccount}</KeyValue>
             <KeyValue label="Amount" mono>{money(entry.amountCents)}</KeyValue>
             <KeyValue label="Mode">{entry.mode ? humanise(entry.mode) : "—"}</KeyValue>
-            <KeyValue label="AWB" mono>{entry.awb ?? "—"}</KeyValue>
+            <KeyValue label="Tracking number" mono>{entry.awb ?? "—"}</KeyValue>
             <KeyValue label="Merchant">{merchantName(entry.merchantId)}</KeyValue>
             <KeyValue label="Rider" mono>{entry.riderId ?? "—"}</KeyValue>
             <KeyValue label="Branch" mono>{entry.branchId ?? "—"}</KeyValue>
@@ -262,7 +262,7 @@ function EntryDrawer({
                 remain in the ledger and in every export.
               </p>
               <Field label="Reason" hint="Recorded on the reversal and in the audit log — at least 3 characters.">
-                <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Collected against the wrong AWB at the door" />
+                <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Collected against the wrong tracking number at the door" />
               </Field>
               <Button size="sm" variant="destructive" disabled={reason.trim().length < 3} onClick={() => setConfirm(true)}>
                 <Undo2 aria-hidden />
@@ -295,7 +295,7 @@ export function ReconciliationTab() {
 
   type Stale = CodOut<"stale">[number];
   const staleColumns: Column<Stale>[] = [
-    { key: "awb", header: "AWB", width: "w-[150px]", cell: (s) => <MonoCell>{s.awb ?? "—"}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[150px]", cell: (s) => <MonoCell>{s.awb ?? "—"}</MonoCell> },
     { key: "rider", header: "Rider", cell: (s) => <span className="font-mono text-[12px]">{s.riderId ?? "—"}</span> },
     { key: "at", header: "Collected", width: "w-[160px]", className: "font-mono text-[12px]", cell: (s) => dateTime(s.collectedAt) },
     { key: "age", header: "Age", width: "w-[110px]", className: "font-mono text-[12px] text-status-bad", cell: (s) => `${s.ageHours} h` },
@@ -373,4 +373,3 @@ function Stage({
     </div>
   );
 }
-

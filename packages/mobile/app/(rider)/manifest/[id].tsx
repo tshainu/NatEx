@@ -179,7 +179,7 @@ export default function ManifestScreen() {
         <Card>
           <Input
             ref={inputRef}
-            label="Scan or type AWB"
+            label="Scan or type tracking number"
             code
             value={awb}
             onChangeText={(value) => {

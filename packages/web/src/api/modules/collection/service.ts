@@ -199,7 +199,7 @@ export interface CreateManifestInput {
   merchantId: string;
   riderId: string;
   pickupDate: string;
-  /** AWBs the merchant declared for this pickup. */
+  /** tracking numbers the merchant declared for this pickup. */
   awbs: string[];
   /** The merchant's pickup request this manifest answers, if any. */
   pickupRequestId?: string | null;
@@ -279,7 +279,7 @@ export async function createManifest(
 export interface ScanItemResult {
   manifest: ManifestRow;
   item: ManifestItemRow;
-  /** True when this AWB was already scanned on this manifest. */
+  /** True when this tracking number was already scanned on this manifest. */
   alreadyScanned: boolean;
 }
 
@@ -309,7 +309,7 @@ export async function scanItem(
     .where(and(eq(manifestItem.manifestId, input.manifestId), eq(manifestItem.awb, awb)));
 
   if (!item) {
-    errors.badRequest(`AWB ${awb} is not on manifest ${row!.code}.`, {
+    errors.badRequest(`tracking number ${awb} is not on manifest ${row!.code}.`, {
       awb,
       manifestCode: row!.code,
     });

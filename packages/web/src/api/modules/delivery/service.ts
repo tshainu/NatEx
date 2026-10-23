@@ -504,7 +504,7 @@ export async function addToRunsheet(
   const lines: AddToRunsheetLine[] = unknown.map((awb) => ({
     awb,
     verdict: "unknown" as const,
-    reason: "No parcel with that AWB.",
+    reason: "No parcel with that tracking number.",
   }));
 
   const existing = await db
@@ -896,8 +896,8 @@ export async function requestDeliveryOtp(
   const challengeId = prefixedId("dotp");
   const sms = await sendSms({
     to: phone,
-    purpose: "otp",
-    body: `NatEx delivery code for ${p!.awb}: ${code}. Give it to the courier. Valid ${OTP_TTL_MINUTES} minutes.`,
+    purpose: "pod",
+    body: `NatEx delivery verification code: ${code}. Share only with the courier at delivery. Valid ${OTP_TTL_MINUTES} minutes.`,
   });
 
   await db.insert(deliveryOtp).values({

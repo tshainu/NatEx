@@ -102,6 +102,7 @@ const HEADER_TO_FORM: Record<string, keyof Form> = {
   consignee_name: "consigneeName",
   consignee_phone: "consigneePhone",
   delivery_address: "destAddress",
+  tracking_number: "awb",
   awb: "awb",
   weight_kg: "weightKg",
   length_cm: "lengthCm",
@@ -187,7 +188,7 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
       return;
     }
     if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) {
-      setFieldErrors((fe) => ({ ...fe, awb: "Enter a valid AWB from your sticker." }));
+      setFieldErrors((fe) => ({ ...fe, awb: "Enter a valid tracking number from your sticker." }));
       return;
     }
     if (checkedAwb !== form.awb.trim().toUpperCase()) {
@@ -298,8 +299,8 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
         <Card title="Consignee">
           <div className="space-y-4">
             <Field
-              label="AWB number (preprinted sticker)"
-              hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking allocated sticker…" : "Type the AWB printed on the sticker allocated to your merchant account.")}
+              label="tracking number number (preprinted sticker)"
+              hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking allocated sticker…" : "Type the tracking number printed on the sticker allocated to your merchant account.")}
               error={fieldErrors.awb ?? (awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null)}
             >
               <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" required />

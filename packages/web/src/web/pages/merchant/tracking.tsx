@@ -14,7 +14,7 @@ import { Field, Input } from "@/components/ui/input";
  * /merchant/tracking. Two views of the same parcel:
  *
  *  - The merchant's own view — full custody timeline in the parcel drawer,
- *    looked up by AWB under §5 scope (another merchant's AWB reads "not found").
+ *    looked up by tracking number under §5 scope (another merchant's tracking number reads "not found").
  *  - The consignee's view — the public `/track/:awb` page, which shows only a
  *    coarse status, locality and timestamps (PDPA, §9). The merchant copies
  *    that link to send to their customer.
@@ -59,7 +59,7 @@ export default function MerchantTracking() {
   };
 
   const columns: Column<Row>[] = [
-    { key: "awb", header: "AWB", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     { key: "status", header: "Status", width: "w-[160px]", cell: (r) => <StatusPill status={r.status} /> },
     { key: "consignee", header: "Consignee", cell: (r) => r.consigneeName },
     {
@@ -114,7 +114,7 @@ export default function MerchantTracking() {
             if (v.length >= 3) setLookup(v);
           }}
         >
-          <Field label="AWB" className="w-72">
+          <Field label="Tracking number" className="w-72">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input value={awb} onChange={(e) => setAwb(e.target.value)} placeholder="NX…" className="pl-8 font-mono" />

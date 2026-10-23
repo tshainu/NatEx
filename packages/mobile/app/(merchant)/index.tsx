@@ -78,7 +78,7 @@ export default function MerchantHome() {
         <View style={styles.bookIcon}><Ionicons name="add" size={28} color="#176B2C" /></View>
         <View style={styles.bookText}>
           <Title color="#FFFFFF">Book a shipment</Title>
-          <Small color="#E5F4E8">Create a delivery and get its AWB instantly</Small>
+          <Small color="#E5F4E8">Create a delivery and get its tracking number instantly</Small>
         </View>
         <Ionicons name="arrow-forward" size={22} color="#FFFFFF" />
       </Pressable>
@@ -153,7 +153,7 @@ export default function MerchantHome() {
           label="Search recent shipments"
           value={searchText}
           onChangeText={setSearchText}
-          placeholder="AWB, phone, name, COD or district"
+          placeholder="tracking number, phone, name, COD or district"
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -181,7 +181,7 @@ export default function MerchantHome() {
             </Card>
           ))
         ) : (
-          <Empty title={search ? "No matching recent shipments" : "No shipments yet"} detail={search ? "Try an AWB, consignee name or phone, COD amount, or destination district." : "Book your first shipment to get started."} />
+          <Empty title={search ? "No matching recent shipments" : "No shipments yet"} detail={search ? "Try an tracking number, consignee name or phone, COD amount, or destination district." : "Book your first shipment to get started."} />
         )}
       </Section>
       <Small style={styles.refreshStamp}>Updated {s?.generatedAt ? date(s.generatedAt) : "when connected"}</Small>

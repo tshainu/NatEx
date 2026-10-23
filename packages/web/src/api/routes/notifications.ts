@@ -10,9 +10,9 @@ import { errors } from "../shared/errors";
  * that caused them and drained by jobs/worker.ts, so a doorstep scan never
  * waits on a messaging gateway.
  *
- * KNOWN DEVIATION (README): with no WhatsApp or push credentials configured,
- * both senders fail closed and every message falls through to SMS. The log
- * below shows that plainly — each attempt's channel and state is a row.
+ * SMS is policy-limited to delivery/POD notifications; older non-POD SMS jobs
+ * are drained without sending. Login OTP remains a separate authentication flow.
+ * The log shows each attempted channel and state.
  */
 
 export const templates = deskProc

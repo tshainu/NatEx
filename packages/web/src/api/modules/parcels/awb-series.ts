@@ -3,14 +3,14 @@ const AWB_PREFIX = "NX";
 const MIN_AWB_NUMBER = 1_000_000_000n;
 const MAX_AWB_NUMBER = 9_999_999_999n;
 
-/** Produce an inclusive, zero-padded NX AWB series without crossing 10 digits. */
+/** Produce an inclusive, zero-padded NX tracking number series without crossing 10 digits. */
 export function createAwbSeries(startNumber: string, count = AWB_LABELS_PER_BATCH): string[] {
-  if (!/^\d{10}$/.test(startNumber)) throw new RangeError("The AWB start number must be exactly 10 digits.");
-  if (!Number.isInteger(count) || count < 1) throw new RangeError("The AWB series size must be a positive integer.");
+  if (!/^\d{10}$/.test(startNumber)) throw new RangeError("The tracking number start number must be exactly 10 digits.");
+  if (!Number.isInteger(count) || count < 1) throw new RangeError("The tracking number series size must be a positive integer.");
   const start = BigInt(startNumber);
   const end = start + BigInt(count) - 1n;
   if (start < MIN_AWB_NUMBER || end > MAX_AWB_NUMBER) {
-    throw new RangeError("The AWB series must stay within the 10-digit NX number range.");
+    throw new RangeError("The tracking number series must stay within the 10-digit NX number range.");
   }
   return Array.from({ length: count }, (_, index) => `${AWB_PREFIX}${String(start + BigInt(index)).padStart(10, "0")}`);
 }

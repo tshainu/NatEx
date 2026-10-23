@@ -296,7 +296,7 @@ export function AlertsTab() {
             <div className="ml-auto">
               <ExportCsvButton<Alert>
                 filename={`natex-alerts-${colomboToday()}.csv`}
-                header={["id", "raised_at", "severity", "kind", "audience", "status", "action_required", "summary", "awb", "rider_id", "merchant_id", "amount_lkr", "acknowledged_by", "resolved_by", "resolution_note"]}
+                header={["id", "raised_at", "severity", "kind", "audience", "status", "action_required", "summary", "tracking_number", "rider_id", "merchant_id", "amount_lkr", "acknowledged_by", "resolved_by", "resolution_note"]}
                 toRow={(r) => [
                   r.id,
                   dateTime(r.createdAt),
@@ -355,7 +355,7 @@ function AlertDrawer({ alert, onClose }: { alert: Alert | null; onClose: () => v
           </div>
           <p className="text-[13px]">{alert.summary}</p>
           <KeyValueGrid>
-            {alert.awb ? <KeyValue label="AWB" mono>{alert.awb}</KeyValue> : null}
+            {alert.awb ? <KeyValue label="Tracking number" mono>{alert.awb}</KeyValue> : null}
             {alert.riderId ? <KeyValue label="Rider" mono>{alert.riderId}</KeyValue> : null}
             {alert.merchantId ? <KeyValue label="Merchant" mono>{alert.merchantId}</KeyValue> : null}
             {alert.amountCents !== null ? <KeyValue label="Amount" mono>{money(alert.amountCents)}</KeyValue> : null}

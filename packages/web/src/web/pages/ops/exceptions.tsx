@@ -130,7 +130,7 @@ export default function OpsExceptions() {
     },
     {
       key: "awb",
-      header: "AWB",
+      header: "Tracking number",
       cell: (row) =>
         row.awb ? <MonoCell>{row.awb}</MonoCell> : <span className="text-muted-foreground">—</span>,
     },
@@ -209,7 +209,7 @@ export default function OpsExceptions() {
                   <option value="stale_custody">Stale custody</option>
                 </Select>
               </Field>
-              <Field label="AWB or detail contains">
+              <Field label="tracking number or detail contains">
                 <Input
                   value={searchDraft}
                   onChange={(event) => setSearchDraft(event.target.value)}
@@ -354,7 +354,7 @@ function ResolveDrawer({
           </div>
 
           <KeyValueGrid>
-            <KeyValue label="AWB" mono={Boolean(exception.awb)}>
+            <KeyValue label="Tracking number" mono={Boolean(exception.awb)}>
               {exception.awb ?? "Not parcel-specific"}
             </KeyValue>
             <KeyValue label="Raised by">{exception.raisedByName ?? "system"}</KeyValue>

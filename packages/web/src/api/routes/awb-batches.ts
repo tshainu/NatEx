@@ -78,7 +78,7 @@ export const checkBranch = opsProc
   }))
   .handler(({ input, context }) => {
     if (context.principal.role !== "admin" && context.principal.branchId !== input.branchId) {
-      return errors.forbidden("A branch operator may only validate AWBs assigned to their own branch or hub.");
+      return errors.forbidden("A branch operator may only validate tracking numbers assigned to their own branch or hub.");
     }
     return awbBatchService.checkBranchAwb(input.branchId, input.awb);
   });

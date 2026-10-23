@@ -78,7 +78,7 @@ const ADMIN: PortalConfig = {
     { label: "Branches", to: "/admin/branches" },
     { label: "Zones", to: "/admin/zones" },
     { label: "Rate cards", to: "/admin/rate-cards" },
-    { label: "AWB label batches", to: "/admin/awb-batches" },
+    { label: "Tracking number label batches", to: "/admin/awb-batches" },
     { label: "Settings", to: "/admin/settings" },
     { label: "Templates", to: "/admin/templates" },
     { label: "Audit log", to: "/admin/audit" },

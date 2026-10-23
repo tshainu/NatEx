@@ -256,7 +256,7 @@ function LoadingRows<T>({ columns, dense }: { columns: Column<T>[]; dense: boole
   );
 }
 
-/** Mono cell used for AWBs, seals, UTRs and device ids (design.md). */
+/** Mono cell used for tracking numbers, seals, UTRs and device ids (design.md). */
 export function MonoCell({
   children,
   className,

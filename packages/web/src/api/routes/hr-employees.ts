@@ -13,6 +13,7 @@ const overtimePolicy = z.enum(["none", "shop_office", "custom"]);
 const employeeFields = z.object({
   employeeCode,
   fullName: z.string().trim().min(2).max(160),
+  identityUserId: z.string().trim().min(1).max(100).nullish(),
   nationalId: z.string().trim().max(40).nullish(),
   phone: z.string().trim().max(30).nullish(),
   email: z.string().trim().email().max(200).nullish(),
@@ -57,7 +58,14 @@ async function assertBranch(branchId: string): Promise<void> {
   if (!branch) errors.badRequest("Select a valid NatEx branch or hub.");
 }
 
+async function assertStaffAccount(identityUserId?: string | null): Promise<void> {
+  if (!identityUserId) return;
+  const account = await identity.getLinkableOfficialStaffAccount(identityUserId);
+  if (!account) errors.badRequest("Select an active official NatEx staff account with a recognized staff role. Merchant portal accounts cannot be linked.");
+}
+
 export const branchOptions = hrProc.handler(() => identity.listBranches());
+export const staffOptions = hrProc.handler(() => identity.listOfficialStaffOptions());
 
 export const employees = hrProc
   .input(z.object({ q: z.string().max(100).optional(), status: z.enum(["active", "inactive"]).optional(), limit: z.number().int().min(1).max(5000).default(500) }))
@@ -65,6 +73,7 @@ export const employees = hrProc
 
 export const createEmployee = hrProc.input(employeeFields).handler(async ({ input, context }) => {
   await assertBranch(input.branchId);
+  await assertStaffAccount(input.identityUserId);
   return mutate(context, input, {
     route: "hr.createEmployee",
     entity: "hr_employee",
@@ -77,6 +86,7 @@ export const updateEmployee = hrProc.input(z.object({
   employeeId: z.string().min(1),
   employeeCode: employeeCode.optional(),
   fullName: z.string().trim().min(2).max(160).optional(),
+  identityUserId: z.string().trim().min(1).max(100).nullish(),
   nationalId: z.string().trim().max(40).nullish(),
   phone: z.string().trim().max(30).nullish(),
   email: z.string().trim().email().max(200).nullish(),
@@ -96,6 +106,7 @@ export const updateEmployee = hrProc.input(z.object({
   overtimeDivisorMinutes: z.number().int().min(1).max(144_000).optional(),
 })).handler(async ({ input, context }) => {
   if (input.branchId) await assertBranch(input.branchId);
+  if (input.identityUserId !== undefined) await assertStaffAccount(input.identityUserId);
   const { employeeId, ...patch } = input;
   return mutate(context, input, {
     route: "hr.updateEmployee",
@@ -137,6 +148,7 @@ export const employeePackages = hrProc.input(z.object({ employeeId: z.string().m
 
 export const hrEmployees = {
   branchOptions,
+  staffOptions,
   employees,
   createEmployee,
   updateEmployee,

@@ -11,6 +11,7 @@ import {
 import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
+import * as identity from "../identity/service";
 import { isValidIsoDate } from "./validation";
 
 export type EmployeeRow = typeof hrEmployee.$inferSelect;
@@ -21,6 +22,7 @@ export type TimesheetRow = typeof hrTimesheet.$inferSelect;
 export interface EmployeeInput {
   employeeCode: string;
   fullName: string;
+  identityUserId?: string | null;
   nationalId?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -71,6 +73,12 @@ function validateMoney(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) errors.badRequest(`${label} must be a non-negative whole number of cents.`);
 }
 
+async function assertLinkableOfficialStaff(identityUserId?: string | null): Promise<void> {
+  if (!identityUserId) return;
+  const account = await identity.getLinkableOfficialStaffAccount(identityUserId.trim());
+  if (!account) errors.badRequest("Choose an active official NatEx staff account with a recognized staff role; Merchant portal accounts cannot be linked.");
+}
+
 export async function listEmployees(input: { q?: string; status?: string; limit?: number } = {}) {
   const filters = [];
   if (input.status) filters.push(eq(hrEmployee.status, input.status));
@@ -91,6 +99,7 @@ export async function getEmployee(employeeId: string): Promise<EmployeeRow> {
 
 export async function createEmployee(input: EmployeeInput, actor: Principal): Promise<EmployeeRow> {
   const code = input.employeeCode.trim().toUpperCase();
+  await assertLinkableOfficialStaff(input.identityUserId);
   if (!/^[A-Z0-9][A-Z0-9_-]{1,19}$/.test(code)) errors.badRequest("Employee code must be 2–20 letters, numbers, underscores or hyphens.");
   if (!isValidIsoDate(input.joinedOn)) errors.badRequest("Employee start date must be a real calendar date in YYYY-MM-DD format.");
   validateMoney(input.overtimeMultiplierBps, "Overtime multiplier");
@@ -99,12 +108,17 @@ export async function createEmployee(input: EmployeeInput, actor: Principal): Pr
   }
   const [existing] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(eq(hrEmployee.employeeCode, code));
   if (existing) errors.conflict(`Employee code ${code} is already in use.`);
+  if (input.identityUserId) {
+    const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(eq(hrEmployee.identityUserId, input.identityUserId));
+    if (linked) errors.conflict("This official staff account is already linked to an HR employee.");
+  }
   const [row] = await db
     .insert(hrEmployee)
     .values({
       id: prefixedId("emp"),
       employeeCode: code,
       fullName: input.fullName.trim(),
+      identityUserId: input.identityUserId?.trim() || null,
       nationalId: input.nationalId?.trim() || null,
       phone: input.phone?.trim() || null,
       email: input.email?.trim() || null,
@@ -129,6 +143,7 @@ export async function createEmployee(input: EmployeeInput, actor: Principal): Pr
 
 export async function updateEmployee(employeeId: string, patch: Partial<EmployeeInput> & { status?: "active" | "inactive"; endedOn?: string | null }, actor: Principal): Promise<EmployeeRow> {
   const before = await getEmployee(employeeId);
+  if (patch.identityUserId !== undefined) await assertLinkableOfficialStaff(patch.identityUserId);
   const joinedOn = patch.joinedOn ?? before.joinedOn;
   const endedOn = patch.endedOn !== undefined ? patch.endedOn : before.endedOn;
   if (!isValidIsoDate(joinedOn)) errors.badRequest("Employee start date must be a real calendar date in YYYY-MM-DD format.");
@@ -136,6 +151,7 @@ export async function updateEmployee(employeeId: string, patch: Partial<Employee
   const set: Partial<typeof hrEmployee.$inferInsert> = { updatedBy: actor.userId, updatedAt: new Date() };
   if (patch.employeeCode !== undefined) set.employeeCode = patch.employeeCode.trim().toUpperCase();
   if (patch.fullName !== undefined) set.fullName = patch.fullName.trim();
+  if (patch.identityUserId !== undefined) set.identityUserId = patch.identityUserId?.trim() || null;
   if (patch.nationalId !== undefined) set.nationalId = patch.nationalId?.trim() || null;
   if (patch.phone !== undefined) set.phone = patch.phone?.trim() || null;
   if (patch.email !== undefined) set.email = patch.email?.trim() || null;
@@ -158,6 +174,10 @@ export async function updateEmployee(employeeId: string, patch: Partial<Employee
     if (!/^[A-Z0-9][A-Z0-9_-]{1,19}$/.test(code)) errors.badRequest("Employee code must be 2–20 letters, numbers, underscores or hyphens.");
     const [duplicate] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.employeeCode, code), ne(hrEmployee.id, employeeId)));
     if (duplicate) errors.conflict(`Employee code ${code} is already in use.`);
+  }
+  if (patch.identityUserId) {
+    const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.identityUserId, patch.identityUserId), ne(hrEmployee.id, employeeId)));
+    if (linked) errors.conflict("This official staff account is already linked to another HR employee.");
   }
   if (patch.overtimeMultiplierBps !== undefined) validateMoney(patch.overtimeMultiplierBps, "Overtime multiplier");
   if (patch.overtimeDivisorMinutes !== undefined && (patch.overtimeDivisorMinutes < 1 || !Number.isSafeInteger(patch.overtimeDivisorMinutes))) {

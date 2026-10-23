@@ -181,7 +181,7 @@ export default function MerchantBook() {
         lastInvalidAwbPulse.current = form.awb.trim().toUpperCase();
         invalidAwbPulse();
       }
-      return setError("Enter or scan a valid AWB from your preprinted sticker.");
+      return setError("Enter or scan a valid tracking number from your preprinted sticker.");
     }
     if (normalizedAwb !== form.awb.trim().toUpperCase()) return setError("Wait for the sticker check to finish before booking.");
     if (awbCheck.isError) return setError("The sticker could not be checked. No booking was created. Check the connection or contact NatEx support.");
@@ -273,7 +273,7 @@ export default function MerchantBook() {
         <Button title="Create booking" loading={booking} disabled={inactive || booking} onPress={() => { void submit(); }} hint={inactive ? "Contact NatEx operations to reactivate your account." : undefined} />
       )}
     >
-      <ScreenHeader title="Book a shipment" subtitle="Enter the delivery details and use one of your allocated preprinted AWB stickers." />
+      <ScreenHeader title="Book a shipment" subtitle="Enter the delivery details and use one of your allocated preprinted tracking number stickers." />
 
       {profile.data?.address ? (
         <Panel>
@@ -295,7 +295,7 @@ export default function MerchantBook() {
         <Card style={styles.successCard}>
           <View style={styles.successIcon}><Title color="#176B2C">✓</Title></View>
           <Title>Shipment booked</Title>
-          <Small>Your allocated preprinted AWB has been linked to this shipment. Include it in the next pickup request.</Small>
+          <Small>Your allocated preprinted tracking number has been linked to this shipment. Include it in the next pickup request.</Small>
           <Awb color="#176B2C" style={styles.successAwb}>{successAwb}</Awb>
           <Button title="Track this shipment" variant="secondary" onPress={() => router.push({ pathname: "/(merchant)/shipment/[awb]", params: { awb: successAwb } })} />
         </Card>
@@ -303,8 +303,8 @@ export default function MerchantBook() {
         <>
           <Card>
             <Title>Consignee</Title>
-            <Input label="AWB number (preprinted sticker)" value={form.awb} onChangeText={setAwb} code placeholder="NX1234567890" hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking sticker allocation…" : "Type the AWB printed on your sticker.")} error={awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null} />
-            <Button title="Scan AWB barcode" variant="secondary" onPress={() => setScanning(true)} />
+            <Input label="Tracking number (preprinted sticker)" value={form.awb} onChangeText={setAwb} code placeholder="NX1234567890" hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking sticker allocation…" : "Type the tracking number printed on your sticker.")} error={awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null} />
+            <Button title="Scan tracking number barcode" variant="secondary" onPress={() => setScanning(true)} />
             <Input label="Full name" value={form.consigneeName} onChangeText={set("consigneeName")} autoCapitalize="words" returnKeyType="next" placeholder="Recipient name" />
             <Input label="Phone number" value={form.consigneePhone} onChangeText={set("consigneePhone")} keyboardType="phone-pad" placeholder="077 123 4567" />
             <AddressFields value={form.destAddress} onChange={setDestination} />

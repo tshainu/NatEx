@@ -67,7 +67,7 @@ export default function OpsHubReceipt() {
   });
 
   const columns: Column<PickedUpRow>[] = [
-    { key: "awb", header: "AWB", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     {
       key: "status",
       header: "Status",
@@ -87,7 +87,7 @@ export default function OpsHubReceipt() {
   return (
     <Page
       title="Hub receipt"
-      description="Scan a returning rider's bag into the origin hub. Each AWB runs through the parcel state machine individually, so a parcel in the wrong state is refused by name instead of failing the whole bag."
+      description="Scan a returning rider's bag into the origin hub. Each tracking number runs through the parcel state machine individually, so a parcel in the wrong state is refused by name instead of failing the whole bag."
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Card
@@ -126,7 +126,7 @@ export default function OpsHubReceipt() {
           <Card title="Scan into hub">
             <div className="flex flex-col gap-4">
               <Field
-                label="AWBs"
+                label="tracking numbers"
                 hint="One per line. Click a row on the left to add it."
               >
                 <Textarea
@@ -138,7 +138,7 @@ export default function OpsHubReceipt() {
               </Field>
               <div className="flex items-center justify-between gap-3">
                 <span className="font-mono text-[12px] text-muted-foreground">
-                  {awbs.length} AWB{awbs.length === 1 ? "" : "s"}
+                  {awbs.length} tracking number{awbs.length === 1 ? "" : "s"}
                 </span>
                 <Button
                   disabled={awbs.length === 0}

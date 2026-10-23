@@ -15,7 +15,7 @@ import { useBag, useBagReceive, useInboundBags, useTransportCounts } from "@/que
  * Inbound bags — the two-party hub receipt (§7).
  *
  * The receipt takes four inputs a human has to supply honestly: the seal number
- * actually found on the bag, the AWBs actually scanned out of it, who handed it
+ * actually found on the bag, the tracking numbers actually scanned out of it, who handed it
  * over and who took it. Any disagreement with the origin hub's manifest — a
  * wrong seal, a missing parcel, a parcel that was never manifested — is written
  * out as an exception rather than corrected quietly.
@@ -308,7 +308,7 @@ export default function OpsInbound() {
                   />
                 </Field>
 
-                <Field label="AWBs scanned out of the bag" hint="One per line.">
+                <Field label="tracking numbers scanned out of the bag" hint="One per line.">
                   <Textarea
                     value={scanText}
                     onChange={(e) => setScanText(e.target.value)}

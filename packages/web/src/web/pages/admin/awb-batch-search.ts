@@ -2,8 +2,8 @@ const AWB_PREFIX = "NX";
 const AWB_DIGITS = 10;
 
 /**
- * Match a full AWB or a numeric prefix against a contiguous, fixed-width AWB range.
- * This lets a search find a batch even when the searched AWB is not one of its endpoints.
+ * Match a full tracking number or a numeric prefix against a contiguous, fixed-width tracking number range.
+ * This lets a search find a batch even when the searched tracking number is not one of its endpoints.
  */
 export function awbRangeMatchesQuery(query: string, awbStart: string, awbEnd: string): boolean {
   const normalized = query.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");

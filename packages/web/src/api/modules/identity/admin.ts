@@ -156,7 +156,7 @@ export async function changeUserStatus(
 }
 
 /**
- * Edit a branch. The code is immutable: it is printed into AWB-adjacent
+ * Edit a branch. The code is immutable: it is printed into tracking number-adjacent
  * documents (runsheets, manifests) and a renamed code would orphan them.
  */
 export async function updateBranch(

@@ -1,6 +1,6 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "../../database";
-import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
+import { awbBatch, awbBatchLabel, awbBatchSeries, parcel, retiredTrackingNumber } from "../../database/schema/parcels";
 import { getMerchant } from "../merchants/service";
 import { getBranch } from "../identity/service";
 import { errors } from "../../shared/errors";
@@ -106,7 +106,7 @@ async function ensureSeriesNumbers(): Promise<void> {
   });
 }
 
-/** Read all batches and count parcels created with each batch's reserved AWBs. */
+/** Read all batches and count parcels created with each batch's reserved tracking numbers. */
 export async function listAwbBatches() {
   await ensureSeriesNumbers();
   const rows = await db
@@ -128,12 +128,13 @@ export async function listAwbBatches() {
       labelCount: awbBatch.labelCount,
       createdByName: awbBatch.createdByName,
       createdAt: awbBatch.createdAt,
-      usedCount: count(parcel.id),
+      usedCount: sql<number>`sum(case when ${parcel.id} is not null or ${retiredTrackingNumber.trackingNumber} is not null then 1 else 0 end)`,
     })
     .from(awbBatch)
     .innerJoin(awbBatchSeries, eq(awbBatchSeries.batchId, awbBatch.id))
     .leftJoin(awbBatchLabel, eq(awbBatchLabel.batchId, awbBatch.id))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .groupBy(awbBatch.id, awbBatchSeries.seriesNumber)
     .orderBy(desc(awbBatch.createdAt), desc(awbBatch.id));
 
@@ -170,6 +171,13 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
             .where(and(gte(awbBatchLabel.awb, row.awbStart), lte(awbBatchLabel.awb, row.awbEnd)))
             .limit(1);
           if (labelClash) throw new AwbRangeOccupied();
+
+          const [retiredClash] = await tx
+            .select({ trackingNumber: retiredTrackingNumber.trackingNumber })
+            .from(retiredTrackingNumber)
+            .where(and(gte(retiredTrackingNumber.trackingNumber, row.awbStart), lte(retiredTrackingNumber.trackingNumber, row.awbEnd)))
+            .limit(1);
+          if (retiredClash) throw new AwbRangeOccupied();
         }
 
         const created: AwbBatchWithSeries[] = [];
@@ -180,12 +188,12 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
             createdByName: actor.name,
             createdAt: new Date(),
           }).returning();
-          if (!saved) throw new Error("The AWB batch was not saved.");
+          if (!saved) throw new Error("The tracking number batch was not saved.");
           const [series] = await tx
             .insert(awbBatchSeries)
             .values({ batchId: saved.id })
             .returning({ seriesNumber: awbBatchSeries.seriesNumber });
-          if (!series) throw new Error("The AWB series number was not saved.");
+          if (!series) throw new Error("The tracking number series number was not saved.");
           for (let start = 0; start < draft.labels.length; start += LABEL_INSERT_CHUNK) {
             await tx.insert(awbBatchLabel).values(
               draft.labels.slice(start, start + LABEL_INSERT_CHUNK).map((awb) => ({ awb, batchId: saved.id })),
@@ -200,7 +208,7 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
       throw error;
     }
   }
-  return errors.conflict("Could not reserve unique AWB ranges. Retry batch generation.");
+  return errors.conflict("Could not reserve unique tracking number ranges. Retry batch generation.");
 }
 
 /** Assign a planned batch once, with an immutable target snapshot and audit actor. */
@@ -225,17 +233,18 @@ export async function assignAwbBatch(
 
   return db.transaction(async (tx) => {
     const [batch] = await tx.select().from(awbBatch).where(eq(awbBatch.id, batchId)).limit(1);
-    if (!batch) errors.notFound("AWB batch");
+    if (!batch) errors.notFound("tracking number batch");
     if (batch!.assignmentStatus !== "planned") {
       errors.conflict("Only planned, unassigned batches can be assigned.");
     }
 
-    const [usage] = await tx
-      .select({ usedCount: count() })
-      .from(awbBatchLabel)
-      .innerJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
-      .where(eq(awbBatchLabel.batchId, batchId));
-    if ((usage?.usedCount ?? 0) > 0) errors.conflict("A batch with booked AWBs cannot be assigned.");
+      const [usage] = await tx
+        .select({ usedCount: count() })
+        .from(awbBatchLabel)
+        .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+        .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
+        .where(and(eq(awbBatchLabel.batchId, batchId), or(isNotNull(parcel.id), isNotNull(retiredTrackingNumber.trackingNumber))));
+    if ((usage?.usedCount ?? 0) > 0) errors.conflict("A batch with booked or retired tracking numbers cannot be assigned.");
 
     const now = new Date();
     const [saved] = await tx
@@ -259,7 +268,7 @@ export async function assignAwbBatch(
       .from(awbBatchSeries)
       .where(eq(awbBatchSeries.batchId, saved!.id))
       .limit(1);
-    if (!series) throw new Error("The AWB series number is missing.");
+    if (!series) throw new Error("The tracking number series number is missing.");
     return { ...saved!, seriesNumber: series.seriesNumber, ...assignmentFor(saved!), usedCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
   });
 }
@@ -271,10 +280,12 @@ export async function nextUnusedAwbForBooking(merchantId: string | null, branchI
     .from(awbBatchLabel)
     .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(and(
       eq(awbBatch.merchantId, merchantId),
       or(isNull(awbBatch.assignmentStatus), eq(awbBatch.assignmentStatus, "assigned")),
       isNull(parcel.id),
+      isNull(retiredTrackingNumber.trackingNumber),
     ))
     .orderBy(asc(awbBatch.createdAt), asc(awbBatchLabel.awb))
     .limit(1) : [];
@@ -285,11 +296,13 @@ export async function nextUnusedAwbForBooking(merchantId: string | null, branchI
     .from(awbBatchLabel)
     .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(and(
       eq(awbBatch.assignmentStatus, "assigned"),
       inArray(awbBatch.assigneeType, ["branch", "hub"]),
       eq(awbBatch.assigneeId, branchId),
       isNull(parcel.id),
+      isNull(retiredTrackingNumber.trackingNumber),
     ))
     .orderBy(asc(awbBatch.createdAt), asc(awbBatchLabel.awb))
     .limit(1);
@@ -302,10 +315,11 @@ export async function checkMerchantAwbs(merchantId: string, values: string[]) {
   const syntacticallyValid = [...new Set(awbs.filter((awb) => /^NX\d{10}$/.test(awb)))];
   const labels = syntacticallyValid.length
     ? await db
-    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id })
+    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id, retiredNumber: retiredTrackingNumber.trackingNumber })
     .from(awbBatchLabel)
     .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(and(
       inArray(awbBatchLabel.awb, syntacticallyValid),
       or(
@@ -321,11 +335,12 @@ export async function checkMerchantAwbs(merchantId: string, values: string[]) {
   const byAwb = new Map(labels.map((label) => [label.awb, label]));
 
   return awbs.map((awb) => {
-    if (!/^NX\d{10}$/.test(awb)) return { valid: false as const, awb, reason: "Enter a valid 12-character NX AWB from your sticker." };
+    if (!/^NX\d{10}$/.test(awb)) return { valid: false as const, awb, reason: "Enter a valid 12-character NX tracking number from your sticker." };
     const label = byAwb.get(awb);
-    if (!label) return { valid: false as const, awb, reason: "This AWB is not in the sticker batches allocated to your merchant." };
-    if (label.usedParcelId) return { valid: false as const, awb, reason: "This AWB has already been used. Scan or enter an unused sticker." };
-    return { valid: true as const, awb, reason: "AWB is allocated to your merchant and available." };
+    if (!label) return { valid: false as const, awb, reason: "This tracking number is not in the sticker batches allocated to your merchant." };
+    if (label.retiredNumber) return { valid: false as const, awb, reason: "This tracking number has been retired and cannot be used." };
+    if (label.usedParcelId) return { valid: false as const, awb, reason: "This tracking number has already been used. Scan or enter an unused sticker." };
+    return { valid: true as const, awb, reason: "Tracking number is allocated to your merchant and available." };
   });
 }
 
@@ -338,13 +353,14 @@ export async function checkMerchantAwb(merchantId: string, value: string) {
 export async function checkBranchAwb(branchId: string, value: string) {
   const awb = value.trim().toUpperCase();
   if (!/^NX\d{10}$/.test(awb)) {
-    return { valid: false as const, awb, reason: "Enter a valid 12-character NX AWB from the branch sticker stock." };
+    return { valid: false as const, awb, reason: "Enter a valid 12-character NX tracking number from the branch sticker stock." };
   }
   const [label] = await db
-    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id })
+    .select({ awb: awbBatchLabel.awb, usedParcelId: parcel.id, retiredNumber: retiredTrackingNumber.trackingNumber })
     .from(awbBatchLabel)
     .innerJoin(awbBatch, eq(awbBatch.id, awbBatchLabel.batchId))
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(and(
       eq(awbBatchLabel.awb, awb),
       eq(awbBatch.assignmentStatus, "assigned"),
@@ -352,33 +368,35 @@ export async function checkBranchAwb(branchId: string, value: string) {
       eq(awbBatch.assigneeId, branchId),
     ))
     .limit(1);
-  if (!label) return { valid: false as const, awb, reason: "This AWB is not allocated to this branch or hub." };
-  if (label.usedParcelId) return { valid: false as const, awb, reason: "This AWB has already been used. Scan an unused branch sticker." };
-  return { valid: true as const, awb, reason: "AWB is allocated to this branch and available." };
+  if (!label) return { valid: false as const, awb, reason: "This tracking number is not allocated to this branch or hub." };
+  if (label.retiredNumber) return { valid: false as const, awb, reason: "This tracking number has been retired and cannot be used." };
+  if (label.usedParcelId) return { valid: false as const, awb, reason: "This tracking number has already been used. Scan an unused branch sticker." };
+  return { valid: true as const, awb, reason: "Tracking number is allocated to this branch and available." };
 }
 
 /** A batch plus per-label use state, for Excel-compatible or print/PDF export. */
 export async function labelsForAwbBatch(batchId: string) {
   await ensureSeriesNumbers();
   const [batch] = await db.select().from(awbBatch).where(eq(awbBatch.id, batchId)).limit(1);
-  if (!batch) errors.notFound("AWB batch");
+  if (!batch) errors.notFound("tracking number batch");
   const [series] = await db
     .select({ seriesNumber: awbBatchSeries.seriesNumber })
     .from(awbBatchSeries)
     .where(eq(awbBatchSeries.batchId, batchId))
     .limit(1);
-  if (!series) throw new Error("The AWB series number is missing.");
+  if (!series) throw new Error("The tracking number series number is missing.");
   const labels = await db
-    .select({ awb: awbBatchLabel.awb, parcelId: parcel.id })
+    .select({ awb: awbBatchLabel.awb, parcelId: parcel.id, retiredNumber: retiredTrackingNumber.trackingNumber })
     .from(awbBatchLabel)
     .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+    .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(eq(awbBatchLabel.batchId, batchId))
     .orderBy(asc(awbBatchLabel.awb));
-  const usedCount = labels.reduce((total, label) => total + (label.parcelId === null ? 0 : 1), 0);
+  const usedCount = labels.reduce((total, label) => total + (label.parcelId === null && label.retiredNumber === null ? 0 : 1), 0);
   const unusedCount = Math.max(0, batch!.labelCount - usedCount);
   const assignment = assignmentFor(batch!);
   return {
     batch: { ...batch!, seriesNumber: series.seriesNumber, ...assignment, usedCount, unusedCount, status: stateFor(assignment.assignmentStatus, unusedCount) },
-    labels: labels.map(({ awb, parcelId }) => ({ awb, used: parcelId !== null })),
+    labels: labels.map(({ awb, parcelId, retiredNumber }) => ({ awb, used: parcelId !== null || retiredNumber !== null, retired: retiredNumber !== null })),
   };
 }

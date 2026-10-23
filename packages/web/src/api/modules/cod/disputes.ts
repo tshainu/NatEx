@@ -122,11 +122,11 @@ export async function openDispute(input: OpenDisputeInput, actor: Principal): Pr
   let parcel: Awaited<ReturnType<typeof getParcelByAwb>> = null;
   if (input.awb?.trim()) {
     parcel = await getParcelByAwb(input.awb);
-    // A merchant naming someone else's AWB learns nothing about it (§5).
+    // A merchant naming someone else's tracking number learns nothing about it (§5).
     if (!parcel || parcel.merchantId !== merchantId) errors.notFound(`Parcel ${input.awb.trim().toUpperCase()}`);
   }
   if (NEEDS_PARCEL.includes(input.type) && !parcel) {
-    errors.badRequest(`A ${TYPE_LABEL[input.type].toLowerCase()} dispute must name the parcel's AWB.`);
+    errors.badRequest(`A ${TYPE_LABEL[input.type].toLowerCase()} dispute must name the parcel's tracking number.`);
   }
 
   // One live case per parcel per type: a second one would split the evidence

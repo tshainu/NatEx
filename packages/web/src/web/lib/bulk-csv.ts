@@ -5,7 +5,7 @@ import { DISTRICTS_BY_PROVINCE, formatAddress, type AddressParts, type District,
  * Merchant bulk-booking CSV → API rows (§10 M3 bulk upload).
  * Pure: no React, no network, so `bulk-csv.test.ts` exercises it directly.
  * Legacy `delivery_address` remains accepted; the downloaded template uses
- * structured destination-address columns and requires a preprinted AWB sticker.
+ * structured destination-address columns and requires a preprinted tracking number sticker.
  */
 
 export interface TemplateColumn {
@@ -18,7 +18,7 @@ export interface TemplateColumn {
 
 export const TEMPLATE_COLUMNS: TemplateColumn[] = [
   { key: "orderRef", header: "order_ref", required: false, example: "ORD-1001", aliases: ["order", "order_id", "reference", "ref"] },
-  { key: "awb", header: "awb", required: true, example: "NX1234567890", aliases: ["awb_number", "label_number", "sticker"] },
+  { key: "awb", header: "tracking_number", required: true, example: "NX1234567890", aliases: ["tracking_no", "awb", "awb_number", "label_number", "sticker"] },
   { key: "consigneeName", header: "consignee_name", required: true, example: "Meena Ganesan", aliases: ["name", "customer", "customer_name", "recipient"] },
   { key: "consigneePhone", header: "consignee_phone", required: true, example: "0771234567", aliases: ["phone", "mobile", "customer_phone", "contact"] },
   { key: "addressLine1", header: "address_line1", required: false, example: "No. 12, Temple Road", aliases: ["line1", "address_1", "address_line_1", "street_address"] },
@@ -128,10 +128,10 @@ export function prepareBulkCsv(text: string): PreparedFile {
 
     const errors: PreparedRow["errors"] = [];
     const awb = get("awb").toUpperCase();
-    if (!/^NX\d{10}$/.test(awb)) errors.push({ field: "awb", message: "Enter the 12-character AWB printed on an allocated NatEx sticker." });
+    if (!/^NX\d{10}$/.test(awb)) errors.push({ field: "awb", message: "Enter the 12-character tracking number printed on an allocated NatEx sticker." });
     else {
       const first = seenAwbs.get(awb);
-      if (first !== undefined) errors.push({ field: "awb", message: `Duplicate AWB — first used on line ${first}.` });
+      if (first !== undefined) errors.push({ field: "awb", message: `Duplicate tracking number — first used on line ${first}.` });
       else seenAwbs.set(awb, line);
     }
     const destAddress = canonicalAddress(get, errors);
@@ -179,7 +179,7 @@ export function chunk<T>(items: T[], size: number): T[][] {
 
 export const FIELD_TO_HEADER: Record<string, string> = {
   orderRef: "order_ref",
-  awb: "awb",
+  awb: "Tracking number",
   consigneeName: "consignee_name",
   consigneePhone: "consignee_phone",
   destAddress: "delivery_address",

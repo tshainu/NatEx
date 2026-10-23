@@ -167,23 +167,23 @@ export default function RetailFreightCounter() {
   });
   const awbInlineError = form.awb.trim()
     ? !form.branchId
-      ? "Select an accepting branch / hub to validate this AWB."
+      ? "Select an accepting branch / hub to validate this tracking number."
       : enteredAwb.length >= 12 && !completeAwbFormat
-        ? "Enter a valid 12-character NX AWB (NX followed by 10 digits)."
+        ? "Enter a valid 12-character NX tracking number (NX followed by 10 digits)."
         : awbCheck.data && !awbCheck.data.valid
           ? awbCheck.data.reason
           : awbCheck.isError
-            ? "Could not verify this AWB. Check your connection and try again."
+            ? "Could not verify this tracking number. Check your connection and try again."
             : null
     : null;
   const awbHint = !form.awb.trim()
-    ? "Optional. Enter a label to check it immediately against this branch's unused AWB stock."
+    ? "Optional. Enter a label to check it immediately against this branch's unused tracking number stock."
     : awbCheck.isFetching
-      ? "Checking branch AWB stock…"
+      ? "Checking branch tracking number stock…"
       : awbCheck.data?.valid
         ? "Available and assigned to this branch / hub."
         : enteredAwb.length < 12
-          ? "Type the full 12-character AWB; its branch allocation will be checked automatically."
+          ? "Type the full 12-character tracking number; its branch allocation will be checked automatically."
           : undefined;
 
   const historyQuery = useQuery({
@@ -256,7 +256,7 @@ export default function RetailFreightCounter() {
   return (
     <Page
       title="Customer counter booking"
-      description="Book walk-in customer parcels without a dummy merchant. Courier payment is separate from COD; the receiver is SMS-notified with the AWB and tracking link."
+      description="Book walk-in customer parcels without a dummy merchant. Courier payment is separate from COD; the tracking number is printed on the receipt. No booking SMS is sent."
       actions={canPrint ? <Button size="sm" variant="outline" onClick={() => window.print()}><Printer aria-hidden />Print original document</Button> : null}
     >
       <div role="tablist" aria-label="Customer counter booking sections" className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3">
@@ -285,14 +285,14 @@ export default function RetailFreightCounter() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-semibold">Counter parcel accepted</p>
                   <KeyValueGrid className="mt-3" columns={3}>
-                    <KeyValue label="AWB" mono>{booking.parcel.awb}</KeyValue>
+                    <KeyValue label="Tracking number" mono>{booking.parcel.awb}</KeyValue>
                     <KeyValue label="Status">{booking.parcel.status}</KeyValue>
                     <KeyValue label={booking.paidReceipt ? "Payment receipt" : "Charge notice"} mono>{booking.paidReceipt?.code ?? booking.freightCharge.code}</KeyValue>
                     <KeyValue label="Courier payment">{money(booking.freightCharge.amountCents)}</KeyValue>
                     <KeyValue label="Payer">{booking.freightCharge.payer === "sender" ? "Sender — paid at counter" : "Recipient — due at delivery"}</KeyValue>
                     <KeyValue label="COD">Rs. 0.00 — not a COD parcel</KeyValue>
                   </KeyValueGrid>
-                  <p className="mt-3 text-sm text-muted-foreground">A receiver tracking SMS has been queued. Delivery status and retries are recorded by the SMS worker.</p>
+                  <p className="mt-3 text-sm text-muted-foreground">The tracking number is on the receipt. No booking or tracking SMS is sent; POD messaging is limited to delivery confirmation.</p>
                 </div>
               </div>
               <Button className="mt-4" size="sm" variant="outline" onClick={reset}><RotateCcw aria-hidden />Book another parcel</Button>
@@ -318,7 +318,7 @@ export default function RetailFreightCounter() {
                       {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}{branch.type ? ` · ${branch.type}` : ""}</option>)}
                     </Select>
                   </Field>
-                  <Field label="Branch AWB sticker" hint={awbHint} error={awbInlineError}>
+                  <Field label="Branch tracking number sticker" hint={awbHint} error={awbInlineError}>
                     <Input
                       value={form.awb}
                       onChange={(event) => setForm((previous) => ({ ...previous, awb: event.target.value.toUpperCase() }))}
@@ -412,9 +412,9 @@ export default function RetailFreightCounter() {
         )
       ) : (
         <section aria-label="Counter booking history" className="space-y-4">
-          <Card title="Counter booking history" description="Search by AWB, sender name, or sender/receiver phone number. Select a booking to view its current charge notice or payment receipt and print it again.">
+          <Card title="Counter booking history" description="Search by tracking number, sender name, or sender/receiver phone number. Select a booking to view its current charge notice or payment receipt and print it again.">
             <Field label="Search history">
-              <Input value={historyTerm} onChange={(event) => { setHistoryTerm(event.target.value); setSelectedHistoryId(null); }} placeholder="AWB, sender, or receiver phone" />
+              <Input value={historyTerm} onChange={(event) => { setHistoryTerm(event.target.value); setSelectedHistoryId(null); }} placeholder="tracking number, sender, or receiver phone" />
             </Field>
             {canChooseBranch ? (
               <Field label="Branch / hub" hint="Admins can filter Counter bookings by location." className="mt-3">
@@ -508,7 +508,7 @@ function FreightReceipt({ booking, duplicate = false }: { booking: ReceiptRecord
             <div className="min-w-0"><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p><p className="break-words">{charge.destinationAddress}</p></div>
           </div>
           <table className="w-full text-[11px]"><tbody>
-            <tr><td>AWB / Tracking number</td><td className="right">{charge.awb}</td></tr>
+            <tr><td>tracking number / Tracking number</td><td className="right">{charge.awb}</td></tr>
             <tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr>
             {booking.parcel?.description ? <tr><td>Parcel contents</td><td className="right">{booking.parcel.description}</td></tr> : null}
             <tr><td>Declared value</td><td className="right">{booking.parcel?.declaredValueCents == null ? "Not declared" : money(booking.parcel.declaredValueCents)}</td></tr>

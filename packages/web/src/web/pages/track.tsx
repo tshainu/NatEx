@@ -76,7 +76,7 @@ export default function Track() {
           Where is my parcel?
         </h1>
         <p className="mt-1.5 text-[14px] leading-relaxed text-muted-foreground">
-          Enter the tracking number from your confirmation message.
+          Enter the tracking number printed on your NatEx label or receipt.
         </p>
 
         <form
@@ -124,8 +124,8 @@ function EmptyPrompt() {
     <div className="mt-8 rounded-lg border border-dashed p-8 text-center">
       <PackageSearch className="mx-auto size-6 text-muted-foreground" />
       <p className="mt-2 text-[14px] text-muted-foreground">
-        Your tracking number starts with <span className="font-mono">NX</span> and is on the SMS the
-        sender's despatch team sent you.
+        Your tracking number starts with <span className="font-mono">NX</span> and is printed on the
+        NatEx label or receipt from the sender.
       </p>
     </div>
   );

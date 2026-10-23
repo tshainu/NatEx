@@ -88,7 +88,7 @@ export function KeyValue({
 }: {
   label: string;
   children: React.ReactNode;
-  /** AWB, seal, UTR, device id and money are mono, mandatorily (design.md). */
+  /** tracking number, seal, UTR, device id and money are mono, mandatorily (design.md). */
   mono?: boolean;
   className?: string;
 }) {

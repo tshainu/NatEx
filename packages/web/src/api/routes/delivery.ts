@@ -399,7 +399,7 @@ export const podPhotoUpload = doorstepProc
 // ----------------------------------------------------------------- read paths
 
 /**
- * Every attempt, the POD and any live NDR for one AWB. `readProc` because a
+ * Every attempt, the POD and any live NDR for one tracking number. `readProc` because a
  * merchant may see its own parcel's delivery history — the service scopes it.
  */
 export const history = readProc

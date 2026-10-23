@@ -511,7 +511,7 @@ function RunsheetDrawer({
             </h4>
             {liveStops.length === 0 ? (
               <p className="rounded-md border border-dashed p-3 text-[13px] text-muted-foreground">
-                No stops yet. Scan or paste AWBs below.
+                No stops yet. Scan or paste tracking numbers below.
               </p>
             ) : (
               <ol className="divide-y rounded-md border">
@@ -541,7 +541,7 @@ function RunsheetDrawer({
                   add.mutate({ runsheetId: sheet.id, awbs: awbs.slice(0, 200) });
                 }}
               >
-                <Field label="Add stops" hint="Scan or paste AWBs, one per line. Each gets its own verdict — a stray label never fails the batch.">
+                <Field label="Add stops" hint="Scan or paste tracking numbers, one per line. Each gets its own verdict — a stray label never fails the batch.">
                   <Textarea
                     value={awbText}
                     onChange={(e) => setAwbText(e.target.value)}

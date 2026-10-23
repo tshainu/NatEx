@@ -3,7 +3,7 @@ import { inArray } from "drizzle-orm";
 import { db } from "../../database";
 import { branch } from "../../database/schema/identity";
 import { merchant } from "../../database/schema/merchants";
-import { awbBatch, awbBatchLabel, awbBatchSeries, parcel } from "../../database/schema/parcels";
+import { awbBatch, awbBatchLabel, awbBatchSeries, parcel, retiredTrackingNumber } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
 import { assignAwbBatch, checkBranchAwb, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
@@ -25,7 +25,7 @@ const BRANCH_CODE = `AB${RUN.slice(-8)}`;
 const HUB_CODE = `AH${RUN.slice(-8)}`;
 const ACTOR: Principal = {
   userId: `usr_awb_test_${RUN}`,
-  name: "AWB batch integration test",
+  name: "tracking number batch integration test",
   role: "admin",
   roles: ["admin"],
   branchId: BRANCH_ID,
@@ -34,19 +34,20 @@ const ACTOR: Principal = {
 };
 const CREATED_BATCH_IDS: string[] = [];
 const USED_PARCEL_IDS: string[] = [];
+const RETIRED_TRACKING_NUMBERS: string[] = [];
 
 beforeAll(async () => {
   await db.insert(branch).values([
-    { id: BRANCH_ID, code: BRANCH_CODE, name: "[test] AWB branch", address: "Test branch address", lat: 0, lng: 0, type: "branch" },
-    { id: HUB_ID, code: HUB_CODE, name: "[test] AWB hub", address: "Test hub address", lat: 0, lng: 0, type: "hub" },
+    { id: BRANCH_ID, code: BRANCH_CODE, name: "[test] tracking number branch", address: "Test branch address", lat: 0, lng: 0, type: "branch" },
+    { id: HUB_ID, code: HUB_CODE, name: "[test] tracking number hub", address: "Test hub address", lat: 0, lng: 0, type: "hub" },
   ]);
   const phoneBase = Date.now().toString().slice(-6);
   await db.insert(merchant).values(MERCHANT_IDS.map((id, index) => ({
     id,
     branchId: index === 2 ? HUB_ID : BRANCH_ID,
-    name: `[test] AWB merchant ${index + 1} ${RUN}`,
+    name: `[test] tracking number merchant ${index + 1} ${RUN}`,
     address: "Test merchant address",
-    contactName: "AWB test owner",
+    contactName: "tracking number test owner",
     contactPhone: `+9477${phoneBase}${index}`,
     codEnabled: true,
     podPolicy: "signature",
@@ -57,6 +58,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (USED_PARCEL_IDS.length) {
     await db.delete(parcel).where(inArray(parcel.id, USED_PARCEL_IDS));
+  }
+  if (RETIRED_TRACKING_NUMBERS.length) {
+    await db.delete(retiredTrackingNumber).where(inArray(retiredTrackingNumber.trackingNumber, RETIRED_TRACKING_NUMBERS));
   }
   if (CREATED_BATCH_IDS.length) {
     await db.delete(awbBatchSeries).where(inArray(awbBatchSeries.batchId, CREATED_BATCH_IDS));
@@ -80,13 +84,13 @@ function reserveOneLabelAsUsed(awb: string, merchantId: string, branchId: string
     declaredValueCents: 0,
     codAmountCents: 0,
     originAddress: "Test origin address",
-    consigneeName: "AWB test consignee",
+    consigneeName: "tracking number test consignee",
     consigneePhone: "+94770000001",
     destAddress: "Test destination address",
   });
 }
 
-describe("AWB batch planning and assignment", () => {
+describe("tracking number batch planning and assignment", () => {
   test("generates 10 planned batches, assigns each owner type, and tracks bookings", async () => {
     const generated = await createAwbBatches(10, ACTOR);
     CREATED_BATCH_IDS.push(...generated.map((batch) => batch.id));
@@ -113,7 +117,7 @@ describe("AWB batch planning and assignment", () => {
     });
     expect(await checkBranchAwb(HUB_ID, branchBatch.awbStart)).toMatchObject({
       valid: false,
-      reason: "This AWB is not allocated to this branch or hub.",
+      reason: "This tracking number is not allocated to this branch or hub.",
     });
     expect((await checkBranchAwb(BRANCH_ID, "not-an-awb")).valid).toBe(false);
 
@@ -138,7 +142,7 @@ describe("AWB batch planning and assignment", () => {
       declaredValueCents: 0,
       codAmountCents: 0,
       originAddress: "Test merchant address",
-      consigneeName: "AWB test consignee",
+      consigneeName: "tracking number test consignee",
       consigneePhone: "+94770000009",
       destAddress: "12 Test Road, Kandy, Central Province",
     }, merchantActor);
@@ -156,22 +160,32 @@ describe("AWB batch planning and assignment", () => {
 
     expect(await checkBranchAwb(BRANCH_ID, branchBatch.awbStart)).toMatchObject({
       valid: false,
-      reason: "This AWB has already been used. Scan an unused branch sticker.",
+      reason: "This tracking number has already been used. Scan an unused branch sticker.",
     });
     expect(await checkMerchantAwb(MERCHANT_IDS[0]!, merchantBatch.awbStart)).toMatchObject({
       valid: false,
-      reason: "This AWB has already been used. Scan or enter an unused sticker.",
+      reason: "This tracking number has already been used. Scan or enter an unused sticker.",
     });
 
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[0]!, BRANCH_ID)).toBe(createAwbSeries(merchantBatch.awbStart.slice(2), 2)[1]);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[1]!, BRANCH_ID)).toBe(createAwbSeries(branchBatch.awbStart.slice(2), 2)[1]);
     expect(await nextUnusedAwbForBooking(MERCHANT_IDS[2]!, HUB_ID)).toBe(createAwbSeries(hubBatch.awbStart.slice(2), 2)[1]);
 
+    const retiredNumber = createAwbSeries(merchantBatch.awbStart.slice(2), 2)[1]!;
+    RETIRED_TRACKING_NUMBERS.push(retiredNumber);
+    await db.insert(retiredTrackingNumber).values({ trackingNumber: retiredNumber, reason: "Integration test reservation" });
+    expect(await checkMerchantAwb(MERCHANT_IDS[0]!, retiredNumber)).toMatchObject({
+      valid: false,
+      reason: "This tracking number has been retired and cannot be used.",
+    });
+    expect(await nextUnusedAwbForBooking(MERCHANT_IDS[0]!, BRANCH_ID)).toBe(createAwbSeries(merchantBatch.awbStart.slice(2), 3)[2]);
+
     const exportData = await labelsForAwbBatch(merchantBatch.id);
     expect(exportData.batch.seriesNumber).toBe(merchantBatch.seriesNumber);
     expect(exportData.batch.awbStart).toBe(merchantBatch.awbStart);
     expect(exportData.batch.awbEnd).toBe(merchantBatch.awbEnd);
     expect(exportData.labels).toHaveLength(1_000);
+    expect(exportData.labels[1]).toMatchObject({ awb: retiredNumber, used: true, retired: true });
 
     const inventory = await listAwbBatches();
     for (const batch of [merchantBatch, branchBatch, hubBatch]) {
@@ -179,8 +193,8 @@ describe("AWB batch planning and assignment", () => {
       expect(row?.seriesNumber).toBe(batch.seriesNumber);
       expect(row?.awbStart).toBe(batch.awbStart);
       expect(row?.awbEnd).toBe(batch.awbEnd);
-      expect(row?.usedCount).toBe(1);
-      expect(row?.unusedCount).toBe(999);
+      expect(row?.usedCount).toBe(batch.id === merchantBatch.id ? 2 : 1);
+      expect(row?.unusedCount).toBe(batch.id === merchantBatch.id ? 998 : 999);
       expect(row?.status).toBe("assigned");
     }
     expect(inventory.filter((row) => row.status === "planned" && generated.some((batch) => batch.id === row.id))).toHaveLength(7);

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../../database";
-import { branch } from "../../database/schema/identity";
+import { branch, user } from "../../database/schema/identity";
 import {
   hrEmployee,
   hrEmployeePackage,
@@ -21,6 +21,7 @@ import * as hr from "./service";
 import * as leave from "./leave";
 import * as payroll from "./payroll";
 import * as documents from "./documents";
+import * as identity from "../identity/service";
 
 const RUN = Date.now().toString(36).toUpperCase();
 const BRANCH_CODE = `H${RUN.slice(-8)}`;
@@ -39,6 +40,12 @@ const FINANCE_ACTOR: Principal = {
   branchId: "",
 };
 let testBranchId: string | null = null;
+const STAFF_USER_ID = `usr_hr_link_${RUN}`;
+const MERCHANT_USER_ID = `usr_hr_merchant_${RUN}`;
+const SUSPENDED_STAFF_USER_ID = `usr_hr_suspended_${RUN}`;
+const UNKNOWN_ROLE_USER_ID = `usr_hr_unknown_${RUN}`;
+const EXTRA_OFFICIAL_ROLES = ["admin", "finance", "hr", "ops"] as const;
+const EXTRA_OFFICIAL_USER_IDS = EXTRA_OFFICIAL_ROLES.map((role) => `usr_hr_role_${role}_${RUN}`);
 let employeeId: string | null = null;
 let secondaryEmployeeId: string | null = null;
 let packageId: string | null = null;
@@ -63,9 +70,26 @@ beforeAll(async () => {
   HR_ACTOR.branchId = testBranchId;
   FINANCE_ACTOR.branchId = testBranchId;
 
+  await db.insert(user).values([
+    { id: STAFF_USER_ID, branchId: testBranchId, role: "rider", roles: JSON.stringify(["rider", "transport"]), name: "Linked courier staff test", phone: `+9477${RUN.slice(-7).padStart(7, "0")}`, status: "active" },
+    { id: MERCHANT_USER_ID, branchId: testBranchId, role: "merchant", roles: JSON.stringify(["merchant"]), name: "Excluded merchant test", phone: `+9476${RUN.slice(-7).padStart(7, "0")}`, status: "active", merchantId: `m_${RUN}` },
+    { id: SUSPENDED_STAFF_USER_ID, branchId: testBranchId, role: "rider", roles: JSON.stringify(["rider"]), name: "Suspended courier staff test", phone: `+9475${RUN.slice(-7).padStart(7, "0")}`, status: "suspended" },
+    { id: UNKNOWN_ROLE_USER_ID, branchId: testBranchId, role: "customer", roles: JSON.stringify(["customer"]), name: "Unknown-role account test", phone: `+9474${RUN.slice(-7).padStart(7, "0")}`, status: "active" },
+  ] as never);
+  await db.insert(user).values(EXTRA_OFFICIAL_ROLES.map((role, index) => ({
+    id: EXTRA_OFFICIAL_USER_IDS[index]!,
+    branchId: testBranchId!,
+    role,
+    roles: JSON.stringify([role]),
+    name: `Official ${role} staff test`,
+    phone: `+9473${RUN.slice(-6).padStart(6, "0")}${index}`,
+    status: "active",
+  })) as never);
+
   const employee = await hr.createEmployee({
     employeeCode: `P${RUN}`,
     fullName: "Primary payroll test employee",
+    identityUserId: STAFF_USER_ID,
     branchId: testBranchId,
     department: "Operations",
     jobTitle: "Coordinator",
@@ -179,6 +203,7 @@ afterAll(async () => {
     await db.delete(hrSalaryPackageItem).where(eq(hrSalaryPackageItem.packageId, packageId));
     await db.delete(hrSalaryPackage).where(eq(hrSalaryPackage.id, packageId));
   }
+  await db.delete(user).where(inArray(user.id, [STAFF_USER_ID, MERCHANT_USER_ID, SUSPENDED_STAFF_USER_ID, UNKNOWN_ROLE_USER_ID, ...EXTRA_OFFICIAL_USER_IDS]));
   const originalLeaveTypeIds = new Set(originalLeaveTypes.map((type) => type.id));
   const currentLeaveTypes = await db.select({ id: hrLeaveType.id }).from(hrLeaveType);
   for (const type of currentLeaveTypes) {
@@ -217,6 +242,41 @@ afterAll(async () => {
 });
 
 describe("HR and payroll database workflow", () => {
+  test("links one HR employee to an official multi-role staff account and excludes Merchant users", async () => {
+    const saved = await hr.getEmployee(employeeId!);
+    expect(saved.identityUserId).toBe(STAFF_USER_ID);
+    const options = await identity.listOfficialStaffOptions();
+    expect(options.find((account) => account.id === STAFF_USER_ID)?.roles).toEqual(["rider", "transport"]);
+    for (let index = 0; index < EXTRA_OFFICIAL_ROLES.length; index += 1) {
+      expect(options.find((account) => account.id === EXTRA_OFFICIAL_USER_IDS[index])?.roles).toEqual([EXTRA_OFFICIAL_ROLES[index]]);
+    }
+    expect(options.some((account) => account.id === MERCHANT_USER_ID)).toBe(false);
+    expect(options.some((account) => account.id === SUSPENDED_STAFF_USER_ID)).toBe(false);
+    expect(options.some((account) => account.id === UNKNOWN_ROLE_USER_ID)).toBe(false);
+    await expect(hr.updateEmployee(secondaryEmployeeId!, { identityUserId: STAFF_USER_ID }, HR_ACTOR)).rejects.toThrow("already linked");
+  });
+
+  test("rejects links to Merchant, suspended, unknown-role, and nonexistent accounts at the service boundary", async () => {
+    const baseInput = {
+      fullName: "Invalid link test employee",
+      branchId: testBranchId!,
+      department: "Operations",
+      jobTitle: "Coordinator",
+      employmentType: "permanent",
+      joinedOn: "2026-07-01",
+      primaryEmployment: true,
+      overtimePolicy: "none" as const,
+      overtimeMultiplierBps: 15_000,
+      overtimeDivisorMinutes: 14_400,
+    };
+    for (const identityUserId of [MERCHANT_USER_ID, SUSPENDED_STAFF_USER_ID, UNKNOWN_ROLE_USER_ID, `missing_${RUN}`]) {
+      await expect(hr.createEmployee({ ...baseInput, employeeCode: `X${RUN}`, identityUserId }, HR_ACTOR))
+        .rejects.toThrow("active official NatEx staff account");
+      await expect(hr.updateEmployee(secondaryEmployeeId!, { identityUserId }, HR_ACTOR))
+        .rejects.toThrow("active official NatEx staff account");
+    }
+  });
+
   test("records explicit attendance states and keeps employee documents scoped to their owner", async () => {
     await hr.saveTimesheets([{
       employeeCode: `P${RUN}`,

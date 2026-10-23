@@ -198,7 +198,7 @@ export default function OpsSyncConflicts() {
     },
     {
       key: "awb",
-      header: "AWB",
+      header: "Tracking number",
       cell: (row) =>
         row.awb ? <MonoCell>{row.awb}</MonoCell> : <span className="text-muted-foreground">—</span>,
     },
@@ -554,7 +554,7 @@ function ConflictDrawer({
           </div>
 
           <KeyValueGrid>
-            <KeyValue label="AWB" mono={Boolean(conflict.awb)}>
+            <KeyValue label="Tracking number" mono={Boolean(conflict.awb)}>
               {conflict.awb ?? "Not parcel-specific"}
             </KeyValue>
             <KeyValue label="Raised by">{conflict.userName ?? "unknown"}</KeyValue>

@@ -156,7 +156,7 @@ export default function OpsBagging() {
     destAddress: string;
     updatedAt: Date | string;
   }>[] = [
-    { key: "awb", header: "AWB", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     {
       key: "status",
       header: "Status",
@@ -191,7 +191,7 @@ export default function OpsBagging() {
     scannedByName: string | null;
     removedAt: Date | string | null;
   }>[] = [
-    { key: "awb", header: "AWB", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     {
       key: "scannedAt",
       header: "Scanned",
@@ -361,7 +361,7 @@ export default function OpsBagging() {
           {detail?.canScan ? (
             <Card title="Scan into bag" description="Paste or scan a burst — duplicates are safe.">
               <div className="flex flex-col gap-4">
-                <Field label="AWBs" hint="One per line. Up to 300 per burst.">
+                <Field label="tracking numbers" hint="One per line. Up to 300 per burst.">
                   <Textarea
                     value={scanText}
                     onChange={(e) => setScanText(e.target.value)}

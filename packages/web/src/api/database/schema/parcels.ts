@@ -118,6 +118,16 @@ export const awbBatchLabel = sqliteTable(
   (t) => [index("parcels_awb_batch_label_batch_idx").on(t.batchId, t.awb)],
 );
 
+/** Permanent, PII-free reservation for historical tracking numbers retired from parcel history. */
+export const retiredTrackingNumber = sqliteTable(
+  "parcels_retired_tracking_number",
+  {
+    trackingNumber: text("tracking_number").primaryKey(),
+    reason: text("reason").notNull(),
+    retiredAt: integer("retired_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+);
+
 /** APPEND-ONLY. Never updated, never deleted (§5). */
 export const parcelEvent = sqliteTable(
   "parcels_parcel_event",

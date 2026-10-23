@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "NX Official",
-    "slug": "mobile",
+    "slug": "nx-official",
+    "owner": "natxx",
     "version": "1.0.0",
     "scheme": "runable-natex-pshh6q6",
     "orientation": "portrait",
@@ -19,6 +20,9 @@
       "supportsTablet": true
     },
     "extra": {
+      "eas": {
+        "projectId": "7c99baf4-3983-49a3-9c58-c713f8f50fa6"
+      },
       "apiUrl": "https://204-13-236-153.sslip.io/",
       "applicationId": "natex-pshh6q6",
       "runableAuthIssuer": "https://api.runable.com/api/auth"

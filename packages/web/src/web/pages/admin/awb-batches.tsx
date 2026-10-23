@@ -75,7 +75,7 @@ function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExpor
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(batch.batchCode)} — AWB stickers</title>
+<title>${escapeHtml(batch.batchCode)} — tracking number stickers</title>
 <style>
   @page { size: A4; margin: 12mm; }
   * { box-sizing: border-box; }
@@ -92,7 +92,7 @@ function openPrintableBatch(popup: Window, data: BatchExport, unused: BatchExpor
 </head>
 <body>
 <header>
-  <h1>NatEx — AWB sticker series</h1>
+  <h1>NatEx — tracking number sticker series</h1>
   <p><strong>Series ID:</strong> <span class="mono">${escapeHtml(formatSeriesId(batch.seriesNumber))}</span></p>
   <p><strong>Batch:</strong> <span class="mono">${escapeHtml(batch.batchCode)}</span></p>
   <p><strong>Status:</strong> ${escapeHtml(batch.status)}</p>
@@ -171,7 +171,7 @@ export default function AdminAwbBatches() {
       const firstSeries = created[0]?.seriesNumber;
       const lastSeries = created.at(-1)?.seriesNumber;
       const ids = firstSeries && lastSeries ? ` Series IDs ${formatSeriesId(firstSeries)}–${formatSeriesId(lastSeries)}.` : "";
-      setSuccess(`Generated ${created.length} planned batch${created.length === 1 ? "" : "es"} (${labels.toLocaleString()} AWB labels).${ids} Assign each batch when it is ready to issue.`);
+      setSuccess(`Generated ${created.length} planned batch${created.length === 1 ? "" : "es"} (${labels.toLocaleString()} tracking number labels).${ids} Assign each batch when it is ready to issue.`);
       await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
     },
   });
@@ -235,8 +235,8 @@ export default function AdminAwbBatches() {
       const unused = data.labels.filter((label) => !label.used);
       if (kind === "csv") {
         downloadCsv(
-          `natex-${formatSeriesId(batch.seriesNumber)}-${batch.batchCode}-unused-awbs.csv`,
-          ["AWB", "Series ID", "Batch code", "AWB series range", "Assignment type", "Assigned to", "Usage"],
+          `natex-${formatSeriesId(batch.seriesNumber)}-${batch.batchCode}-unused-tracking-numbers.csv`,
+          ["Tracking number", "Series ID", "Batch code", "Tracking number series range", "Assignment type", "Assigned to", "Usage"],
           unused.map((label) => [
             label.awb,
             formatSeriesId(batch.seriesNumber),
@@ -268,7 +268,7 @@ export default function AdminAwbBatches() {
     },
     {
       key: "range",
-      header: "AWB series range",
+      header: "Tracking number series range",
       width: "w-[270px]",
       cell: (row) => <span className="font-mono text-[12px]">{row.awbStart} – {row.awbEnd}</span>,
     },
@@ -328,7 +328,7 @@ export default function AdminAwbBatches() {
             pending={exporting?.id === row.id && exporting.kind === "csv"}
             disabled={exporting !== null || row.unusedCount === 0}
             onClick={() => void exportBatch(row, "csv")}
-            aria-label={`Download unused AWBs for ${row.batchCode} as Excel-compatible CSV`}
+            aria-label={`Download unused tracking numbers for ${row.batchCode} as Excel-compatible CSV`}
           >
             <Download aria-hidden />
             Excel CSV
@@ -340,7 +340,7 @@ export default function AdminAwbBatches() {
             pending={exporting?.id === row.id && exporting.kind === "pdf"}
             disabled={exporting !== null || row.unusedCount === 0}
             onClick={() => void exportBatch(row, "pdf")}
-            aria-label={`Print or save unused AWBs for ${row.batchCode} as PDF`}
+            aria-label={`Print or save unused tracking numbers for ${row.batchCode} as PDF`}
           >
             <Printer aria-hidden />
             PDF
@@ -352,10 +352,10 @@ export default function AdminAwbBatches() {
 
   return (
     <Page
-      title="AWB label batches"
-      description="Generate planned 1,000-label batches, assign them to merchants or locations, and track the unused stock as bookings consume AWBs."
+      title="tracking number label batches"
+      description="Generate planned 1,000-label batches, assign them to merchants or locations, and track the unused stock as bookings consume tracking numbers."
     >
-      <Card title="Generate new batches" description="Each batch contains exactly 1,000 sequential, globally reserved NX AWBs. Generated batches start as planned and unassigned.">
+      <Card title="Generate new batches" description="Each batch contains exactly 1,000 sequential, globally reserved NX tracking numbers. Generated batches start as planned and unassigned.">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Number of batches" hint="Generate 1–50 batches at a time.">
             <Input
@@ -383,7 +383,7 @@ export default function AdminAwbBatches() {
         </div>
         {generateBatches.error ? <p role="alert" className="mt-3 text-[13px] text-status-bad">{apiMessage(generateBatches.error, "The batches could not be generated.")}</p> : null}
         <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
-          For example, generating 10 batches reserves 10,000 unique AWB numbers. Assign each planned batch to a merchant, branch, or hub when it is ready to issue.
+          For example, generating 10 batches reserves 10,000 unique tracking number numbers. Assign each planned batch to a merchant, branch, or hub when it is ready to issue.
         </p>
       </Card>
 
@@ -431,7 +431,7 @@ export default function AdminAwbBatches() {
 
       {success ? <output aria-live="polite" className="block text-[13px] text-status-good">{success}</output> : null}
 
-      <Card title="Unused stickers by assignee" description="Counts reflect AWBs not yet attached to booked parcels. Planned batches remain in central stock until assigned.">
+      <Card title="Unused stickers by assignee" description="Counts reflect tracking numbers not yet attached to booked parcels. Planned batches remain in central stock until assigned.">
         {inventory.length ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {inventory.map((owner) => (
@@ -449,14 +449,14 @@ export default function AdminAwbBatches() {
             ))}
           </div>
         ) : (
-          <p className="text-[13px] text-muted-foreground">No AWB batches have been generated yet.</p>
+          <p className="text-[13px] text-muted-foreground">No tracking number batches have been generated yet.</p>
         )}
       </Card>
 
-      <Card title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused AWBs; CSV opens in Excel and PDF opens the browser print dialog.">
+      <Card title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused tracking numbers; CSV opens in Excel and PDF opens the browser print dialog.">
         {exportError ? <p role="alert" className="mb-3 text-[13px] text-status-bad">{exportError}</p> : null}
         <div className="mb-3 max-w-lg">
-          <Field label="Search batch / AWB / merchant" hint="Search by series ID, batch code, any AWB within the range, or merchant/assignee.">
+          <Field label="Search batch / tracking number / merchant" hint="Search by series ID, batch code, any tracking number within the range, or merchant/assignee.">
             <Input
               type="search"
               value={seriesSearch}
@@ -471,7 +471,7 @@ export default function AdminAwbBatches() {
           rowKey={(row) => row.id}
           loading={batchesQuery.isLoading}
           error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
-          emptyTitle={seriesSearch.trim() ? "No matching AWB series" : "No AWB batch has been generated"}
+          emptyTitle={seriesSearch.trim() ? "No matching tracking number series" : "No tracking number batch has been generated"}
           emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more 1,000-label batches above. They will appear as planned until assigned."}
         />
       </Card>

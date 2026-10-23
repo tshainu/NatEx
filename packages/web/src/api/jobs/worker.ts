@@ -3,6 +3,7 @@ import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { claimBatch, markDone, markFailed } from "../shared/outbox";
 import { sendSms } from "../shared/sms";
+import { containsTrackingMaterial } from "../shared/sms-policy";
 import * as notifications from "../modules/notifications/service";
 import type { NotifyInput } from "../modules/notifications/service";
 import * as alerts from "../modules/cod/alerts";
@@ -26,22 +27,20 @@ const BATCH = 10;
 interface SmsSendPayload {
   to: string;
   body: string;
-  purpose: string;
+  purpose: "otp" | "pod" | "notification";
   parcelId?: string;
   awb?: string;
 }
 
-interface StatusChangedPayload {
-  awb: string;
-  toStatus: string;
-  /** Consignee phone, when the status is one the consignee is told about. */
-  notify?: string | null;
-}
-
-interface HandedOverPayload {
-  manifestId: string;
-  merchantPhone?: string | null;
-  itemCount: number;
+/** Drain legacy jobs safely and send only identifier-free POD messages. */
+export async function dispatchQueuedSms(p: SmsSendPayload, sender: typeof sendSms = sendSms): Promise<void> {
+  if (p.purpose !== "pod") return;
+  if (containsTrackingMaterial(p.body)) {
+    console.warn("[sms] blocked queued POD message containing tracking material");
+    return;
+  }
+  const res = await sender({ to: p.to, body: p.body, purpose: "pod" });
+  if (res.state === "failed") throw new Error(`sms gateway: ${res.raw.slice(0, 200)}`);
 }
 
 function parse<T>(json: string): T {
@@ -53,41 +52,21 @@ async function handle(topic: string, payloadJson: string): Promise<void> {
   switch (topic) {
     case "sms.send": {
       const p = parse<SmsSendPayload>(payloadJson);
-      const res = await sendSms(p);
-      // A gateway failure is a job failure so the backoff retries it. The
-      // no-gateway-configured case also lands here in development; the sms_log
-      // row records exactly why.
-      if (res.state === "failed") throw new Error(`sms gateway: ${res.raw.slice(0, 200)}`);
+      // Booking/status notifications and unsafe legacy POD bodies are drained,
+      // never retried or sent. The gateway boundary repeats the same guard.
+      await dispatchQueuedSms(p);
       return;
     }
 
-    case "parcel.status_changed": {
-      const p = parse<StatusChangedPayload>(payloadJson);
-      if (!p.notify) return; // Nothing to tell anyone — internal move.
-      const res = await sendSms({
-        to: p.notify,
-        body: `NatEx ${p.awb}: ${p.toStatus}. Track at natex.lk/track/${p.awb}`,
-        purpose: "notification",
-      });
-      if (res.state === "failed") throw new Error(`sms gateway: ${res.raw.slice(0, 200)}`);
-      return;
-    }
-
+    case "parcel.status_changed":
     case "manifest.handed_over": {
-      const p = parse<HandedOverPayload>(payloadJson);
-      if (!p.merchantPhone) return;
-      const res = await sendSms({
-        to: p.merchantPhone,
-        body: `NatEx collected ${p.itemCount} parcel(s) on manifest ${p.manifestId}.`,
-        purpose: "notification",
-      });
-      if (res.state === "failed") throw new Error(`sms gateway: ${res.raw.slice(0, 200)}`);
+      // Drain legacy non-POD SMS topics without contacting recipients.
       return;
     }
 
     /**
      * Milestone 3 — the templated notification ladder (§9). The whole walk
-     * (WhatsApp → SMS → push, stopping at the first channel that accepts)
+     * (WhatsApp → policy-allowed POD SMS → push, stopping at the first channel that accepts)
      * lives in the notifications module; this case only hands it the payload.
      *
      * A ladder that reached nobody is a job failure so the backoff retries it.

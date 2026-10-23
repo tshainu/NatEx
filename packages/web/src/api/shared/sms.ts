@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
+import { assertPodSmsHasNoTrackingMaterial } from "./sms-policy";
 
 /**
  * SMS via execution link + sender ID ONLY (PROJECT.md §9).
@@ -18,8 +19,8 @@ import { prefixedId } from "./ulid";
 export interface SendSmsInput {
   to: string;
   body: string;
-  /** otp | notification — recorded for the delivery log. */
-  purpose: string;
+  /** Authentication OTP or proof-of-delivery communication only. */
+  purpose: "otp" | "pod";
 }
 
 export interface SendSmsResult {
@@ -59,8 +60,9 @@ export function normaliseLkPhone(input: string): string {
 }
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
+  if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(input.body);
   const url = process.env.SMS_EXECUTION_URL;
-  const senderId = process.env.SMS_SENDER_ID ?? "NATEX";
+  const senderId = process.env.SMS_SENDER_ID ?? "AXISXNOR";
   const to = normaliseLkPhone(input.to);
 
   const logId = prefixedId("sms");

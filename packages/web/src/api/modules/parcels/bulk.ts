@@ -19,7 +19,7 @@ import { roleMayCommand } from "./state-machine";
  * same genesis event, same outbox message, same §5 scoping.
  *
  * One bad row never fails the batch. The response is a per-row report
- * (accepted with AWB / rejected with reasons) keyed by the CSV line number the
+ * (accepted with tracking number / rejected with reasons) keyed by the CSV line number the
  * client sent, which is what a merchant needs to fix the file.
  *
  * Batch-level problems — wrong merchant, unknown or suspended merchant, a role
@@ -174,12 +174,12 @@ export async function bulkCreateParcels(
       rowErrors.push({ field: "codAmountCents", message: `${owner!.name} is not enabled for COD` });
     }
     if (parsed.success && actor.role === "merchant" && !parsed.data.awb) {
-      rowErrors.push({ field: "awb", message: "Enter or scan an AWB from your allocated preprinted stickers." });
+      rowErrors.push({ field: "awb", message: "Enter or scan an tracking number from your allocated preprinted stickers." });
     }
     if (parsed.success && parsed.data.awb) {
       const firstAwb = seenAwbs.get(parsed.data.awb);
       if (firstAwb !== undefined) {
-        rowErrors.push({ field: "awb", message: `Duplicate AWB — first used on line ${firstAwb}.` });
+        rowErrors.push({ field: "awb", message: `Duplicate tracking number — first used on line ${firstAwb}.` });
       } else {
         seenAwbs.set(parsed.data.awb, line);
       }

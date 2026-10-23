@@ -48,11 +48,11 @@ export default function MerchantShipments() {
         <TextInput
           value={search}
           onChangeText={(value) => { setSearch(value); setPage(1); }}
-          placeholder="AWB, name or phone"
+          placeholder="tracking number, name or phone"
           placeholderTextColor={colors.mutedForeground}
           autoCapitalize="none"
           autoCorrect={false}
-          accessibilityLabel="Search shipments by AWB, consignee, or phone"
+          accessibilityLabel="Search shipments by tracking number, consignee, or phone"
           style={[styles.searchInput, { color: colors.foreground }]}
         />
         {search ? <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setSearch("")}><Ionicons name="close-circle" size={20} color={colors.mutedForeground} /></Pressable> : null}

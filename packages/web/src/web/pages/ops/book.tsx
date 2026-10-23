@@ -138,7 +138,7 @@ export default function OpsBook() {
   return (
     <Page
       title="Book a parcel"
-      description="Creates the parcel at Booked and writes the first custody event. A supplied AWB must be an unused sticker allocated to the selected merchant."
+      description="Creates the parcel at Booked and writes the first custody event. A supplied tracking number must be an unused sticker allocated to the selected merchant."
     >
       {booked ? (
         <Card className="max-w-3xl border-status-good/40 bg-status-good/8">
@@ -187,7 +187,7 @@ export default function OpsBook() {
                 ))}
               </Select>
             </Field>
-            <Field label="Preprinted AWB sticker" hint="Optional for staff. If entered, it must belong to this merchant and be unused.">
+            <Field label="Preprinted tracking number sticker" hint="Optional for staff. If entered, it must belong to this merchant and be unused.">
               <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" />
             </Field>
             <div className="grid grid-cols-4 gap-3">

@@ -188,7 +188,7 @@ export default function MerchantPickups() {
             </View>
             <View style={[styles.searchWrap, { borderColor: colors.border, backgroundColor: colors.surface }]}>
               <Ionicons name="search" size={16} color={colors.mutedForeground} />
-              <TextInput value={search} onChangeText={setSearch} placeholder="Search booked AWBs" placeholderTextColor={colors.mutedForeground} autoCapitalize="none" style={[styles.searchInput, { color: colors.foreground }]} />
+              <TextInput value={search} onChangeText={setSearch} placeholder="Search booked tracking numbers" placeholderTextColor={colors.mutedForeground} autoCapitalize="none" style={[styles.searchInput, { color: colors.foreground }]} />
             </View>
             {booked.isLoading ? <Small>Loading booked shipments…</Small> : rows.length ? rows.map((row) => {
               const checked = selected.has(row.awb);

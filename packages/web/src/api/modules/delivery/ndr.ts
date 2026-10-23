@@ -170,7 +170,7 @@ export async function listNdr(scope: Principal, input: ListNdrInput = {}) {
 }
 
 export interface PageNdrInput extends Omit<ListNdrInput, "limit"> {
-  /** AWB fragment. */
+  /** tracking number fragment. */
   search?: string;
   page: number;
   pageSize: number;

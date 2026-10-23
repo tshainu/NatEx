@@ -160,7 +160,7 @@ export async function pickupRequestCounts(input: { merchantId?: string }, scope:
   };
 }
 
-/** AWBs already promised to a live request or a live manifest. */
+/** tracking numbers already promised to a live request or a live manifest. */
 async function awbsAlreadyCommitted(merchantId: string): Promise<Map<string, string>> {
   const taken = new Map<string, string>();
   const open = await db
@@ -221,7 +221,7 @@ export async function requestPickup(input: RequestPickupInput, actor: Principal)
   const problems: { awb: string; reason: string }[] = [];
   for (const awb of awbs) {
     const p = await getParcelByAwb(awb);
-    // Another merchant's AWB reads exactly like a missing one (§5).
+    // Another merchant's tracking number reads exactly like a missing one (§5).
     if (!p || p.merchantId !== input.merchantId) problems.push({ awb, reason: "not found on this account" });
     else if (p.status !== "Booked") problems.push({ awb, reason: `already ${p.status}` });
     else if (taken.has(awb)) problems.push({ awb, reason: `already on ${taken.get(awb)}` });

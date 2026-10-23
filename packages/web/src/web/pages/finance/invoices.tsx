@@ -337,7 +337,7 @@ function InvoiceDrawer({ invoiceId, canWrite, onClose }: { invoiceId: string | n
                 <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-1.5 font-medium">Description</th>
-                    <th className="px-3 py-1.5 font-medium">AWB</th>
+                    <th className="px-3 py-1.5 font-medium">tracking number</th>
                     <th className="px-3 py-1.5 text-right font-medium">Qty</th>
                     <th className="px-3 py-1.5 text-right font-medium">Rs.</th>
                   </tr>
@@ -513,8 +513,8 @@ function NewInvoiceDrawer({ open, onClose, onCreated }: { open: boolean; onClose
                       <Trash2 aria-hidden />
                     </Button>
                   </div>
-                  <Field label="AWB (optional)">
-                    <Input value={d.awb} onChange={(e) => update(d.key, { awb: e.target.value })} className="font-mono" aria-label={`Charge ${index + 1} AWB`} />
+                  <Field label="tracking number (optional)">
+                    <Input value={d.awb} onChange={(e) => update(d.key, { awb: e.target.value })} className="font-mono" aria-label={`Charge ${index + 1} tracking number`} />
                   </Field>
                   <label className="col-span-3 flex items-end gap-2 pb-2 text-[13px]">
                     <input

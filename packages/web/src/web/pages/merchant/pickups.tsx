@@ -165,7 +165,7 @@ export default function MerchantPickups() {
             <div className="ml-auto self-end">
               <ExportCsvButton<PickupRequestRow>
                 filename={`pickups-${colomboToday()}.csv`}
-                header={["code", "pickup_date", "window", "parcels", "status", "manifest", "awbs", "notes", "requested_at"]}
+                header={["code", "pickup_date", "window", "parcels", "status", "manifest", "tracking_numbers", "notes", "requested_at"]}
                 toRow={(r) => [r.code, r.pickupDate, r.window, r.parcelCount, r.status, r.manifestCode ?? "", r.awbs.join(" "), r.notes ?? r.cancelReason ?? "", new Date(r.createdAt).toISOString()]}
                 fetchPage={(p) => client.collection.pickupRequests({ ...filter, page: p, pageSize: 100 })}
               />
@@ -302,7 +302,7 @@ function RequestPickupDialog({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by AWB, consignee or phone"
+              placeholder="Filter by tracking number, consignee or phone"
               aria-label="Filter booked parcels"
               className="pl-8 font-mono text-[13px]"
             />

@@ -68,7 +68,7 @@ export function HoldsTab() {
     { key: "scope", header: "Scope", width: "w-[100px]", cell: (r) => <Badge variant={r.scope === "merchant" ? "bad" : "outline"}>{r.scope}</Badge> },
     { key: "reason", header: "Reason", width: "w-[150px]", cell: (r) => humanise(r.reason) },
     { key: "merchant", header: "Merchant", width: "w-[200px]", cell: (r) => <span className="line-clamp-1">{merchantName(r.merchantId)}</span> },
-    { key: "awb", header: "AWB", width: "w-[130px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : "—") },
+    { key: "awb", header: "Tracking number", width: "w-[130px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : "—") },
     { key: "detail", header: "Detail", cell: (r) => <span className="line-clamp-1 text-[12px]">{r.detail}</span> },
     { key: "amount", header: "Amount", align: "right", width: "w-[120px]", className: "font-mono text-[12px]", cell: (r) => (r.amountCents === null ? "—" : amount(r.amountCents)) },
     { key: "status", header: "Status", width: "w-[100px]", cell: (r) => <StatusBadge status={r.status} /> },
@@ -137,7 +137,7 @@ export function HoldsTab() {
               ) : null}
               <ExportCsvButton<Hold>
                 filename={`natex-holds-${colomboToday()}.csv`}
-                header={["id", "status", "scope", "reason", "merchant_id", "awb", "parcel_id", "amount_lkr", "detail", "opened_at", "opened_by", "cleared_at", "cleared_by", "cleared_note"]}
+                header={["id", "status", "scope", "reason", "merchant_id", "tracking_number", "parcel_id", "amount_lkr", "detail", "opened_at", "opened_by", "cleared_at", "cleared_by", "cleared_note"]}
                 toRow={(r) => [
                   r.id,
                   r.status,
@@ -216,7 +216,7 @@ function HoldDrawer({
           <p className="text-[13px]">{hold.detail}</p>
           <KeyValueGrid>
             <KeyValue label="Amount" mono>{hold.amountCents === null ? "—" : money(hold.amountCents)}</KeyValue>
-            <KeyValue label="AWB" mono>{hold.awb ?? "—"}</KeyValue>
+            <KeyValue label="Tracking number" mono>{hold.awb ?? "—"}</KeyValue>
             <KeyValue label="Opened" mono>{dateTime(hold.openedAt)}</KeyValue>
             <KeyValue label="Opened by">{hold.openedByName ?? "System"}</KeyValue>
             {hold.depositId ? <KeyValue label="Deposit" mono>{hold.depositId}</KeyValue> : null}
@@ -305,7 +305,7 @@ function RaiseHoldDrawer({ open, onClose }: { open: boolean; onClose: () => void
           <MerchantSelect value={merchantId} onChange={setMerchantId} />
         </Field>
         {scope === "parcel" ? (
-          <Field label="AWB">
+          <Field label="Tracking number">
             <Input value={awb} onChange={(e) => setAwb(e.target.value)} className="font-mono" placeholder="NX…" />
           </Field>
         ) : null}

@@ -18,7 +18,7 @@ import { usePickupCounts, usePickupRequests, type PickupRequestRow } from "@/que
 
 /**
  * Pickup manifests (§5 collection). A manifest is one merchant, one rider, one
- * date. Ops builds it from the AWBs the merchant declared; the rider scans at
+ * date. Ops builds it from the tracking numbers the merchant declared; the rider scans at
  * the counter; custody moves once, at handover.
  *
  * The second tab is the merchants' side of that loop: pickup requests waiting
@@ -180,7 +180,7 @@ export default function OpsManifests() {
         error={list.error ? apiMessage(list.error, "Manifests are unavailable.") : null}
         onRowClick={(r) => setOpenId(r.id)}
         emptyTitle="No manifest matches these filters"
-        emptyDescription="Manifests are created when a merchant declares a pickup. Clear the date or rider filter, or create one from the declared AWBs."
+        emptyDescription="Manifests are created when a merchant declares a pickup. Clear the date or rider filter, or create one from the declared tracking numbers."
         filters={
           <>
             <Field label="Pickup date" className="w-44">
@@ -537,12 +537,12 @@ function CreateManifestDialog({
       description={
         prefill
           ? `${prefill.merchantName} asked for ${prefill.awbs.length} parcel(s) on ${prefill.pickupDate}, ${prefill.window}. Assign a rider; the request then reads scheduled with this manifest.`
-          : "Every AWB must already be Booked and belong to the chosen merchant. The server refuses the whole manifest otherwise — nothing is created partially."
+          : "Every tracking number must already be Booked and belong to the chosen merchant. The server refuses the whole manifest otherwise — nothing is created partially."
       }
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="font-mono text-[12px] text-muted-foreground">
-            {awbs.length} AWB{awbs.length === 1 ? "" : "s"}
+            {awbs.length} tracking number{awbs.length === 1 ? "" : "s"}
           </span>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -609,7 +609,7 @@ function CreateManifestDialog({
           </p>
         ) : null}
         <Field
-          label="Declared AWBs"
+          label="Declared tracking numbers"
           hint="One per line, or separated by spaces or commas."
         >
           <Textarea
@@ -625,7 +625,7 @@ function CreateManifestDialog({
             {offending ? (
               <>
                 {" "}
-                Offending AWB: <span className="font-mono">{offending}</span>.
+                Offending tracking number: <span className="font-mono">{offending}</span>.
               </>
             ) : null}
           </ErrorNote>

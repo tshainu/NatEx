@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { user as identityUser } from "./identity";
 
 /**
  * MODULE: HR and payroll. All money is integer cents; dates are Colombo business
@@ -12,6 +13,8 @@ export const hrEmployee = sqliteTable(
     id: text("id").primaryKey(),
     employeeCode: text("employee_code").notNull().unique(),
     fullName: text("full_name").notNull(),
+    /** Optional link to an official courier-staff login; Merchant users remain separate. */
+    identityUserId: text("identity_user_id").references(() => identityUser.id),
     nationalId: text("national_id"),
     phone: text("phone"),
     email: text("email"),
@@ -36,7 +39,11 @@ export const hrEmployee = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   },
-  (t) => [index("hr_employee_branch_idx").on(t.branchId), index("hr_employee_status_idx").on(t.status)],
+  (t) => [
+    index("hr_employee_branch_idx").on(t.branchId),
+    index("hr_employee_status_idx").on(t.status),
+    uniqueIndex("hr_employee_identity_user_uq").on(t.identityUserId),
+  ],
 );
 
 export const hrSalaryPackage = sqliteTable(

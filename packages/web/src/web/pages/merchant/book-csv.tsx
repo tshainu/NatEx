@@ -168,7 +168,7 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
         checks.forEach((check, index) => {
           const row = part[index]!;
           if (check.valid) eligible.add(row.line);
-          else next.set(row.line, { ok: false, messages: [`awb: ${check.reason}`] });
+          else next.set(row.line, { ok: false, messages: [`Tracking number: ${check.reason}`] });
         });
         const validRows = part.filter((row) => eligible.has(row.line));
         if (validRows.length) {
@@ -242,8 +242,8 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
 
   const downloadResults = () => {
     downloadCsv(
-      `${(fileName ?? "bookings").replace(/\.csv$/i, "")}-awbs.csv`,
-      ["line", "order_ref", "consignee_name", "awb", "result", "errors"],
+      `${(fileName ?? "bookings").replace(/\.csv$/i, "")}-tracking-numbers.csv`,
+      ["line", "order_ref", "consignee_name", "tracking_number", "result", "errors"],
       view.map((r) => [r.line, r.ref, r.name, r.awb ?? "", r.state, r.messages.join("; ")]),
     );
   };
@@ -266,7 +266,7 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
     { key: "state", header: "Result", width: "w-[120px]", cell: (r) => <RowBadge state={r.state} /> },
     {
       key: "detail",
-      header: "AWB / problem",
+      header: "Tracking number / problem",
       cell: (r) =>
         r.awb ? (
           <MonoCell>{r.awb}</MonoCell>
@@ -324,7 +324,7 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
           {TEMPLATE_COLUMNS.filter((c) => c.required)
             .map((c) => c.header)
             .join(", ")}
-          . Use one allocated, unused preprinted AWB sticker per row. The new template separates address line 1/2, district and province; older files with a single delivery_address column are still accepted. Example AWBs are placeholders and must be replaced. Weight in kg (up to 3 decimals), money in rupees (up to 2 decimals) — nothing is
+          . Use one allocated, unused preprinted tracking number sticker per row. The new template separates address line 1/2, district and province; older files with a single delivery_address column are still accepted. Example tracking numbers are placeholders and must be replaced. Weight in kg (up to 3 decimals), money in rupees (up to 2 decimals) — nothing is
           rounded; an amount with a third decimal is refused. Nothing is booked until you press
           Book.
         </p>
@@ -390,7 +390,7 @@ export function BulkUpload({ codEnabled }: { codEnabled: boolean }) {
             {phase === "done" ? (
               <Button variant="outline" onClick={downloadResults}>
                 <Download aria-hidden />
-                Download AWBs
+                Download tracking numbers
               </Button>
             ) : null}
           </div>

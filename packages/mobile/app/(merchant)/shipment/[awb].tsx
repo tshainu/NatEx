@@ -30,7 +30,7 @@ export default function MerchantShipmentDetail() {
       {detail.isLoading ? <Panel><Small>Loading shipment details…</Small></Panel> : item ? (
         <>
           <Card style={styles.hero}>
-            <Label>AWB NUMBER</Label>
+            <Label>tracking number NUMBER</Label>
             <Awb color="#176B2C" style={styles.awb}>{item.awb}</Awb>
             <View style={[styles.statusBadge, { backgroundColor: `${tone}12`, borderColor: `${tone}55` }]}>
               <View style={[styles.statusDot, { backgroundColor: tone }]} />
@@ -79,7 +79,7 @@ export default function MerchantShipmentDetail() {
             )}
           </Card>
         </>
-      ) : !detail.isError ? <Empty title="Shipment not found" detail="Check the AWB and try again." /> : null}
+      ) : !detail.isError ? <Empty title="Shipment not found" detail="Check the tracking number and try again." /> : null}
     </Screen>
   );
 }

@@ -16,8 +16,8 @@ build (2026-10-03) unless it says otherwise.
 | `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | yes | Turso. |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
-| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
-| `PUBLIC_TRACKING_ORIGIN` | no | Optional HTTPS origin for direct AWB links in booking SMS; defaults to the production or demo public host based on `NODE_ENV`. Set this if the public NatEx domain changes. |
+| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Configure sender ID as `AXISXNOR`. Sign-in OTP remains enabled; customer parcel SMS is reserved for delivery/POD only. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| Tracking links in SMS | — | Disabled. Booking/status messages do not send SMS, and POD SMS contains no tracking number or link. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
 
@@ -103,6 +103,34 @@ that `DATABASE_URL` contains `natex-demo` first). Every script below refuses
 The smoke, probe and UI scripts write test fixtures (bulk-booking CSVs, "UI Ops Fixture"
 parcels) into whatever DB they run against. Run them against the demo only when a rebuild
 afterwards is acceptable, and never against production.
+
+### Production pre-live transactional-data cleanup
+
+`packages/web/scripts/purge-production-test-data.ts` is a one-time operator script; its live target
+is pinned to the independently verified Production Turso hostname, and `local-test` mode accepts
+only `file:` SQLite. It is not exposed through an API and defaults to a read-only plan. First take and
+restore-verify a fresh backup, then run `bun scripts/purge-production-test-data.ts --target=production --plan`
+from `packages/web`. Review the exact counts, parcel statuses, row-content digests, and plan hash with
+the owner. This script has no test marker or date filter: it deletes every row in its allowlist,
+including genuine activity if any is present. Stop only `natex` during the approved window, recheck the
+plan hash, then use `--apply`
+with `--confirm-production-clear`, the independently verified Production database fingerprint,
+and the reviewed plan hash. Restart `natex` and confirm readiness afterward. Never point this
+script at Demo or use the general seed script for a live reset.
+
+The apply performs the historical parcel-number tombstone backfill and approved transactional
+deletions in one write transaction, then verifies before commit. It preserves branches, users, MFA
+factors/recovery codes, merchants and merchant payout details, every rate-card version/band/slab/
+surcharge, AWB batches/labels/series, HR employee/package/APIT/leave setup, notification templates,
+configuration, delivery reason codes, append-only audit history, and authentication OTP SMS logs.
+It deletes every row in its explicit COD/finance, parcel/custody/delivery/freight/transport, HR
+transaction, sync/session, outbox/replay allowlists, and every SMS log except authentication OTP.
+That includes historical POD and legacy notification messages. The plan hash binds
+per-table row-content digests for both deleted and preserved data, without printing record contents;
+the same digests are written to the reset audit event. Deleting refresh sessions requires staff to
+sign in again; a database reset does not erase uploaded files or app-local caches. If any row content,
+counts, parcel statuses, or preserved setup differs from the reviewed plan, the script aborts or rolls
+back without committing.
 
 ### Proxy / edge (required)
 

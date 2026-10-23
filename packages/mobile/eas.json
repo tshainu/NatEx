@@ -5,6 +5,14 @@
       "distribution": "internal"
     },
     "preview": {},
+    "rider-apk": {
+      "distribution": "internal",
+      "channel": "production",
+      "environment": "production",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {}
   }
 }

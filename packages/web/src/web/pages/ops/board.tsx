@@ -113,7 +113,7 @@ export default function OpsBoard() {
   const columns: Column<BoardRow>[] = [
     {
       key: "awb",
-      header: "AWB",
+      header: "Tracking number",
       width: "w-[150px]",
       cell: (row) => <MonoCell>{row.awb}</MonoCell>,
     },
@@ -180,7 +180,7 @@ export default function OpsBoard() {
                 ref={searchRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="AWB, consignee, phone   /"
+                placeholder="tracking number, consignee, phone   /"
                 className="w-72 border-ink-600 bg-ink-800 pl-8 font-mono text-[13px] text-text-hi placeholder:text-text-lo"
               />
             </div>
@@ -309,7 +309,7 @@ export default function OpsBoard() {
               emptyTitle={debounced.trim() ? "No parcel matches that search" : "No parcels in scope"}
               emptyDescription={
                 debounced.trim()
-                  ? `Nothing matched "${debounced.trim()}" in AWB, consignee name or consignee phone for your branch.`
+                  ? `Nothing matched "${debounced.trim()}" in tracking number, consignee name or consignee phone for your branch.`
                   : statusFilter
                     ? `No parcel in your branch is currently ${humanise(statusFilter)}.`
                     : "Parcels booked against your branch appear here as soon as a merchant or the counter books them."

@@ -59,7 +59,7 @@ export default function MerchantParcels() {
   });
 
   const columns: Column<Row>[] = [
-    { key: "awb", header: "AWB", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     {
       key: "status",
       header: "Status",
@@ -128,7 +128,7 @@ export default function MerchantParcels() {
         error={list.error ? apiMessage(list.error, "Your parcel list is unavailable.") : null}
         onRowClick={(r) => setOpenAwb(r.awb)}
         emptyTitle="No parcel matches this filter"
-        emptyDescription="Search matches AWB, consignee name and consignee phone. New parcels are booked under Book parcels."
+        emptyDescription="Search matches tracking number, consignee name and consignee phone. New parcels are booked under Book parcels."
         filters={
           <>
             <Field label="Search" className="w-72">
@@ -140,7 +140,7 @@ export default function MerchantParcels() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="AWB, consignee or phone"
+                  placeholder="tracking number, consignee or phone"
                   className="pl-8 font-mono text-[13px]"
                 />
               </div>
@@ -170,7 +170,7 @@ export default function MerchantParcels() {
             <div className="ml-auto self-end">
               <ExportCsvButton<Row>
                 filename={`shipments-${colomboToday()}.csv`}
-                header={["awb", "status", "consignee_name", "consignee_phone", "delivery_address", "weight_g", "cod_rs", "booked_at"]}
+                header={["tracking_number", "status", "consignee_name", "consignee_phone", "delivery_address", "weight_g", "cod_rs", "booked_at"]}
                 toRow={(r) => [r.awb, r.status, r.consigneeName, r.consigneePhone, r.destAddress, r.weightGrams, centsToRupees(r.codAmountCents), new Date(r.createdAt).toISOString()]}
                 fetchPage={async (p) => {
                   const res = await client.parcels.list({ ...filter, page: p, pageSize: 100 });

@@ -102,7 +102,7 @@ export default function OpsScanLog() {
     },
     {
       key: "awb",
-      header: "AWB",
+      header: "Tracking number",
       cell: (row) => (row.awb ? <MonoCell>{row.awb}</MonoCell> : <span className="text-muted-foreground">—</span>),
     },
     { key: "kind", header: "Scan", cell: (row) => kindLabel(row.kind) },
@@ -154,7 +154,7 @@ export default function OpsScanLog() {
             rowKey={(row) => row.id}
             loading={log.isPending}
             emptyTitle="No scans match these filters"
-            emptyDescription="Widen the filter, or clear the AWB search. An empty log at a quiet hub is normal."
+            emptyDescription="Widen the filter, or clear the tracking number search. An empty log at a quiet hub is normal."
             onRowClick={(row) => (row.awb ? setOpenAwb(row.awb) : undefined)}
           />
         </Card>
@@ -168,7 +168,7 @@ export default function OpsScanLog() {
                 setSearch(searchDraft.trim().toUpperCase());
               }}
             >
-              <Field label="AWB contains">
+              <Field label="tracking number contains">
                 <Input
                   value={searchDraft}
                   onChange={(event) => setSearchDraft(event.target.value)}
@@ -243,7 +243,7 @@ export default function OpsScanLog() {
   );
 }
 
-/** The chain of custody for one AWB — bag legs, trips, scans, exceptions. */
+/** The chain of custody for one tracking number — bag legs, trips, scans, exceptions. */
 function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => void }) {
   const chain = useCustodyChain(awb);
   const data = chain.data as
@@ -285,14 +285,14 @@ function CustodyDrawer({ awb, onClose }: { awb: string | null; onClose: () => vo
         <p className="text-[13px] text-muted-foreground">Loading the chain…</p>
       ) : chain.isError ? (
         <p className="text-[13px] text-muted-foreground">
-          The custody chain could not be loaded for this AWB.
+          The custody chain could not be loaded for this tracking number.
         </p>
       ) : !data ? (
-        <p className="text-[13px] text-muted-foreground">Nothing recorded against this AWB.</p>
+        <p className="text-[13px] text-muted-foreground">Nothing recorded against this tracking number.</p>
       ) : (
         <div className="space-y-5">
           <KeyValueGrid>
-            <KeyValue label="AWB" mono>
+            <KeyValue label="Tracking number" mono>
               {data.parcel.awb}
             </KeyValue>
             <KeyValue label="Status">{humanise(data.parcel.status)}</KeyValue>

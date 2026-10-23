@@ -192,17 +192,7 @@ describe("retail customer freight remains separate from COD", () => {
     expect(booked.paidReceipt?.paymentMethod).toBe("cash");
     expect(booked.paidReceipt?.code.startsWith("RCP")).toBe(true);
     expect(await collectionForParcel(booked.parcel.id)).toBeNull();
-    const bookingSms = await bookingSmsForAwb(booked.parcel.awb);
-    expect(bookingSms).toHaveLength(1);
-    expect(bookingSms[0]).toMatchObject({
-      to: "+94770000002",
-      purpose: "notification",
-      parcelId: booked.parcel.id,
-      awb: booked.parcel.awb,
-    });
-    expect(bookingSms[0]!.body).toContain(`AWB/Tracking: ${booked.parcel.awb}`);
-    expect(bookingSms[0]!.body).toContain(`/track/${booked.parcel.awb}`);
-    expect(bookingSms[0]!.body.length).toBeLessThanOrEqual(159);
+    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(0);
     const byReceiverPhone = await pageCounterBookings(OPS, { search: "+94770000002", page: 1, pageSize: 20 });
     expect(byReceiverPhone.rows[0]).toMatchObject({
       parcel: { id: booked.parcel.id, description: "Books and stationery", declaredValueCents: null },
@@ -220,7 +210,7 @@ describe("retail customer freight remains separate from COD", () => {
     expect(repeated.parcel.id).toBe(booked.parcel.id);
     expect(repeated.paidReceipt?.id).toBe(booked.paidReceipt?.id);
     expect((await entriesForCharge(booked.freightCharge.id)).filter((entry) => entry.entryType === "collection")).toHaveLength(1);
-    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(1);
+    expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(0);
   });
 
   test("Counter quotes and bookings reject actual or volumetric weight above 30 kg", async () => {

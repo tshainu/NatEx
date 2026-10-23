@@ -23,7 +23,7 @@ type Step = "scan" | "confirm" | "done";
  * number and a manifest. Party two is what is actually on the dock: the seal in
  * the clerk's hand and every label they physically scan. This screen collects
  * the second without ever showing the first as a checklist to tick — the
- * expected AWBs stay hidden behind a deliberate tap, because a clerk reading
+ * expected tracking numbers stay hidden behind a deliberate tap, because a clerk reading
  * labels off a screen and confirming them is not a scan, it is a formality, and
  * that is exactly how a missing parcel gets signed for.
  *

@@ -369,7 +369,7 @@ export interface BulkScanResult {
  * per-label verdict rather than one all-or-nothing error.
  *
  * Per label:
- *   unknown AWB                 → rejected + scan log + illegal_scan exception
+ *   unknown tracking number                 → rejected + scan log + illegal_scan exception
  *   already in this bag         → duplicate + scan log (no second item, no error)
  *   in another open bag         → rejected + duplicate_claim exception
  *   wrong status for bagging    → rejected + scan log (the status is the reason)
@@ -405,7 +405,7 @@ export async function bulkScanIntoBag(
       branchId: row!.branchId,
       bagId: row!.id,
       awb,
-      reason: "Unknown AWB",
+      reason: "Unknown tracking number",
       actor,
       lat: input.lat,
       lng: input.lng,
@@ -421,7 +421,7 @@ export async function bulkScanIntoBag(
       evidence: { bagCode: row!.code, scannedBy: actor.name },
       actor,
     });
-    rejected.push({ awb, outcome: "rejected", reason: "Unknown AWB" });
+    rejected.push({ awb, outcome: "rejected", reason: "Unknown tracking number" });
   }
 
   const existing = await db.select().from(bagItem).where(eq(bagItem.bagId, row!.id));

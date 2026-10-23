@@ -12,6 +12,7 @@ import { EmployeeDetails } from "./employee-details";
 type EmployeeForm = {
   employeeCode: string;
   fullName: string;
+  identityUserId: string;
   nationalId: string;
   phone: string;
   email: string;
@@ -34,6 +35,7 @@ type EmployeeForm = {
 const emptyForm = (): EmployeeForm => ({
   employeeCode: "",
   fullName: "",
+  identityUserId: "",
   nationalId: "",
   phone: "",
   email: "",
@@ -66,6 +68,7 @@ export default function HrEmployees() {
 
   const employees = useQuery({ ...orpc.hr.employees.queryOptions({ input: { q: q || undefined, status: statusFilter === "all" ? undefined : statusFilter as "active" | "inactive", limit: 500 } }) });
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
+  const staffAccounts = useQuery({ ...orpc.hr.staffOptions.queryOptions() });
   const packages = useQuery({ ...orpc.hr.salaryPackages.queryOptions() });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: orpc.hr.employees.key() });
@@ -98,6 +101,7 @@ export default function HrEmployees() {
     setForm({
       employeeCode: employee.employeeCode,
       fullName: employee.fullName,
+      identityUserId: employee.identityUserId ?? "",
       nationalId: employee.nationalId ?? "",
       phone: employee.phone ?? "",
       email: employee.email ?? "",
@@ -132,6 +136,7 @@ export default function HrEmployees() {
     const common = {
       employeeCode: form.employeeCode.trim(),
       fullName: form.fullName.trim(),
+      identityUserId: form.identityUserId || null,
       nationalId: form.nationalId || null,
       phone: form.phone || null,
       email: form.email || null,
@@ -181,7 +186,7 @@ export default function HrEmployees() {
     }
   }
 
-  const error = employees.error ?? branches.error ?? packages.error ?? create.error ?? update.error ?? assign.error;
+  const error = employees.error ?? branches.error ?? staffAccounts.error ?? packages.error ?? create.error ?? update.error ?? assign.error;
   const busy = create.isPending || update.isPending || assign.isPending;
   const initialPackage = packages.data?.find((pkg) => pkg.id === initialPackageId);
 
@@ -194,6 +199,14 @@ export default function HrEmployees() {
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
           <Field label="Employee code"><Input required maxLength={20} value={form.employeeCode} onChange={(e) => setField("employeeCode", e.target.value.toUpperCase())} /></Field>
           <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
+          <Field label="Official courier-staff login" hint="Optional. Link this HR record to an active official account (Rider, Transport, Ops, Finance, Admin, HR, or any combination). Inactive accounts and Merchant portal users are excluded.">
+            <select className={HR_CONTROL_CLASS} value={form.identityUserId} onChange={(e) => setField("identityUserId", e.target.value)}>
+              <option value="">No login linked</option>
+              {(staffAccounts.data ?? []).filter((account) => !employees.data?.some((employee) => employee.identityUserId === account.id && employee.id !== editingId)).map((account) => (
+                <option key={account.id} value={account.id}>{account.name} · {account.roles.join(" / ")} · {account.phone} · {account.status}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="National ID"><Input maxLength={40} value={form.nationalId} onChange={(e) => setField("nationalId", e.target.value)} /></Field>
           <Field label="Phone"><Input maxLength={30} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
           <Field label="Email"><Input type="email" maxLength={200} value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
@@ -259,12 +272,13 @@ export default function HrEmployees() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] text-left text-[13px]">
-            <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Employee</th><th className="p-2">Branch</th><th className="p-2">Department / title</th><th className="p-2">EPF</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
+            <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Employee</th><th className="p-2">Official staff account</th><th className="p-2">Branch</th><th className="p-2">Department / title</th><th className="p-2">EPF</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
             <tbody>
               {(employees.data ?? []).map((employee) => (
                 <tr key={employee.id} className="border-b border-border/60 hover:bg-muted/40">
                   <td className="p-2 font-mono">{employee.employeeCode}</td>
                   <td className="p-2 font-medium">{employee.fullName}</td>
+                  <td className="p-2">{staffAccounts.data?.find((account) => account.id === employee.identityUserId)?.name ?? (employee.identityUserId ? "Linked account" : "—")}</td>
                   <td className="p-2">{(branches.data ?? []).find((b) => b.id === employee.branchId)?.name ?? employee.branchId}</td>
                   <td className="p-2">{employee.department}<span className="block text-[11px] text-muted-foreground">{employee.jobTitle}</span></td>
                   <td className="p-2 font-mono">{employee.epfNumber ?? "—"}</td>

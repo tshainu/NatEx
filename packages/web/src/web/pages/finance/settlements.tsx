@@ -421,8 +421,8 @@ function NewSettlementDrawer({
                       <Trash2 aria-hidden />
                     </Button>
                   </div>
-                  <Field label="AWB (optional)">
-                    <Input value={d.awb} onChange={(e) => update(d.key, { awb: e.target.value })} className="font-mono" aria-label={`Deduction ${index + 1} AWB`} />
+                  <Field label="tracking number (optional)">
+                    <Input value={d.awb} onChange={(e) => update(d.key, { awb: e.target.value })} className="font-mono" aria-label={`Deduction ${index + 1} tracking number`} />
                   </Field>
                   <Field label="Description" className="col-span-2">
                     <Input value={d.description} onChange={(e) => update(d.key, { description: e.target.value })} aria-label={`Deduction ${index + 1} description`} placeholder="Re-weighed at hub: 2.4 kg declared 1 kg" />
@@ -593,7 +593,7 @@ function SettlementDrawer({
   const COPY: Record<Action, { title: string; label: string; body: string; destructive: boolean; field?: string; placeholder?: string }> = {
     propose: { title: "Propose for approval?", label: "Propose", body: "The run goes to a checker. A different person from the one who drafted it must approve it.", destructive: false },
     approve: { title: "Approve this payout?", label: "Approve", body: `You are approving ${money(s?.netCents)} to ${s?.merchantName ?? "the merchant"}. Approval is final for this run; it can then be exported and paid.`, destructive: false },
-    reject: { title: "Reject this run?", label: "Reject", body: "A rejected run is closed for good. Its parcels become due again and can go in a new run.", destructive: true, field: "Reason (required)", placeholder: "Deduction for AWB … is wrong; redraft" },
+    reject: { title: "Reject this run?", label: "Reject", body: "A rejected run is closed for good. Its parcels become due again and can go in a new run.", destructive: true, field: "Reason (required)", placeholder: "Deduction for tracking number … is wrong; redraft" },
     hold: { title: "Put this run on hold?", label: "Hold", body: "The run cannot be approved or paid while held. Releasing it returns it to draft.", destructive: true, field: "Why is it held? (required)", placeholder: "Merchant disputes the RTO charges" },
     release: { title: "Release this hold?", label: "Release", body: "The run returns to draft and has to be proposed and approved again.", destructive: false, field: "Note (required)", placeholder: "Merchant confirmed the charges by email" },
     pay: { title: "Record the bank payment?", label: "Record payment", body: `Record that ${money(s?.netCents)} left the bank. The SETTLE, FEE and TAX entries are posted and the merchant's payable drops to match. This cannot be undone.`, destructive: false, field: "Bank UTR (required)", placeholder: "BOC2610010045123" },
@@ -690,7 +690,7 @@ function SettlementDrawer({
                 <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-1.5 font-medium">Type</th>
-                    <th className="px-3 py-1.5 font-medium">AWB</th>
+                    <th className="px-3 py-1.5 font-medium">tracking number</th>
                     <th className="px-3 py-1.5 font-medium">Description</th>
                     <th className="px-3 py-1.5 text-right font-medium">Rs.</th>
                   </tr>

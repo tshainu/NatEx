@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
-import { awbBatchLabel, parcel, parcelEvent } from "../../database/schema/parcels";
+import { awbBatchLabel, parcel, parcelEvent, retiredTrackingNumber } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
@@ -48,10 +48,10 @@ import {
 export type ParcelRow = typeof parcel.$inferSelect;
 export type ParcelEventRow = typeof parcelEvent.$inferSelect;
 
-// ---------------------------------------------------------------- AWB minting
+// ---------------------------------------------------------------- tracking number minting
 
 /**
- * AWB is the parcel's public identity (§5): stable, human-readable, printed on
+ * tracking number is the parcel's public identity (§5): stable, human-readable, printed on
  * the label, read out over the phone. Never the internal id.
  */
 function mintAwb(): string {
@@ -71,48 +71,21 @@ async function uniqueAwb(): Promise<string> {
       .select({ awb: awbBatchLabel.awb })
       .from(awbBatchLabel)
       .where(eq(awbBatchLabel.awb, candidate));
-    if (!clash && !reserved) return candidate;
+    const [retired] = await db
+      .select({ trackingNumber: retiredTrackingNumber.trackingNumber })
+      .from(retiredTrackingNumber)
+      .where(eq(retiredTrackingNumber.trackingNumber, candidate));
+    if (!clash && !reserved && !retired) return candidate;
   }
   // `return` only to tell the compiler the function ends here: every `errors.*`
   // helper throws (its return type is `never`).
-  return errors.conflict("Could not mint a unique AWB. Retry.");
+  return errors.conflict("Could not mint a unique tracking number. Retry.");
 }
 
 function errorChainText(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
   const cause = (error as Error & { cause?: unknown }).cause;
   return `${error.message} ${cause === undefined ? "" : errorChainText(cause)}`;
-}
-
-function publicTrackingOrigin(): string {
-  const configured = process.env.PUBLIC_TRACKING_ORIGIN?.trim();
-  const fallback = process.env.NODE_ENV === "development"
-    ? "https://demo.204-13-236-153.sslip.io"
-    : "https://204-13-236-153.sslip.io";
-  const url = new URL(configured || fallback);
-  if (url.protocol !== "https:") throw new Error("PUBLIC_TRACKING_ORIGIN must use HTTPS.");
-  return url.origin;
-}
-
-export function parcelBookedSmsBody(awb: string): string {
-  if (!/^NX\d{10}$/.test(awb)) throw new Error("Cannot compose tracking SMS for an invalid NatEx AWB.");
-  const trackUrl = `${publicTrackingOrigin()}/track/${encodeURIComponent(awb)}`;
-  const body = `NatEx: Your parcel is booked. AWB/Tracking: ${awb}. Track: ${trackUrl}`;
-  if (body.length > 159) throw new Error(`Parcel booking SMS is ${body.length} characters; maximum is 159.`);
-  return body;
-}
-
-async function enqueueParcelBookedSms(
-  executor: DbTransaction | typeof db,
-  row: Pick<ParcelRow, "id" | "awb" | "consigneePhone">,
-): Promise<void> {
-  await enqueue("sms.send", {
-    to: row.consigneePhone,
-    body: parcelBookedSmsBody(row.awb),
-    purpose: "notification",
-    parcelId: row.id,
-    awb: row.awb,
-  }, executor);
 }
 
 // ------------------------------------------------------------- event appending
@@ -345,7 +318,7 @@ export interface ListParcelsInput {
   status?: ParcelStatus[];
   merchantId?: string;
   branchId?: string;
-  /** Matches AWB, consignee name or consignee phone. */
+  /** Matches tracking number, consignee name or consignee phone. */
   search?: string;
 }
 
@@ -692,7 +665,7 @@ export async function parcelsByIds(ids: string[]): Promise<ParcelRow[]> {
 
 export interface CreateParcelInput {
   merchantId: string;
-  /** Physical sticker AWB typed/scanned by a merchant; omitted for staff auto-mint. */
+  /** Physical sticker tracking number typed/scanned by a merchant; omitted for staff auto-mint. */
   awb?: string | null;
   branchId: string;
   weightGrams: number;
@@ -776,7 +749,7 @@ export async function createParcel(
   }
 
   if (actor.role === "merchant" && !input.awb?.trim()) {
-    errors.badRequest("Enter an AWB from your allocated preprinted stickers.");
+    errors.badRequest("Enter a tracking number from your allocated preprinted stickers.");
   }
   const suppliedAwb = input.awb?.trim().toUpperCase() || null;
   if (suppliedAwb) {
@@ -825,15 +798,8 @@ export async function createParcel(
           actor,
           notes: "Parcel booked.",
         }, tx);
-        // The booking, initial custody event and queued receiver alert commit
-        // together. The worker sends the SMS after this request completes.
-        await enqueue("parcel.status_changed", {
-          parcelId: saved.id,
-          awb: saved.awb,
-          from: null,
-          to: "Booked",
-        }, tx);
-        await enqueueParcelBookedSms(tx, saved);
+        // Booking creates the record and custody event only. Tracking-number
+        // SMS is disabled; delivery/POD communications use their own flow.
         return saved;
       });
       break;
@@ -842,10 +808,10 @@ export async function createParcel(
       const duplicateAwb = message.includes("parcels_parcel.awb") ||
         (message.includes("UNIQUE constraint failed") && message.includes("awb"));
       if (!duplicateAwb) throw error;
-      if (suppliedAwb) errors.conflict("This AWB was just used by another booking. Scan or enter a different sticker.", { awb: suppliedAwb });
+      if (suppliedAwb) errors.conflict("This tracking number was just used by another booking. Scan or enter a different sticker.", { awb: suppliedAwb });
     }
   }
-  if (!row) return errors.conflict("Could not allocate a unique AWB. Retry the booking.");
+  if (!row) return errors.conflict("Could not allocate a unique tracking number. Retry the booking.");
 
   // Merchant bookings with a configured default Rider are automatically added
   // to that Rider's open pickup manifest. Custody still requires Rider scan and
@@ -1070,7 +1036,6 @@ export async function createRetailCounterBooking(
             paymentMethod: input.paymentMethod,
             externalReference: input.externalReference,
           });
-          await enqueueParcelBookedSms(tx, saved!);
           return { parcel: saved!, ...freight };
         });
         parcelRow = result.parcel;
@@ -1089,10 +1054,10 @@ export async function createRetailCounterBooking(
         const duplicateAwb = message.includes("parcels_parcel.awb") ||
           (message.includes("UNIQUE constraint failed") && message.includes("awb"));
         if (!duplicateAwb) throw error;
-        if (suppliedAwb) errors.conflict("This AWB was just used by another booking. Scan or enter a different branch sticker.", { awb: suppliedAwb });
+        if (suppliedAwb) errors.conflict("This tracking number was just used by another booking. Scan or enter a different branch sticker.", { awb: suppliedAwb });
       }
     }
-    if (!created || !charge || !parcelRow) return errors.conflict("Could not reserve a unique branch AWB. Retry the booking.");
+    if (!created || !charge || !parcelRow) return errors.conflict("Could not reserve a unique branch tracking number. Retry the booking.");
   }
 
   parcelRow = await finishIntake(parcelRow!.id);
@@ -1114,7 +1079,7 @@ export async function createRetailCounterBooking(
 }
 
 export interface TransitionInput {
-  /** AWB or internal id. AWB is what scanners produce. */
+  /** tracking number or internal id. tracking number is what scanners produce. */
   awbOrId: string;
   to: ParcelStatus;
   lat?: number | null;
@@ -1317,7 +1282,7 @@ export async function transitionMany(
 }
 
 /**
- * Resolve scanned AWBs to parcel rows. Returns both what matched and what did
+ * Resolve scanned tracking numbers to parcel rows. Returns both what matched and what did
  * not, because an unknown label at a hub is itself an operational event the
  * transport module has to record rather than discard.
  */

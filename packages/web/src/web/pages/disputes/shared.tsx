@@ -80,7 +80,7 @@ export function DisputeList({ mode, view }: { mode: Mode; view: ListView }) {
     { key: "opened", header: "Opened", width: "w-[120px]", className: "text-[12px]", cell: (r) => since(r.createdAt) },
     ...(mode === "finance" ? [{ key: "merchant", header: "Merchant", width: "w-[180px]", cell: (r: DisputeRow) => r.merchantName } satisfies Column<DisputeRow>] : []),
     { key: "type", header: "Type", width: "w-[150px]", cell: (r) => label(r.type) },
-    { key: "awb", header: "AWB", width: "w-[130px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : "—") },
+    { key: "awb", header: "Tracking number", width: "w-[130px]", cell: (r) => (r.awb ? <MonoCell>{r.awb}</MonoCell> : "—") },
     { key: "desc", header: "What happened", cell: (r) => <span className="line-clamp-1 text-[12px]">{r.description}</span> },
     { key: "claim", header: "Claimed", align: "right", width: "w-[120px]", className: "font-mono text-[12px]", cell: (r) => amount(r.claimAmountCents) },
     { key: "approved", header: "Approved", align: "right", width: "w-[120px]", className: "font-mono text-[12px]", cell: (r) => (r.approvedAmountCents === null ? "—" : amount(r.approvedAmountCents)) },
@@ -142,7 +142,7 @@ export function DisputeList({ mode, view }: { mode: Mode; view: ListView }) {
               </Field>
             ) : null}
             <Field label="Search" className="w-[180px]">
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Case code or AWB" aria-label="Search disputes" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Case code or tracking number" aria-label="Search disputes" />
             </Field>
             <label className="flex items-center gap-2 self-end pb-2 text-[13px]">
               <input
@@ -175,7 +175,7 @@ export function DisputeList({ mode, view }: { mode: Mode; view: ListView }) {
               </Button>
               <ExportCsvButton<DisputeRow>
                 filename={`natex-${view === "register" ? "claims" : "disputes"}-${colomboToday()}.csv`}
-                header={["code", "opened_at", "merchant", "type", "awb", "status", "claimed_lkr", "approved_lkr", "remedy", "credit_note_id", "payout_ref", "sla_due", "assigned_to", "resolved_by", "resolved_at", "description", "resolution"]}
+                header={["code", "opened_at", "merchant", "type", "tracking_number", "status", "claimed_lkr", "approved_lkr", "remedy", "credit_note_id", "payout_ref", "sla_due", "assigned_to", "resolved_by", "resolved_at", "description", "resolution"]}
                 toRow={(r) => [
                   r.code,
                   dateTime(r.createdAt),
@@ -550,7 +550,7 @@ export function OpenDisputeDrawer({
             ))}
           </Select>
         </Field>
-        <Field label="AWB" hint="Required for COD shortfall, damage and loss.">
+        <Field label="Tracking number" hint="Required for COD shortfall, damage and loss.">
           <Input value={awb} onChange={(e) => setAwb(e.target.value)} className="font-mono" placeholder="NX…" />
         </Field>
         <Field label="Amount claimed (Rs.)" error={claim.error ?? undefined}>

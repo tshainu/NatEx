@@ -5,6 +5,7 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { formatLkr } from "../../shared/money";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
+import { containsTrackingMaterial } from "../../shared/sms-policy";
 import { prefixedId } from "../../shared/ulid";
 
 /**
@@ -58,19 +59,19 @@ export const DEFAULT_TEMPLATES: {
     name: "Parcel booked",
     description: "Sent to the consignee when a merchant books a parcel to them.",
     audience: "consignee",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "Hello {{consigneeName}}, {{merchantName}} has booked a NatEx delivery to you. Your tracking number is {{awb}}. Track it at {{trackUrl}}",
-    bodySms: "NatEx: {{merchantName}} booked a delivery to you. AWB {{awb}}. {{trackUrl}}",
+    bodySms: "NatEx: {{merchantName}} booked a delivery to you. tracking number {{awb}}. {{trackUrl}}",
     pushTitle: "Parcel booked",
-    bodyPush: "{{merchantName}} booked a delivery to you — AWB {{awb}}.",
+    bodyPush: "{{merchantName}} booked a delivery to you — tracking number {{awb}}.",
   },
   {
     key: "parcel.out_for_delivery",
     name: "Out for delivery",
     description: "Sent when a runsheet is dispatched and the parcel is on a rider.",
     audience: "consignee",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "Hello {{consigneeName}}, your NatEx parcel {{awb}} is out for delivery today. {{codLine}}Our rider {{riderName}} will call you. Track: {{trackUrl}}",
     bodySms:
@@ -86,7 +87,7 @@ export const DEFAULT_TEMPLATES: {
     channelOrder: "whatsapp,sms,push",
     bodyWhatsapp:
       "Your NatEx parcel {{awb}} was delivered on {{date}} and received by {{receivedBy}}. Thank you.",
-    bodySms: "NatEx {{awb}} delivered on {{date}}, received by {{receivedBy}}. Thank you.",
+    bodySms: "NatEx: Your parcel was delivered on {{date}}, received by {{receivedBy}}. POD recorded. Thank you.",
     pushTitle: "Delivered",
     bodyPush: "Parcel {{awb}} was delivered.",
   },
@@ -95,7 +96,7 @@ export const DEFAULT_TEMPLATES: {
     name: "Delivery attempt failed",
     description: "Sent to the consignee after a failed doorstep attempt.",
     audience: "consignee",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "We could not deliver your NatEx parcel {{awb}} today ({{reason}}). This was attempt {{attemptNo}} of 3. Reply to this message or call us to arrange redelivery. {{trackUrl}}",
     bodySms:
@@ -108,7 +109,7 @@ export const DEFAULT_TEMPLATES: {
     name: "Return to sender started",
     description: "Sent to the merchant when a parcel is turned back.",
     audience: "merchant",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "NatEx: parcel {{awb}} to {{consigneeName}} is being returned to you. Reason: {{reason}}.",
     bodySms: "NatEx: {{awb}} is being returned to you. Reason: {{reason}}.",
@@ -120,7 +121,7 @@ export const DEFAULT_TEMPLATES: {
     name: "Return completed",
     description: "Sent to the merchant when a returned parcel is handed back.",
     audience: "merchant",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "NatEx: returned parcel {{awb}} was handed back to {{receivedBy}} on {{date}}.",
     bodySms: "NatEx: returned parcel {{awb}} handed back to {{receivedBy}} on {{date}}.",
@@ -132,7 +133,7 @@ export const DEFAULT_TEMPLATES: {
     name: "NDR raised",
     description: "Sent to the merchant when a parcel enters the NDR queue.",
     audience: "merchant",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "NatEx needs your instruction on {{awb}} ({{consigneeName}}): {{reason}}. Attempt {{attemptNo}} of 3. Tell us to reattempt or return, in the merchant portal, before {{slaDue}}.",
     bodySms:
@@ -145,7 +146,7 @@ export const DEFAULT_TEMPLATES: {
     name: "Pickup collected",
     description: "Sent to the merchant when a rider takes custody of a manifest.",
     audience: "merchant",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "NatEx collected {{itemCount}} parcel(s) from you on manifest {{manifestCode}}. Rider: {{riderName}}.",
     bodySms: "NatEx collected {{itemCount}} parcel(s) on manifest {{manifestCode}}.",
@@ -157,9 +158,9 @@ export const DEFAULT_TEMPLATES: {
     name: "Merchant parcel ready for pickup",
     description: "Sent to the preferred branch/hub Rider when a merchant books a new parcel for collection.",
     audience: "rider",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
-      "New pickup for {{merchantName}}. AWB {{awb}} is on manifest {{manifestCode}} for {{pickupDate}}. Open the Rider app for the pickup address, scan the parcel, and confirm handover.",
+      "New pickup for {{merchantName}}. tracking number {{awb}} is on manifest {{manifestCode}} for {{pickupDate}}. Open the Rider app for the pickup address, scan the parcel, and confirm handover.",
     bodySms:
       "NatEx pickup: {{merchantName}} booked {{awb}}. Manifest {{manifestCode}} for {{pickupDate}}. Open Rider app for the address.",
     pushTitle: "New merchant pickup",
@@ -181,7 +182,7 @@ export const DEFAULT_TEMPLATES: {
     name: "COD payout released",
     description: "Sent to the merchant when a settlement run is paid and the UTR is recorded.",
     audience: "merchant",
-    channelOrder: "whatsapp,sms,push",
+    channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "NatEx has released your COD payout for {{periodStart}}–{{periodEnd}}: {{netAmount}} (settlement {{code}}, {{lineCount}} parcel(s), {{deductions}} deducted). Bank reference {{utr}}. The full statement is in your merchant portal.",
     bodySms: "NatEx paid your COD settlement {{code}}: {{netAmount}}. Ref {{utr}}.",
@@ -204,13 +205,29 @@ export async function seedTemplates(): Promise<number> {
   return inserted;
 }
 
+const POD_TEMPLATE_KEY = "parcel.delivered";
+const POD_SMS_BODY = DEFAULT_TEMPLATES.find((template) => template.key === POD_TEMPLATE_KEY)!.bodySms;
+/** Enforce the policy when reading legacy DB-configured templates as well. */
+function applySmsPolicy(row: TemplateRow): TemplateRow {
+  if (row.key !== POD_TEMPLATE_KEY) {
+    return {
+      ...row,
+      channelOrder: row.channelOrder.split(",").map((channel) => channel.trim()).filter((channel) => channel !== "sms").join(","),
+      bodySms: "SMS is reserved for Proof of Delivery messages.",
+    };
+  }
+  const hasTrackingReference = containsTrackingMaterial(row.bodySms ?? "");
+  return { ...row, bodySms: hasTrackingReference ? POD_SMS_BODY : row.bodySms };
+}
+
 export async function listTemplates(): Promise<TemplateRow[]> {
-  return db.select().from(notifyTemplate).orderBy(notifyTemplate.audience, notifyTemplate.key);
+  const rows = await db.select().from(notifyTemplate).orderBy(notifyTemplate.audience, notifyTemplate.key);
+  return rows.map(applySmsPolicy);
 }
 
 export async function getTemplate(key: string): Promise<TemplateRow | null> {
   const [row] = await db.select().from(notifyTemplate).where(eq(notifyTemplate.key, key));
-  if (row) return row;
+  if (row) return applySmsPolicy(row);
 
   // Existing production databases may not have run the destructive seed. Add
   // a missing shipped template on first use, but never overwrite admin edits.
@@ -221,7 +238,7 @@ export async function getTemplate(key: string): Promise<TemplateRow | null> {
     .values({ ...shipped, active: true, version: 1 })
     .onConflictDoNothing();
   const [provisioned] = await db.select().from(notifyTemplate).where(eq(notifyTemplate.key, key));
-  return provisioned ?? null;
+  return provisioned ? applySmsPolicy(provisioned) : null;
 }
 
 /** Template editing — exposed to admin in M5, used by tests and seeds now. */
@@ -304,6 +321,10 @@ export function templateProblems(
     if (parts.length === 0) out.push("At least one channel is required.");
     for (const c of parts) if (!(CHANNELS as readonly string[]).includes(c)) out.push(`Unknown channel "${c}". Use whatsapp, sms, push.`);
     if (new Set(parts).size !== parts.length) out.push("A channel appears twice in the ladder.");
+    if (key !== POD_TEMPLATE_KEY && parts.includes("sms")) out.push("SMS is reserved for Proof of Delivery; remove sms from this notification.");
+  }
+  if (patch.bodySms && containsTrackingMaterial(patch.bodySms)) {
+    out.push("SMS messages must not include a tracking number or tracking link.");
   }
   return out;
 }
@@ -521,7 +542,7 @@ export async function dispatch(input: NotifyInput): Promise<NotifyResult> {
     } else if (channel === "whatsapp") {
       result = await sendWhatsapp(input.toPhone, text);
     } else {
-      const sms = await sendSms({ to: input.toPhone, body: text, purpose: "notification" });
+      const sms = await sendSms({ to: input.toPhone, body: text, purpose: "pod" });
       result =
         sms.state === "failed"
           ? { state: "failed", reason: sms.raw.slice(0, 300), smsLogId: sms.logId }
@@ -613,7 +634,7 @@ export async function listMessages(
 /**
  * Everything sent about one parcel, oldest first — the notification timeline.
  *
- * Takes the principal because the route is merchant-reachable and an AWB /
+ * Takes the principal because the route is merchant-reachable and an tracking number /
  * parcel id is guessable: without the §5 row filter a merchant could read the
  * consignee phone numbers and message bodies of a competitor's parcels by
  * iterating ids. A merchant asking about a parcel that is not theirs gets an

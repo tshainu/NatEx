@@ -63,7 +63,7 @@ export default function OpsParcels() {
   );
 
   const columns: Column<Row>[] = [
-    { key: "awb", header: "AWB", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
+    { key: "awb", header: "Tracking number", width: "w-[150px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
     {
       key: "status",
       header: "Status",
@@ -140,7 +140,7 @@ export default function OpsParcels() {
         error={list.error ? apiMessage(list.error, "The parcel register is unavailable.") : null}
         onRowClick={(r) => setOpenAwb(r.awb)}
         emptyTitle="No parcel matches these filters"
-        emptyDescription="Clear the status or merchant filter, or widen the search — it matches AWB, consignee name and consignee phone only."
+        emptyDescription="Clear the status or merchant filter, or widen the search — it matches tracking number, consignee name and consignee phone only."
         filters={
           <>
             <Field label="Search" className="w-72">
@@ -152,7 +152,7 @@ export default function OpsParcels() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="AWB, consignee or phone"
+                  placeholder="tracking number, consignee or phone"
                   className="pl-8 font-mono text-[13px]"
                 />
               </div>

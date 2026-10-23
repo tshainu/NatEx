@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, user, otpChallenge, refreshToken } from "../../database/schema/identity";
 import {
@@ -66,6 +66,29 @@ function toIdentityUser(row: typeof user.$inferSelect): IdentityUser {
 export async function getUserById(id: string): Promise<IdentityUser | null> {
   const [row] = await db.select().from(user).where(eq(user.id, id));
   return row ? toIdentityUser(row) : null;
+}
+
+const HR_LINKABLE_ROLES: ReadonlySet<string> = new Set(ROLES.filter((role) => role !== "merchant"));
+
+export function isLinkableOfficialStaff(account: IdentityUser): boolean {
+  return account.status === "active" &&
+    account.merchantId === null &&
+    !account.roles.includes("merchant") &&
+    account.roles.some((role) => HR_LINKABLE_ROLES.has(role));
+}
+
+export async function getLinkableOfficialStaffAccount(id: string): Promise<IdentityUser | null> {
+  const account = await getUserById(id);
+  return account && isLinkableOfficialStaff(account) ? account : null;
+}
+
+/** HR account-link options: every active official staff role, never Merchant users. */
+export async function listOfficialStaffOptions() {
+  const rows = await db.select().from(user).orderBy(asc(user.name));
+  return rows
+    .map(toIdentityUser)
+    .filter(isLinkableOfficialStaff)
+    .map(({ id, name, phone, branchId, role, roles, status }) => ({ id, name, phone, branchId, role, roles, status }));
 }
 
 export async function getUserByPhone(phone: string): Promise<IdentityUser | null> {
