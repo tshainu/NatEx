@@ -13,6 +13,7 @@ import {
   parcel,
   parcelEvent,
 } from "../../database/schema/parcels";
+import { toE6 } from "../../shared/geo";
 import type { Principal } from "../../shared/auth";
 import { seedMerchant } from "../merchants/service";
 import { createParcel, getParcelByAwb } from "../parcels/service";
@@ -22,6 +23,7 @@ import { addBookingToAutoManifest } from "./auto-assign";
 import { getTemplate } from "../notifications/service";
 import {
   colomboToday,
+  getManifestDetail,
   handoverManifest,
   riderToday,
   scanItem,
@@ -117,6 +119,8 @@ beforeAll(async () => {
     pickupRiderId: RIDER_ID,
     name: `[handover test] ${RUN}`,
     address: "Disposable handover integration fixture",
+    lat: toE6(6.9271),
+    lng: toE6(79.8612),
     contactName: "Test Merchant",
     contactPhone: "+94700000000",
     codEnabled: true,
@@ -201,6 +205,13 @@ describe("merchant pickup custody handover", () => {
     expect(pickup.assignmentSource).toBe("merchant_default");
     expect(pickup.expectedCount).toBe(2);
     expect(pickup.scannedCount).toBe(0);
+    expect(pickup.merchantLatitude).toBe(6.9271);
+    expect(pickup.merchantLongitude).toBe(79.8612);
+
+    const pickupDetail = await getManifestDetail(assignedManifestId, riderActor);
+    expect(pickupDetail.merchantAddress).toBe("Disposable handover integration fixture");
+    expect(pickupDetail.merchantLatitude).toBe(6.9271);
+    expect(pickupDetail.merchantLongitude).toBe(79.8612);
 
     const notificationRows = await db
       .select({ payloadJson: outbox.payloadJson })

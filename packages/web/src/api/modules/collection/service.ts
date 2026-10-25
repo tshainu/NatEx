@@ -7,6 +7,7 @@ import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { colomboToday } from "../../shared/time";
+import { fromE6 } from "../../shared/geo";
 import { assertRequestSchedulable, markRequestScheduled } from "./pickups";
 import { getMerchant } from "../merchants/service";
 import {
@@ -74,6 +75,9 @@ export async function getManifest(id: string): Promise<ManifestRow | null> {
 export interface ManifestDetail {
   manifest: ManifestRow;
   merchantName: string;
+  merchantAddress: string;
+  merchantLatitude: number | null;
+  merchantLongitude: number | null;
   items: (ManifestItemRow & {
     status: string | null;
     consigneeName: string | null;
@@ -102,6 +106,9 @@ export async function getManifestDetail(
   return {
     manifest: row!,
     merchantName: merchant?.name ?? "Unknown merchant",
+    merchantAddress: merchant?.address ?? "",
+    merchantLatitude: merchant?.lat == null ? null : fromE6(merchant.lat),
+    merchantLongitude: merchant?.lng == null ? null : fromE6(merchant.lng),
     items: items.map((i) => ({
       ...i,
       status: byId.get(i.parcelId)?.status ?? null,
@@ -176,6 +183,8 @@ export async function riderToday(scope: Principal, pickupDate?: string) {
       ...row,
       merchantName: merchant?.name ?? "Unknown merchant",
       merchantAddress: merchant?.address ?? "",
+      merchantLatitude: merchant?.lat == null ? null : fromE6(merchant.lat),
+      merchantLongitude: merchant?.lng == null ? null : fromE6(merchant.lng),
       merchantPhone: merchant?.contactPhone ?? "",
       codEnabled: merchant?.codEnabled ?? false,
     });

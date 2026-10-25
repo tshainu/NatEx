@@ -8,6 +8,7 @@ import { date, money, normaliseAwb, plural } from "../../../lib/format";
 import { Screen, ScreenHeader, Section } from "../../../components/natex/screen";
 import { Button } from "../../../components/natex/button";
 import { Card, Empty, Field, Panel } from "../../../components/natex/card";
+import { MerchantNavigationAction } from "../../../components/natex/merchant-navigation-action";
 import { Input } from "../../../components/natex/input";
 import { BarcodeScanner } from "../../../components/natex/barcode-scanner";
 import { Badge, LifecyclePill, StatusPill } from "../../../components/natex/pill";
@@ -140,6 +141,15 @@ export default function ManifestScreen() {
         subtitle={manifest ? `Manifest ${manifest.code}` : undefined}
         right={manifest ? <LifecyclePill status={manifest.status} /> : undefined}
       />
+
+      {data ? (
+        <MerchantNavigationAction
+          merchantName={data.merchantName}
+          address={data.merchantAddress}
+          latitude={data.merchantLatitude}
+          longitude={data.merchantLongitude}
+        />
+      ) : null}
 
       {detail.isError ? (
         <Panel style={{ borderColor: colors.statusWarn }}>

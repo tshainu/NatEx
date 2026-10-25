@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Link } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiMessage, orpc } from "../../lib/api";
@@ -6,18 +6,15 @@ import { useAuth } from "../../lib/auth";
 import { date, plural } from "../../lib/format";
 import { Screen, ScreenHeader, Section } from "../../components/natex/screen";
 import { Card, Empty, Panel, Stat, StatRow } from "../../components/natex/card";
+import { MerchantNavigationAction } from "../../components/natex/merchant-navigation-action";
 import { Badge, LifecyclePill } from "../../components/natex/pill";
 import { Body, Label, Mono, Small, Title } from "../../components/natex/text";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
 /**
- * The rider's day, as one screen: every manifest assigned to them today, with
- * how many labels are still unscanned on each.
- *
- * design.md, "one question per screen" — the question here is *where do I go
- * next*, so each card leads straight to the scan screen for that merchant and
- * the pending count is the biggest thing on it.
+ * The rider's day: today's assigned pickups, their scan progress and a separate
+ * one-tap route to each merchant's saved GPS location.
  */
 export default function RiderTodayScreen() {
   const colors = useColors();
@@ -28,11 +25,7 @@ export default function RiderTodayScreen() {
   const manifests = data?.manifests ?? [];
 
   return (
-    <Screen
-      inTabs
-      refreshing={today.isRefetching}
-      onRefresh={() => void today.refetch()}
-    >
+    <Screen inTabs refreshing={today.isRefetching} onRefresh={() => void today.refetch()}>
       <ScreenHeader
         title="Today's pickups"
         subtitle={`${user?.name ?? "Rider"} · ${data ? date(data.pickupDate) : "—"}`}
@@ -72,37 +65,48 @@ export default function RiderTodayScreen() {
         {manifests.map((row) => {
           const pending = row.expectedCount - row.scannedCount;
           return (
-            <Link key={row.id} href={`/(rider)/manifest/${row.id}`} asChild>
-              <Card accessibilityLabel={`Open pickup for ${row.merchantName}`} onPress={() => {}}>
-                <View style={styles.cardTop}>
-                  <View style={styles.flex}>
-                    <Title>{row.merchantName}</Title>
-                    <Mono color={colors.mutedForeground}>{row.code}</Mono>
-                    {row.assignmentSource === "merchant_default" ? (
-                      <Badge tone="brand">Auto-assigned</Badge>
-                    ) : null}
+            <Card key={row.id}>
+              <Link href={`/(rider)/manifest/${row.id}`} asChild>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open pickup for ${row.merchantName}`}
+                  style={({ pressed }) => [styles.manifestLink, pressed ? styles.pressed : null]}
+                >
+                  <View style={styles.cardTop}>
+                    <View style={styles.flex}>
+                      <Title>{row.merchantName}</Title>
+                      <Mono color={colors.mutedForeground}>{row.code}</Mono>
+                      {row.assignmentSource === "merchant_default" ? (
+                        <Badge tone="brand">Auto-assigned</Badge>
+                      ) : null}
+                    </View>
+                    <LifecyclePill status={row.status} />
                   </View>
-                  <LifecyclePill status={row.status} />
-                </View>
 
-                <Small>{row.merchantAddress}</Small>
-
-                <View style={styles.cardBottom}>
-                  <View style={styles.flex}>
-                    <Label>Scanned</Label>
-                    <Body>
-                      {row.scannedCount} of {row.expectedCount}
-                    </Body>
+                  <View style={styles.cardBottom}>
+                    <View style={styles.flex}>
+                      <Label>Scanned</Label>
+                      <Body>
+                        {row.scannedCount} of {row.expectedCount}
+                      </Body>
+                    </View>
+                    {pending > 0 ? (
+                      <Badge tone="warn">{`${plural(pending, "label")} left`}</Badge>
+                    ) : (
+                      <Badge tone="good">All scanned</Badge>
+                    )}
+                    {row.codEnabled ? <Badge tone="brand">COD</Badge> : null}
                   </View>
-                  {pending > 0 ? (
-                    <Badge tone="warn">{`${plural(pending, "label")} left`}</Badge>
-                  ) : (
-                    <Badge tone="good">All scanned</Badge>
-                  )}
-                  {row.codEnabled ? <Badge tone="brand">COD</Badge> : null}
-                </View>
-              </Card>
-            </Link>
+                </Pressable>
+              </Link>
+
+              <MerchantNavigationAction
+                merchantName={row.merchantName}
+                address={row.merchantAddress}
+                latitude={row.merchantLatitude}
+                longitude={row.merchantLongitude}
+              />
+            </Card>
           );
         })}
       </Section>
@@ -112,6 +116,8 @@ export default function RiderTodayScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  manifestLink: { gap: Space.unit },
+  pressed: { opacity: 0.75 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.unit },
   cardBottom: {
     flexDirection: "row",
