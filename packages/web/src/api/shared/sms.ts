@@ -2,7 +2,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
-import { assertPodSmsHasNoTrackingMaterial } from "./sms-policy";
+import {
+  assertMerchantRegistrationSms,
+  assertPodSmsHasNoTrackingMaterial,
+} from "./sms-policy";
 
 /**
  * SMS via execution link + sender ID ONLY (PROJECT.md §9).
@@ -11,16 +14,16 @@ import { assertPodSmsHasNoTrackingMaterial } from "./sms-policy";
  * - No provider SDK, no operator-specific API shape, no DLT (Indian TRAI
  *   mandate, not applicable in Sri Lanka).
  * - The complete integration surface is SMS_EXECUTION_URL + SMS_SENDER_ID.
- * - The gateway response is OPAQUE: logged raw, with any reference id extracted
- *   only on a best-effort basis.
+ * - OTP/POD retain the opaque legacy response logging; registration responses
+ *   are sanitized and never expose raw provider text.
  * - Credentials never hardcoded — environment variables only.
  */
 
 export interface SendSmsInput {
   to: string;
   body: string;
-  /** Authentication OTP or proof-of-delivery communication only. */
-  purpose: "otp" | "pod";
+  /** Authentication OTP, proof of delivery, or one of two fixed registration messages. */
+  purpose: "otp" | "pod" | "merchant_registration";
 }
 
 export interface SendSmsResult {
@@ -61,8 +64,11 @@ export function normaliseLkPhone(input: string): string {
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(input.body);
+  if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(input.body);
   const url = process.env.SMS_EXECUTION_URL;
-  const senderId = process.env.SMS_SENDER_ID ?? "AXISXNOR";
+  const senderId = input.purpose === "merchant_registration"
+    ? "AXISXNOR"
+    : process.env.SMS_SENDER_ID ?? "AXISXNOR";
   const to = normaliseLkPhone(input.to);
 
   const logId = prefixedId("sms");
@@ -75,6 +81,15 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     state: "queued",
   });
 
+  if (process.env.SMS_DISABLE_ALL?.trim().toLowerCase() === "true") {
+    const raw = "SMS sending is disabled by configuration.";
+    await db
+      .update(smsLog)
+      .set({ state: "failed", rawResponse: raw, updatedAt: new Date() })
+      .where(eq(smsLog.id, logId));
+    return { logId, state: "failed", gatewayRef: null, raw };
+  }
+
   if (!url) {
     // Not configured yet. The message is logged, not silently dropped, and the
     // OTP flow falls back to resend-and-expire (PROJECT.md §9).
@@ -83,7 +98,9 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       .update(smsLog)
       .set({ state: "failed", rawResponse: raw, updatedAt: new Date() })
       .where(eq(smsLog.id, logId));
-    console.warn(`[sms] ${raw} to=${to} purpose=${input.purpose}`);
+    if (input.purpose !== "merchant_registration") {
+      console.warn(`[sms] ${raw} to=${to} purpose=${input.purpose}`);
+    }
     return { logId, state: "failed", gatewayRef: null, raw };
   }
 
@@ -92,21 +109,23 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   // without assuming a provider. Param names match the urbanpos.lk gateway.
   // Local gateways expect 9477… rather than +9477…, so strip the leading plus.
   const gatewayTo = to.replace(/^\+/, "");
-  const target = new URL(url);
-  target.searchParams.set("phone_no", gatewayTo);
-  target.searchParams.set("message", input.body);
-  target.searchParams.set("sender_id", senderId);
-
   let raw = "";
   try {
+    const target = new URL(url);
+    target.searchParams.set("phone_no", gatewayTo);
+    target.searchParams.set("message", input.body);
+    target.searchParams.set("sender_id", senderId);
     const res = await fetch(target, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ phone_no: gatewayTo, message: input.body, sender_id: senderId }),
       signal: AbortSignal.timeout(10_000),
     });
-    raw = await res.text();
-    const ref = extractRef(raw);
+    const providerResponse = await res.text();
+    raw = input.purpose === "merchant_registration"
+      ? (res.ok ? "Provider accepted registration message." : "Provider rejected registration message.")
+      : providerResponse;
+    const ref = input.purpose === "merchant_registration" ? null : extractRef(providerResponse);
     const state = res.ok ? "sent" : "failed";
     await db
       .update(smsLog)
@@ -114,7 +133,9 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       .where(eq(smsLog.id, logId));
     return { logId, state, gatewayRef: ref, raw };
   } catch (err) {
-    raw = err instanceof Error ? err.message : String(err);
+    raw = input.purpose === "merchant_registration"
+      ? "Registration SMS provider request failed."
+      : err instanceof Error ? err.message : String(err);
     await db
       .update(smsLog)
       .set({ state: "failed", rawResponse: raw.slice(0, 4000), updatedAt: new Date() })

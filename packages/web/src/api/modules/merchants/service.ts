@@ -1,15 +1,56 @@
-import { and, count, eq, inArray, like, or } from "drizzle-orm";
+import { and, count, desc, eq, inArray, like, lte, or } from "drizzle-orm";
 import { db } from "../../database";
-import { merchant } from "../../database/schema/merchants";
+import { merchant, merchantRegistrationCooldown, merchantRegistrationRequest } from "../../database/schema/merchants";
 import { prefixedId } from "../../shared/ulid";
-import { errors } from "../../shared/errors";
+import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
+import type { DbTransaction } from "../../database/transaction";
+import { enqueue } from "../../shared/outbox";
 
 /**
  * MODULE: merchants. The ONLY file that reads merchants_* tables (§4).
  */
 
 export type MerchantRow = typeof merchant.$inferSelect;
+export type MerchantRegistrationRequestRow = typeof merchantRegistrationRequest.$inferSelect;
+
+const REGISTRATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+export interface MerchantRegistrationInput {
+  submissionId: string;
+  businessName: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  district: string;
+  businessType: string;
+  monthlyVolume: string;
+  notes: string;
+  smsConsent: true;
+}
+
+export type RegistrationSmsStage = "receipt" | "confirmation";
+
+function publicRegistrationRow(row: MerchantRegistrationRequestRow) {
+  return {
+    id: row.id,
+    businessName: row.businessName,
+    contactName: row.contactName,
+    phone: row.phone,
+    email: row.email,
+    district: row.district,
+    businessType: row.businessType,
+    monthlyVolume: row.monthlyVolume,
+    notes: row.notes,
+    status: row.status as "new" | "converted",
+    merchantId: row.merchantId,
+    createdAt: row.createdAt,
+    convertedAt: row.convertedAt,
+    receiptSmsState: row.receiptSmsState,
+    confirmationSmsState: row.confirmationSmsState,
+    smsConsent: row.smsConsent,
+  };
+}
 
 function scopeFilter(scope: Principal) {
   if (isGlobalScope(scope.role)) return undefined;
@@ -86,11 +127,12 @@ export interface CreateMerchantInput {
 export async function createMerchant(
   input: CreateMerchantInput,
   actor: Principal,
+  executor: DbTransaction | typeof db = db,
 ): Promise<MerchantRow> {
   // Ops may only create merchants inside their own branch (§5).
   const branchId = isGlobalScope(actor.role) ? input.branchId : actor.branchId;
 
-  const [row] = await db
+  const [row] = await executor
     .insert(merchant)
     .values({
       id: prefixedId("mch"),
@@ -109,6 +151,165 @@ export async function createMerchant(
     })
     .returning();
   return row!;
+}
+
+/** Create once by persistent submission UUID and atomically enforce the phone cooldown. */
+export async function createRegistrationRequest(
+  input: MerchantRegistrationInput,
+  beforeCreate?: (executor: DbTransaction) => Promise<void>,
+  now = new Date(),
+): Promise<"created" | "duplicate" | "cooldown"> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: merchantRegistrationRequest.id })
+        .from(merchantRegistrationRequest)
+        .where(eq(merchantRegistrationRequest.submissionId, input.submissionId))
+        .limit(1);
+      if (existing) return "duplicate";
+
+      const cooldownUntil = new Date(now.getTime() + REGISTRATION_COOLDOWN_MS);
+      const claimed = await tx
+        .insert(merchantRegistrationCooldown)
+        .values({ phone: input.phone, cooldownUntil })
+        .onConflictDoUpdate({
+          target: merchantRegistrationCooldown.phone,
+          set: { cooldownUntil },
+          setWhere: lte(merchantRegistrationCooldown.cooldownUntil, now),
+        })
+        .returning({ phone: merchantRegistrationCooldown.phone });
+      if (claimed.length === 0) return "cooldown";
+      if (beforeCreate) await beforeCreate(tx);
+
+      const requestId = prefixedId("mrr");
+      await tx.insert(merchantRegistrationRequest).values({
+        id: requestId,
+        submissionId: input.submissionId,
+        businessName: input.businessName,
+        contactName: input.contactName,
+        phone: input.phone,
+        email: input.email,
+        district: input.district,
+        businessType: input.businessType,
+        monthlyVolume: input.monthlyVolume,
+        notes: input.notes,
+        status: "new",
+        merchantId: null,
+        createdAt: now,
+        convertedAt: null,
+        receiptSmsState: "queued",
+        confirmationSmsState: "not_queued",
+        smsConsent: true,
+      });
+      await enqueue("merchant_registration.sms", { registrationRequestId: requestId, stage: "receipt" }, tx);
+      return "created";
+    });
+  } catch (error) {
+    if (isUniqueViolationOn(error, "merchants_registration_request.submission_id")) {
+      const [existing] = await db
+        .select({ id: merchantRegistrationRequest.id })
+        .from(merchantRegistrationRequest)
+        .where(eq(merchantRegistrationRequest.submissionId, input.submissionId))
+        .limit(1);
+      if (existing) return "duplicate";
+    }
+    throw error;
+  }
+}
+
+/** Admin-only queue query. The internal submission UUID is never returned. */
+export async function listRegistrationRequests(input: {
+  page: number;
+  pageSize: number;
+  status?: "new" | "converted";
+}) {
+  const page = Math.max(1, input.page);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize));
+  const where = input.status ? eq(merchantRegistrationRequest.status, input.status) : undefined;
+  const [rows, [total]] = await Promise.all([
+    db
+      .select()
+      .from(merchantRegistrationRequest)
+      .where(where)
+      .orderBy(desc(merchantRegistrationRequest.createdAt))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ value: count() }).from(merchantRegistrationRequest).where(where),
+  ]);
+  return { rows: rows.map(publicRegistrationRow), total: total?.value ?? 0, page, pageSize };
+}
+
+export async function registrationRequestCount(): Promise<{ newCount: number }> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(merchantRegistrationRequest)
+    .where(eq(merchantRegistrationRequest.status, "new"));
+  return { newCount: row?.value ?? 0 };
+}
+
+export async function getRegistrationRequest(id: string) {
+  const [row] = await db
+    .select()
+    .from(merchantRegistrationRequest)
+    .where(eq(merchantRegistrationRequest.id, id))
+    .limit(1);
+  if (!row) errors.notFound("Merchant registration request");
+  return publicRegistrationRow(row!);
+}
+
+/** Internal lookup and state transitions used only by the SMS worker. */
+export async function getRegistrationRequestForWorker(id: string) {
+  const [row] = await db
+    .select()
+    .from(merchantRegistrationRequest)
+    .where(eq(merchantRegistrationRequest.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function claimRegistrationSms(id: string, stage: RegistrationSmsStage) {
+  const stateColumn = stage === "receipt"
+    ? merchantRegistrationRequest.receiptSmsState
+    : merchantRegistrationRequest.confirmationSmsState;
+  const conditions = [
+    eq(merchantRegistrationRequest.id, id),
+    eq(merchantRegistrationRequest.smsConsent, true),
+    inArray(stateColumn, ["queued", "failed"]),
+    ...(stage === "confirmation" ? [eq(merchantRegistrationRequest.status, "converted")] : []),
+  ];
+  const [row] = await db
+    .update(merchantRegistrationRequest)
+    .set(stage === "receipt" ? { receiptSmsState: "sending" } : { confirmationSmsState: "sending" })
+    .where(and(...conditions))
+    .returning({ id: merchantRegistrationRequest.id, phone: merchantRegistrationRequest.phone });
+  return row ?? null;
+}
+
+export async function setRegistrationSmsState(
+  id: string,
+  stage: RegistrationSmsStage,
+  state: string,
+): Promise<void> {
+  await db
+    .update(merchantRegistrationRequest)
+    .set(stage === "receipt" ? { receiptSmsState: state } : { confirmationSmsState: state })
+    .where(eq(merchantRegistrationRequest.id, id));
+}
+
+/** Link once and enqueue acceptance in the same merchant-onboarding transaction. */
+export async function convertRegistrationRequest(
+  id: string,
+  merchantId: string,
+  executor: DbTransaction | typeof db = db,
+  now = new Date(),
+): Promise<void> {
+  const [updated] = await executor
+    .update(merchantRegistrationRequest)
+    .set({ status: "converted", merchantId, convertedAt: now, confirmationSmsState: "queued" })
+    .where(and(eq(merchantRegistrationRequest.id, id), eq(merchantRegistrationRequest.status, "new")))
+    .returning({ id: merchantRegistrationRequest.id });
+  if (!updated) errors.conflict("This registration request has already been converted or is unavailable.");
+  await enqueue("merchant_registration.sms", { registrationRequestId: id, stage: "confirmation" }, executor);
 }
 
 export async function setMerchantStatus(

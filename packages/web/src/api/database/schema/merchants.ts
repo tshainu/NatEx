@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * MODULE: merchants — NatEx's customers.
@@ -38,6 +38,41 @@ export const merchant = sqliteTable(
   },
   (t) => [index("merchants_merchant_branch_idx").on(t.branchId)],
 );
+
+/** Public merchant applications; all reads are exposed only through admin procedures. */
+export const merchantRegistrationRequest = sqliteTable(
+  "merchants_registration_request",
+  {
+    id: text("id").primaryKey(),
+    submissionId: text("submission_id").notNull(),
+    businessName: text("business_name").notNull(),
+    contactName: text("contact_name").notNull(),
+    phone: text("phone").notNull(),
+    email: text("email").notNull(),
+    district: text("district").notNull(),
+    businessType: text("business_type").notNull(),
+    monthlyVolume: text("monthly_volume").notNull(),
+    notes: text("notes").notNull(),
+    status: text("status").notNull().default("new"),
+    merchantId: text("merchant_id").references(() => merchant.id),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    convertedAt: integer("converted_at", { mode: "timestamp" }),
+    receiptSmsState: text("receipt_sms_state").notNull().default("queued"),
+    confirmationSmsState: text("confirmation_sms_state").notNull().default("not_queued"),
+    smsConsent: integer("sms_consent", { mode: "boolean" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("merchants_registration_submission_idx").on(t.submissionId),
+    index("merchants_registration_status_created_idx").on(t.status, t.createdAt),
+    index("merchants_registration_phone_created_idx").on(t.phone, t.createdAt),
+  ],
+);
+
+/** Single-row lease per normalized applicant phone; the upsert enforces cooldown under concurrency. */
+export const merchantRegistrationCooldown = sqliteTable("merchants_registration_cooldown", {
+  phone: text("phone").primaryKey(),
+  cooldownUntil: integer("cooldown_until", { mode: "timestamp" }).notNull(),
+});
 
 // ─────────────────────────────────────────────────────────────── rate cards
 //

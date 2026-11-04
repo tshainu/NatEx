@@ -13,6 +13,7 @@ import { prefixedId } from "../../shared/ulid";
 import { districtFromAddress } from "../../shared/address";
 import * as identityService from "../identity/service";
 import { SETTING_KEYS, settingValue } from "../settings/service";
+import type { DbTransaction } from "../../database/transaction";
 import {
   DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
   DEFAULT_WEIGHT_ROUNDING_GRAMS,
@@ -346,17 +347,26 @@ export async function quoteForMerchant(merchantId: string, input: QuoteInput) {
   return quoteVersion(active!.id, input);
 }
 
-export async function assignRateCard(merchantId: string, rateCardId: string | null) {
-  const [m] = await db.select().from(merchant).where(eq(merchant.id, merchantId));
+export async function assignRateCard(
+  merchantId: string,
+  rateCardId: string | null,
+  executor: DbTransaction | typeof db = db,
+) {
+  const [m] = await executor.select().from(merchant).where(eq(merchant.id, merchantId));
   if (!m) errors.notFound("Merchant");
   if (rateCardId) {
-    const card = await cardOrThrow(rateCardId);
-    if (card.placeholder) errors.badRequest("A placeholder rate card cannot be assigned to a merchant.");
-    if (!(await activeVersionOf(rateCardId))) {
+    const [card] = await executor.select().from(rateCard).where(eq(rateCard.id, rateCardId));
+    if (!card) errors.notFound("Rate card");
+    if (card!.placeholder) errors.badRequest("A placeholder rate card cannot be assigned to a merchant.");
+    const [active] = await executor
+      .select({ id: rateCardVersion.id })
+      .from(rateCardVersion)
+      .where(and(eq(rateCardVersion.rateCardId, rateCardId), eq(rateCardVersion.status, "active")));
+    if (!active) {
       errors.conflict("Publish a version of this rate card before assigning it to a merchant.");
     }
   }
-  await db.update(merchant).set({ rateCardId }).where(eq(merchant.id, merchantId));
+  await executor.update(merchant).set({ rateCardId }).where(eq(merchant.id, merchantId));
   return { merchantId, before: m!.rateCardId, after: rateCardId };
 }
 

@@ -3,10 +3,15 @@ import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { claimBatch, markDone, markFailed } from "../shared/outbox";
 import { sendSms } from "../shared/sms";
-import { containsTrackingMaterial } from "../shared/sms-policy";
+import {
+  containsTrackingMaterial,
+  MERCHANT_REGISTRATION_ACCEPTED_SMS,
+  MERCHANT_REGISTRATION_RECEIPT_SMS,
+} from "../shared/sms-policy";
 import * as notifications from "../modules/notifications/service";
 import type { NotifyInput } from "../modules/notifications/service";
 import * as alerts from "../modules/cod/alerts";
+import * as merchantsService from "../modules/merchants/service";
 
 /**
  * Outbox drain (PROJECT.md §4 — "every background job runs off the outbox
@@ -43,6 +48,43 @@ export async function dispatchQueuedSms(p: SmsSendPayload, sender: typeof sendSm
   if (res.state === "failed") throw new Error(`sms gateway: ${res.raw.slice(0, 200)}`);
 }
 
+interface MerchantRegistrationSmsPayload {
+  registrationRequestId: string;
+  stage: "receipt" | "confirmation";
+}
+
+/** Dedicated job: its payload has no phone or message field. */
+export async function dispatchMerchantRegistrationSms(
+  payload: MerchantRegistrationSmsPayload,
+  sender: typeof sendSms = sendSms,
+): Promise<void> {
+  if (
+    !payload ||
+    typeof payload.registrationRequestId !== "string" ||
+    !["receipt", "confirmation"].includes(payload.stage) ||
+    Object.keys(payload).sort().join(",") !== "registrationRequestId,stage"
+  ) {
+    throw new Error("Invalid merchant registration SMS job payload.");
+  }
+
+  const request = await merchantsService.claimRegistrationSms(payload.registrationRequestId, payload.stage);
+  if (!request) return;
+
+  // Fail closed outside Production even if a gateway URL is configured.
+  if (process.env.NODE_ENV !== "production" || process.env.SMS_DISABLE_ALL?.trim().toLowerCase() === "true") {
+    await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, "suppressed");
+    return;
+  }
+
+  const body = payload.stage === "receipt"
+    ? MERCHANT_REGISTRATION_RECEIPT_SMS
+    : MERCHANT_REGISTRATION_ACCEPTED_SMS;
+  const result = await sender({ to: request.phone, body, purpose: "merchant_registration" });
+  const state = result.state === "sent" ? "sent" : "failed";
+  await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, state);
+  if (state === "failed") throw new Error("Merchant registration SMS delivery failed.");
+}
+
 function parse<T>(json: string): T {
   return JSON.parse(json) as T;
 }
@@ -50,6 +92,17 @@ function parse<T>(json: string): T {
 /** Handlers are keyed by topic — an unknown topic is a dead letter, not a crash. */
 async function handle(topic: string, payloadJson: string): Promise<void> {
   switch (topic) {
+    case "merchant_registration.sms": {
+      let payload: MerchantRegistrationSmsPayload;
+      try {
+        payload = parse<MerchantRegistrationSmsPayload>(payloadJson);
+      } catch {
+        throw new Error("Invalid merchant registration SMS job payload.");
+      }
+      await dispatchMerchantRegistrationSms(payload);
+      return;
+    }
+
     case "sms.send": {
       const p = parse<SmsSendPayload>(payloadJson);
       // Booking/status notifications and unsafe legacy POD bodies are drained,

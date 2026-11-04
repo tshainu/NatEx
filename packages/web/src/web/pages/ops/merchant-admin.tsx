@@ -6,10 +6,11 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, ConfirmDialog } from "@/components/ui/dialog";
-import { ErrorNote } from "@/components/natex/page";
+import { ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { AddressFields } from "@/components/natex/address-fields";
-import { addressPartsFromLegacy, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
+import { addressPartsFromLegacy, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useMerchantPortalUsers, useRateCards } from "@/queries/admin";
+import { registrationOnboardPrefill, type MerchantRegistrationRequest } from "./merchant-registration";
 
 /**
  * Merchant onboarding and maintenance (§10 M5 "merchant onboarding").
@@ -238,39 +239,39 @@ export function OnboardMerchantDialog({
   onOpenChange,
   branches,
   defaultBranchId,
+  registrationRequest,
   onDone,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   branches: { id: string; name: string }[];
   defaultBranchId: string;
+  registrationRequest?: MerchantRegistrationRequest;
   onDone: (merchantId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const cards = useRateCards();
-  const blank: MerchantForm = {
-    name: "",
-    branchId: defaultBranchId,
+  const blank = React.useMemo<MerchantForm>(() => ({
+    ...registrationOnboardPrefill(defaultBranchId, registrationRequest),
     pickupRiderId: "",
     vatNo: "",
-    address: { ...EMPTY_ADDRESS },
-    contactName: "",
-    contactPhone: "",
     codEnabled: true,
     podPolicy: "signature",
-  };
+  }), [defaultBranchId, registrationRequest]);
   const [form, setForm] = React.useState(blank);
   const [rateCardId, setRateCardId] = React.useState("");
   const [withPortal, setWithPortal] = React.useState(true);
-  const [portalName, setPortalName] = React.useState("");
-  const [portalPhone, setPortalPhone] = React.useState("");
+  const [portalName, setPortalName] = React.useState(registrationRequest?.contactName ?? "");
+  const [portalPhone, setPortalPhone] = React.useState(registrationRequest?.phone ?? "");
   const [withPasswordLogin, setWithPasswordLogin] = React.useState(true);
   const [portalUsername, setPortalUsername] = React.useState("");
   const [portalPassword, setPortalPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
+  const submitting = React.useRef(false);
   const set = <K extends keyof MerchantForm>(key: K, value: MerchantForm[K]) => setForm((f) => ({ ...f, [key]: value }));
   const changeOpen = (next: boolean) => {
     if (!next) {
+      if (submitting.current) return;
       setPortalPassword("");
       setPortalUsername("");
       setProblem(null);
@@ -278,10 +279,30 @@ export function OnboardMerchantDialog({
     onOpenChange(next);
   };
 
+  React.useEffect(() => {
+    if (!open) return;
+    submitting.current = false;
+    setForm(blank);
+    setRateCardId("");
+    setWithPortal(true);
+    setPortalName(registrationRequest?.contactName ?? "");
+    setPortalPhone(registrationRequest?.phone ?? "");
+    setWithPasswordLogin(true);
+    setPortalUsername("");
+    setPortalPassword("");
+    setProblem(null);
+  }, [open, blank, registrationRequest?.id, registrationRequest?.contactName, registrationRequest?.phone]);
+
   const onboard = useMutation({
     ...orpc.merchants.onboard.mutationOptions(),
     onSuccess: (result) => {
       void queryClient.invalidateQueries();
+      void queryClient.invalidateQueries({ queryKey: orpc.merchants.list.key() });
+      if (registrationRequest) {
+        void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequests.key() });
+        void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequestCount.key() });
+      }
+      submitting.current = false;
       setForm(blank);
       setRateCardId("");
       setPortalName("");
@@ -291,7 +312,10 @@ export function OnboardMerchantDialog({
       setPortalPassword("");
       onDone(result.merchant.id);
     },
-    onError: (error) => setProblem(apiMessage(error, "This merchant could not be onboarded.")),
+    onError: (error) => {
+      submitting.current = false;
+      setProblem(apiMessage(error, "This merchant could not be onboarded."));
+    },
   });
 
   const assignable = (cards.data ?? []).filter((c) => c.activeVersion && !c.placeholder);
@@ -311,13 +335,15 @@ export function OnboardMerchantDialog({
       className="w-[560px]"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => changeOpen(false)}>
+          <Button variant="outline" disabled={onboard.isPending} onClick={() => changeOpen(false)}>
             Cancel
           </Button>
           <Button
             disabled={!formValid(form) || !portalOk}
             pending={onboard.isPending}
             onClick={() => {
+              if (submitting.current) return;
+              submitting.current = true;
               setProblem(null);
               onboard.mutate({
                 name: form.name.trim(),
@@ -339,6 +365,7 @@ export function OnboardMerchantDialog({
                         : {}),
                     }
                   : null,
+                ...(registrationRequest ? { registrationRequestId: registrationRequest.id } : {}),
               });
             }}
           >
@@ -348,6 +375,19 @@ export function OnboardMerchantDialog({
       }
     >
       <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
+        {registrationRequest ? (
+          <section aria-labelledby="application-summary-heading" className="flex flex-col gap-3 rounded-md border border-brand/30 bg-brand/5 p-3">
+            <h3 id="application-summary-heading" className="label-xs text-muted-foreground">Applicant’s registration summary</h3>
+            <KeyValueGrid>
+              <KeyValue label="Email">{registrationRequest.email}</KeyValue>
+              <KeyValue label="Business type">{registrationRequest.businessType}</KeyValue>
+              <KeyValue label="Expected monthly volume">{registrationRequest.monthlyVolume}</KeyValue>
+              <KeyValue label="Notes" className="col-span-2">
+                <span className="whitespace-pre-wrap">{registrationRequest.notes.trim() || "No additional notes"}</span>
+              </KeyValue>
+            </KeyValueGrid>
+          </section>
+        ) : null}
         <MerchantFields form={form} set={set} branches={branches} />
         <Field label="Rate card" hint="Only approved cards with a published version can be assigned.">
           <Select value={rateCardId} onChange={(e) => setRateCardId(e.target.value)}>

@@ -1,9 +1,83 @@
 import { z } from "zod";
-import { mutate, opsProc, readProc } from "../middleware/pipeline";
+import { mutate, opsProc, publicMutate, publicProc, readProc } from "../middleware/pipeline";
+import { consumeToken } from "../middleware/rate-limit";
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
 import { isGlobalScope } from "../shared/auth";
+import { DISTRICTS } from "../shared/address";
+
+function normalizeRegistrationPhone(value: string): string {
+  const compact = value.replace(/[\s().-]/g, "");
+  let international: string;
+  if (compact.startsWith("+94")) international = compact;
+  else if (compact.startsWith("94")) international = `+${compact}`;
+  else if (compact.startsWith("0")) international = `+94${compact.slice(1)}`;
+  else international = `+94${compact}`;
+  return international;
+}
+
+/** Stable non-secret bucket key that keeps this route importable by mobile typecheck. */
+function phoneBucketKey(phone: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < phone.length; index += 1) {
+    hash ^= phone.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+const registrationPhone = z
+  .string()
+  .trim()
+  .min(9)
+  .max(24)
+  .regex(/^\+?[0-9][0-9\s().-]*$/)
+  .transform(normalizeRegistrationPhone)
+  .pipe(z.string().regex(/^\+947\d{8}$/));
+
+export const registrationInputSchema = z.object({
+  businessName: z.string().trim().min(2).max(160),
+  contactName: z.string().trim().min(2).max(120),
+  phone: registrationPhone,
+  email: z.email().trim().max(254),
+  district: z.enum(DISTRICTS),
+  businessType: z.string().trim().min(2).max(80),
+  monthlyVolume: z.string().trim().min(1).max(80),
+  notes: z.string().trim().max(2000),
+  smsConsent: z.literal(true),
+  website: z.string().max(200).optional(),
+  submissionId: z.uuid(),
+});
+
+export const submitRegistration = publicProc
+  .input(registrationInputSchema)
+  .handler(({ input, context }) =>
+    publicMutate(
+      context,
+      {
+        route: "merchants.submitRegistration",
+        bucket: { capacity: 6, refillPerMinute: 2 },
+      },
+      async () => {
+        // Bots that fill the hidden field get the same bland success, but never
+        // create a request, consume a phone token, or enqueue an SMS.
+        if (input.website?.trim()) return { received: true as const };
+
+        const { website: _website, ...submission } = input;
+        const phoneBucket = phoneBucketKey(submission.phone);
+        await merchantsService.createRegistrationRequest(
+          submission,
+          (executor) => consumeToken(
+            `anon:merchant-registration-phone:${phoneBucket}`,
+            { capacity: 3, refillPerMinute: 3 / 1440 },
+            executor,
+          ),
+        );
+        return { received: true as const };
+      },
+    ),
+  );
 
 async function validatePickupRider(riderId: string | null | undefined, branchId: string) {
   if (riderId && !(await identityService.isActiveRiderInBranch(riderId, branchId))) {
@@ -84,6 +158,7 @@ export const setStatus = opsProc
 
 /** Router namespace — composed into the root router in api/index.ts. */
 export const merchants = {
+  submitRegistration,
   list,
   get,
   options,

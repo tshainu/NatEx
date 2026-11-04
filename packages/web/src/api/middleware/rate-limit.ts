@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../database";
 import { rateLimit } from "../database/schema/shared";
 import { errors } from "../shared/errors";
+import type { DbTransaction } from "../database/transaction";
 
 /**
  * STEP 5 of the chain (PROJECT.md §4): token bucket, per-user and per-IP.
@@ -17,12 +18,16 @@ export interface BucketSpec {
   refillPerMinute: number;
 }
 
-export async function consumeToken(bucketKey: string, spec: BucketSpec): Promise<void> {
+export async function consumeToken(
+  bucketKey: string,
+  spec: BucketSpec,
+  executor: DbTransaction | typeof db = db,
+): Promise<void> {
   const now = new Date();
-  const [existing] = await db.select().from(rateLimit).where(eq(rateLimit.bucket, bucketKey));
+  const [existing] = await executor.select().from(rateLimit).where(eq(rateLimit.bucket, bucketKey));
 
   if (!existing) {
-    await db
+    await executor
       .insert(rateLimit)
       .values({ bucket: bucketKey, tokens: spec.capacity - 1, refilledAt: now })
       .onConflictDoNothing();
@@ -39,7 +44,7 @@ export async function consumeToken(bucketKey: string, spec: BucketSpec): Promise
     errors.rateLimited(secondsPerToken);
   }
 
-  await db
+  await executor
     .update(rateLimit)
     .set({ tokens: tokens - 1, refilledAt: refill > 0 ? now : existing.refilledAt })
     .where(eq(rateLimit.bucket, bucketKey));

@@ -17,6 +17,7 @@ build (2026-10-03) unless it says otherwise.
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
 | `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Configure sender ID as `AXISXNOR`. Sign-in OTP remains enabled; customer parcel SMS is reserved for delivery/POD only. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception to the parcel-SMS policy; OTP and identifier-free POD remain unchanged. |
 | Tracking links in SMS | — | Disabled. Booking/status messages do not send SMS, and POD SMS contains no tracking number or link. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
@@ -155,6 +156,30 @@ back without committing.
   (`__core/app.ts`). It is not exploitable as built, because auth is a bearer
   token in `localStorage`, not a cookie, so a foreign origin has no ambient
   credential to ride. If auth ever moves to cookies, this must change first.
+
+### Merchant registration website and request review
+
+The public website submits to `merchants.submitRegistration` at the Production API origin.
+Submission is unauthenticated but validated, throttled by IP and destination phone, and protected
+against duplicate retries. It returns only a received acknowledgment, never an applicant's record.
+The public form requires consent for the two one-time registration SMS updates.
+
+Administrators review applications under **Merchants → Merchants Requests**; the red bell/count
+indicates new requests. Opening a request allows **Onboard as merchant**, which prefills the existing
+onboarding dialog. Staff complete the pickup address, branch, rate card and any portal login details.
+Saving atomically creates the merchant and links/converts the request. Converted requests cannot
+be onboarded a second time, and their original application remains available for reference.
+
+Production queues only the owner-approved receipt and acceptance messages from sender `AXISXNOR`.
+The acceptance message is queued only after successful onboarding. The SMS uses the submitted
+applicant number, not an arbitrary replacement contact number chosen during onboarding. Gateway
+acceptance is not proof of handset delivery. Demo must keep `SMS_DISABLE_ALL=true`; never send a
+real test SMS as part of a release check. Registration jobs are also independently disabled outside
+Production, so Demo applications do not contact applicants.
+
+The standalone website remains a static hosting package; no DB tokens or gateway secrets belong
+in it. Its hosting CSP must allow the NatEx API origin in `connect-src`. Upload compiled assets first
+and `index.html` last, preserving local media and SPA route support for `/merchant-enrollment`.
 
 ---
 

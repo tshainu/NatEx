@@ -22,6 +22,7 @@ import { distanceMetres } from "../../shared/geo";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { devCodeFor, getFactor, MFA_ROLES, mfaRequiredForAny } from "./mfa";
 import { isDevelopment } from "../../shared/env";
+import type { DbTransaction } from "../../database/transaction";
 
 /**
  * MODULE: identity — the ONLY reader of identity_* tables (PROJECT.md §4).
@@ -589,20 +590,21 @@ export async function createUser(input: {
   username?: string | null;
   password?: string | null;
   merchantId?: string | null;
-}): Promise<IdentityUser> {
+}, executor: DbTransaction | typeof db = db): Promise<IdentityUser> {
   const phone = normaliseLkPhone(input.phone);
-  const existing = await getUserByPhone(phone);
-  if (existing) errors.conflict(`A user with phone ${phone} already exists.`);
+  const [existing] = await executor.select().from(user).where(eq(user.phone, phone));
+  if (existing) errors.conflict("A user with that phone already exists.");
 
   const roles = dedupeRoles(input.roles?.length ? input.roles : [input.role]);
   let username: string | null = null;
   if (input.username) {
     username = normaliseUsername(input.username);
-    if (await getUserByUsername(username)) errors.conflict(`Username ${username} is already taken.`);
+    const [usernameExisting] = await executor.select({ id: user.id }).from(user).where(eq(user.username, username));
+    if (usernameExisting) errors.conflict("That username is already taken.");
   }
   const passwordHash = input.password ? await hashSecret(input.password) : null;
 
-  const [row] = await db
+  const [row] = await executor
     .insert(user)
     .values({
       id: prefixedId("usr"),

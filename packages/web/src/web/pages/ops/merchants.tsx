@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search } from "lucide-react";
+import { Bell, Plus, Search } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
 import { date, dateTime, coords, humanise } from "@/lib/format";
 import { Input, Field } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Dialog, ConfirmDialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Page, KeyValue, KeyValueGrid, ErrorNote } from "@/components/natex/page";
 import { AddressFields } from "@/components/natex/address-fields";
+import { TabStrip, useTabParam } from "@/components/natex/tab-strip";
 import { EMPTY_ADDRESS, formatAddress, isCompleteAddress } from "@/lib/address";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { useAuth } from "@/components/auth-provider";
@@ -20,6 +21,10 @@ import {
   PortalUsersSection,
   RateCardSection,
 } from "./merchant-admin";
+import { RegistrationRequests } from "./registration-requests";
+import type { MerchantRegistrationRequest } from "./merchant-registration";
+
+const MERCHANT_TABS = ["register", "requests"] as const;
 
 /**
  * Merchant register (§5 merchants). Ops and admin manage it; a merchant user
@@ -61,6 +66,8 @@ export default function Merchants({
   const [page, setPage] = React.useState(1);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [registrationTarget, setRegistrationTarget] = React.useState<MerchantRegistrationRequest | undefined>();
+  const [activeTab, setActiveTab] = useTabParam("tab", MERCHANT_TABS, "register");
 
   const debounced = useDebounced(search, 250);
   React.useEffect(() => setPage(1), [debounced]);
@@ -75,6 +82,22 @@ export default function Merchants({
       input: { page, pageSize: 25, search: debounced.trim() || undefined },
     }),
   );
+
+  // Keep the notification current on the register even while another tab is selected.
+  const requestCount = useQuery({
+    ...orpc.merchants.registrationRequestCount.queryOptions(),
+    enabled: isAdmin,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const newRequestCount = isAdmin ? requestCount.data?.newCount ?? 0 : 0;
+  const visibleTab = isAdmin ? activeTab : "register";
+  const tabItems: { id: typeof MERCHANT_TABS[number]; label: string; badge?: number }[] = [
+    { id: "register", label: "Merchants" },
+    ...(isAdmin
+      ? [{ id: "requests" as const, label: "Merchants Requests", ...(newRequestCount > 0 ? { badge: newRequestCount } : {}) }]
+      : []),
+  ];
 
   const branchName = React.useCallback(
     (id: string) => branches.data?.find((b) => b.id === id)?.name ?? id,
@@ -146,16 +169,48 @@ export default function Merchants({
     <Page
       title={title}
       description={description}
-      actions={
-        canWrite ? (
-          <Button onClick={() => setCreating(true)}>
+      actions={canWrite ? (
+        <>
+          {isAdmin ? (
+            <Button
+              variant="outline"
+              size="icon"
+              className="relative"
+              aria-label={newRequestCount > 0 ? `${newRequestCount} new merchant requests` : "Merchant requests"}
+              title={newRequestCount > 0 ? `${newRequestCount} new merchant requests` : "Merchant requests"}
+              onClick={() => setActiveTab("requests")}
+            >
+              <Bell aria-hidden />
+              {newRequestCount > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-bad px-1 text-[10px] font-bold leading-4 text-white">
+                  {newRequestCount > 99 ? "99+" : newRequestCount}
+                </span>
+              ) : null}
+            </Button>
+          ) : null}
+          <Button onClick={() => {
+            setRegistrationTarget(undefined);
+            setCreating(true);
+          }}>
             <Plus aria-hidden />
             {isAdmin ? "Onboard merchant" : "Add merchant"}
           </Button>
-        ) : null
-      }
+        </>
+      ) : null}
       bleed
     >
+      <TabStrip
+        label="Merchant sections"
+        tabs={tabItems}
+        value={visibleTab}
+        onChange={setActiveTab}
+      />
+      {visibleTab === "register" ? <div
+        role="tabpanel"
+        id="panel-register"
+        aria-labelledby="tab-register"
+        className="flex min-h-0 flex-1 flex-col"
+      >
       <DataTable
         columns={columns}
         rows={(list.data?.rows ?? []) as unknown as MerchantRow[]}
@@ -189,6 +244,25 @@ export default function Merchants({
         }}
         className="min-h-0 flex-1"
       />
+      </div> : null}
+
+      {isAdmin && visibleTab === "requests" ? <div
+        role="tabpanel"
+        id="panel-requests"
+        aria-labelledby="tab-requests"
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <RegistrationRequests
+          onOnboard={(request) => {
+            setRegistrationTarget(request);
+            setCreating(true);
+          }}
+          onViewMerchant={(merchantId) => {
+            setActiveTab("register");
+            setOpenId(merchantId);
+          }}
+        />
+      </div> : null}
 
       <MerchantDrawer
         id={openId}
@@ -201,11 +275,17 @@ export default function Merchants({
       {isAdmin ? (
         <OnboardMerchantDialog
           open={creating}
-          onOpenChange={setCreating}
+          onOpenChange={(open) => {
+            setCreating(open);
+            if (!open) setRegistrationTarget(undefined);
+          }}
           branches={branches.data ?? []}
           defaultBranchId={session!.user.branchId}
+          registrationRequest={registrationTarget}
           onDone={(id) => {
             setCreating(false);
+            setRegistrationTarget(undefined);
+            setActiveTab("register");
             setOpenId(id);
           }}
         />

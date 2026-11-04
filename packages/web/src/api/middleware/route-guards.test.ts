@@ -60,6 +60,7 @@ const PUBLIC = [
   "identity.refresh",
   "identity.requestOtp",
   "identity.verifyOtp",
+  "merchants.submitRegistration",
   "parcels.track",
   "ping",
 ];
@@ -117,6 +118,9 @@ describe("route guards (static inventory)", () => {
       const g = byPath.get(path);
       if (!g) continue; // name drift is caught by the next assertion
       expect({ path, roles: g.roles }).toEqual({ path, roles: ["admin"] });
+    }
+    for (const path of ["merchants.registrationRequests", "merchants.registrationRequestCount", "merchants.registrationRequest"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["admin"] });
     }
     expect(byPath.get("settings.set")?.roles).toEqual(["admin"]);
   });

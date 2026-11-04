@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { assertPodSmsHasNoTrackingMaterial, containsTrackingMaterial } from "./sms-policy";
+import {
+  assertMerchantRegistrationSms,
+  assertPodSmsHasNoTrackingMaterial,
+  containsTrackingMaterial,
+  MERCHANT_REGISTRATION_ACCEPTED_SMS,
+  MERCHANT_REGISTRATION_RECEIPT_SMS,
+} from "./sms-policy";
 
 describe("customer SMS tracking-material policy", () => {
   test("detects tracking placeholders, current numbers, legacy numbers, and links", () => {
@@ -21,5 +27,17 @@ describe("customer SMS tracking-material policy", () => {
     const body = "NatEx: your parcel has been delivered. Thank you.";
     expect(containsTrackingMaterial(body)).toBe(false);
     expect(() => assertPodSmsHasNoTrackingMaterial(body)).not.toThrow();
+  });
+
+  test("accepts only the two exact merchant-registration SMS copies", () => {
+    expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_RECEIPT_SMS)).not.toThrow();
+    expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_ACCEPTED_SMS)).not.toThrow();
+    for (const body of [
+      `${MERCHANT_REGISTRATION_RECEIPT_SMS} NX2610020001`,
+      MERCHANT_REGISTRATION_RECEIPT_SMS.replace("review.", "review!"),
+      "Your application was received.",
+    ]) {
+      expect(() => assertMerchantRegistrationSms(body)).toThrow("Merchant-registration SMS must match an approved fixed template.");
+    }
   });
 });

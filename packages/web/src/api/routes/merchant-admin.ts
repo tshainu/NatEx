@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { adminProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
-import { createUser, getBranch, getUserByPhone, getUserByUsername, isActiveRiderInBranch } from "../modules/identity/service";
-import { assignRateCard } from "../modules/merchants/rate-cards";
+import { getBranch, getUserByPhone, getUserByUsername, isActiveRiderInBranch } from "../modules/identity/service";
 import * as merchantsService from "../modules/merchants/service";
+import { onboardMerchant } from "../modules/merchants/onboarding";
 import { errors } from "../shared/errors";
 import { normaliseLkPhone } from "../shared/sms";
 
@@ -18,6 +18,20 @@ import { normaliseLkPhone } from "../shared/sms";
  */
 
 const pod = z.enum(["signature", "otp", "photo"]);
+
+export const registrationRequests = adminProc
+  .input(z.object({
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(1).max(100).default(25),
+    status: z.enum(["new", "converted"]).optional(),
+  }))
+  .handler(({ input }) => merchantsService.listRegistrationRequests(input));
+
+export const registrationRequestCount = adminProc.handler(() => merchantsService.registrationRequestCount());
+
+export const registrationRequest = adminProc
+  .input(z.object({ id: z.string().min(1).max(100) }))
+  .handler(({ input }) => merchantsService.getRegistrationRequest(input.id));
 
 async function validatePickupRider(riderId: string | null | undefined, branchId: string) {
   if (riderId && !(await isActiveRiderInBranch(riderId, branchId))) {
@@ -68,6 +82,7 @@ export const onboard = adminProc
       codEnabled: z.boolean().default(true),
       podPolicy: pod.default("signature"),
       rateCardId: z.string().min(1).nullish(),
+      registrationRequestId: z.string().min(1).max(100).optional(),
       portalUser: z
         .object({
           name: z.string().trim().min(2).max(120),
@@ -87,10 +102,10 @@ export const onboard = adminProc
     await validatePickupRider(input.pickupRiderId, input.branchId);
     if (input.portalUser) {
       const clash = await getUserByPhone(normaliseLkPhone(input.portalUser.phone));
-      if (clash) errors.conflict(`Phone ${clash.phone} already belongs to ${clash.name}.`, { userId: clash.id });
+      if (clash) errors.conflict("A user with that phone already exists.");
       if (input.portalUser.username) {
         const usernameClash = await getUserByUsername(input.portalUser.username);
-        if (usernameClash) errors.conflict(`Username ${input.portalUser.username.trim().toLowerCase()} is already taken.`);
+        if (usernameClash) errors.conflict("That username is already taken.");
       }
     }
     return mutate(
@@ -102,40 +117,7 @@ export const onboard = adminProc
         entityId: (r) => (r as { merchant: { id: string } }).merchant.id,
         action: "merchant.onboarded",
       },
-      async () => {
-        const created = await merchantsService.createMerchant(
-          {
-            name: input.name,
-            branchId: input.branchId,
-            pickupRiderId: input.pickupRiderId ?? null,
-            vatNo: input.vatNo ?? null,
-            address: input.address,
-            contactName: input.contactName,
-            contactPhone: input.contactPhone,
-            codEnabled: input.codEnabled,
-            podPolicy: input.podPolicy,
-          },
-          context.principal,
-        );
-        const rate = input.rateCardId ? await assignRateCard(created.id, input.rateCardId) : null;
-        const portal = input.portalUser
-          ? await createUser({
-              name: input.portalUser.name,
-              phone: input.portalUser.phone,
-              role: "merchant",
-              branchId: input.branchId,
-              merchantId: created.id,
-              username: input.portalUser.username ?? null,
-              password: input.portalUser.password ?? null,
-            })
-          : null;
-        return {
-          merchant: { ...created, rateCardId: rate?.after ?? null },
-          portalUser: portal
-            ? { id: portal.id, name: portal.name, phone: portal.phone, username: portal.username }
-            : null,
-        };
-      },
+      () => onboardMerchant(input, context.principal),
     );
   });
 
@@ -143,4 +125,11 @@ export const portalUsers = adminProc
   .input(z.object({ merchantId: z.string().min(1) }))
   .handler(({ input }) => usersForMerchant(input.merchantId));
 
-export const merchantAdmin = { update, onboard, portalUsers };
+export const merchantAdmin = {
+  update,
+  onboard,
+  portalUsers,
+  registrationRequests,
+  registrationRequestCount,
+  registrationRequest,
+};
