@@ -8,6 +8,7 @@ import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, todayInColombo, HR_CONTROL_CLASS } from "./shared";
 import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
+import { EmployeeDocuments } from "./employee-documents";
 
 type EmployeeForm = {
   employeeCode: string;
@@ -59,6 +60,8 @@ export default function HrEmployees() {
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [form, setForm] = React.useState<EmployeeForm>(emptyForm);
   const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [activeTab, setActiveTab] = React.useState<"register" | "create">("register");
+  const [createdEmployee, setCreatedEmployee] = React.useState<{ id: string; employeeCode: string; fullName: string } | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string | null>(null);
   const [initialPackageId, setInitialPackageId] = React.useState("");
   const [detailSection, setDetailSection] = React.useState<"profile" | "documents" | "attendance" | "leave" | "salary">("profile");
@@ -79,6 +82,8 @@ export default function HrEmployees() {
     onSuccess: (employee) => {
       setNote(`${employee.employeeCode} was updated. Historical payroll snapshots remain unchanged.`);
       setEditingId(null);
+      setCreatedEmployee(null);
+      setActiveTab("register");
       setForm(emptyForm());
       setInitialPackageId("");
       refresh();
@@ -94,6 +99,8 @@ export default function HrEmployees() {
   }
 
   function editEmployee(employee: NonNullable<typeof employees.data>[number]) {
+    setActiveTab("create");
+    setCreatedEmployee(null);
     setEditingId(employee.id);
     setForm({
       employeeCode: employee.employeeCode,
@@ -175,7 +182,9 @@ export default function HrEmployees() {
       setEditingId(null);
       setForm(emptyForm());
       setInitialPackageId("");
-      setSelectedEmployeeId(employee.id);
+      setCreatedEmployee({ id: employee.id, employeeCode: employee.employeeCode, fullName: employee.fullName });
+      setSelectedEmployeeId(null);
+      setActiveTab("create");
       setDetailSection(initialPackageId ? "salary" : "profile");
       refresh();
     }
@@ -184,13 +193,19 @@ export default function HrEmployees() {
   const error = employees.error ?? branches.error ?? packages.error ?? create.error ?? update.error ?? assign.error;
   const busy = create.isPending || update.isPending || assign.isPending;
   const initialPackage = packages.data?.find((pkg) => pkg.id === initialPackageId);
+  const documentEmployeeId = editingId ?? createdEmployee?.id ?? null;
 
   return (
     <Page title="Employees" description="Confidential employee records, branch assignment and effective-dated salary package history. HR access is protected by mandatory authenticator MFA.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "The HR data could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
-      <Card title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users.">
+      <div role="tablist" aria-label="Employee register and creation" className="mb-4 flex gap-1 overflow-x-auto border-b border-border">
+        <button id="employee-register-tab" type="button" role="tab" aria-selected={activeTab === "register"} aria-controls="employee-register-panel" onClick={() => setActiveTab("register")} className={`-mb-px border-b-2 px-3 py-2 text-[13px] font-medium ${activeTab === "register" ? "border-brand text-brand" : "border-transparent text-muted-foreground hover:text-foreground"}`}>Employee register</button>
+        <button id="employee-create-tab" type="button" role="tab" aria-selected={activeTab === "create"} aria-controls="employee-create-panel" onClick={() => setActiveTab("create")} className={`-mb-px border-b-2 px-3 py-2 text-[13px] font-medium ${activeTab === "create" ? "border-brand text-brand" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{editingId ? "Edit employee" : "Create employee"}</button>
+      </div>
+      {activeTab === "create" ? <section id="employee-create-panel" role="tabpanel" aria-labelledby="employee-create-tab" className="space-y-4">
+      <Card title={editingId ? "Edit employee" : "Create employee"} description={editingId ? "Employee records are separate from NatEx official-user logins and Merchant portal users. Update the employee record and manage their documents here." : "Employee records are separate from NatEx official-user logins and Merchant portal users. Create the employee record, then upload their documents directly from this tab."}>
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
           <Field label="Employee code"><Input required maxLength={20} value={form.employeeCode} onChange={(e) => setField("employeeCode", e.target.value.toUpperCase())} /></Field>
           <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
@@ -245,11 +260,21 @@ export default function HrEmployees() {
           <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
             <Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>
             {!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-[12px] font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}
-            {editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}
+            {editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setCreatedEmployee(null); setForm(emptyForm()); setInitialPackageId(""); setActiveTab("register"); }}>Cancel edit</Button> : null}
           </div>
         </form>
       </Card>
+      {createdEmployee && !editingId ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-brand/25 bg-brand/5 p-3 text-[13px]">
+        <p><strong>{createdEmployee.employeeCode} · {createdEmployee.fullName}</strong> was created. Upload the employee documents below or open their record.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => { setSelectedEmployeeId(createdEmployee.id); setActiveTab("register"); }}>View employee record</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => { setCreatedEmployee(null); setForm(emptyForm()); setInitialPackageId(""); setNote(null); }}>Create another employee</Button>
+        </div>
+      </div> : null}
+      {documentEmployeeId ? <EmployeeDocuments key={documentEmployeeId} employeeId={documentEmployeeId} /> : null}
+      </section> : null}
 
+      {activeTab === "register" ? <section id="employee-register-panel" role="tabpanel" aria-labelledby="employee-register-tab" className="space-y-4">
       <Card title="Employee register" description="Only HR and administrators can read or change employee records.">
         <div className="mb-4 flex flex-wrap gap-3">
           <Input className="max-w-sm" placeholder="Search code, name, department" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -283,6 +308,7 @@ export default function HrEmployees() {
         if (!selected) return null;
         return <EmployeeDetails key={`${selected.id}-${detailSection}`} employee={selected} branchName={(branches.data ?? []).find((branch) => branch.id === selected.branchId)?.name ?? selected.branchId} packages={packages.data ?? []} initialSection={detailSection} onClose={() => setSelectedEmployeeId(null)} />;
       })() : null}
+      </section> : null}
     </Page>
   );
 }

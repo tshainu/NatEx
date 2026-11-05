@@ -9,6 +9,7 @@ import { centsToLkr, HR_CONTROL_CLASS, lkrToCents } from "./shared";
 import { HrNavigation } from "./navigation";
 
 type ItemForm = {
+  id: string;
   label: string;
   kind: "earning" | "deduction";
   amountLkr: string;
@@ -34,7 +35,7 @@ const emptyPackage = (): PackageForm => ({
   baseEpfEligible: true, baseEtfEligible: true, baseApitTaxable: true, items: [],
 });
 const emptyItem = (): ItemForm => ({
-  label: "", kind: "earning", amountLkr: "", epfEligible: false, etfEligible: false,
+  id: crypto.randomUUID(), label: "", kind: "earning", amountLkr: "", epfEligible: false, etfEligible: false,
   apitTaxable: false, overtimeEligible: false, proration: "full_period",
 });
 
@@ -60,7 +61,8 @@ export default function HrPackages() {
       code: pkg.code, name: pkg.name, description: pkg.description ?? "", payBasis: pkg.payBasis as PackageForm["payBasis"],
       basePayLkr: centsToLkr(pkg.basePayCents), baseEpfEligible: pkg.baseEpfEligible,
       baseEtfEligible: pkg.baseEtfEligible, baseApitTaxable: pkg.baseApitTaxable,
-      items: pkg.items.map((item) => ({
+      items: pkg.items.map((item, index) => ({
+        id: `${pkg.id}:${index}`,
         label: item.label, kind: item.kind as ItemForm["kind"], amountLkr: centsToLkr(item.amountCents),
         epfEligible: item.epfEligible, etfEligible: item.etfEligible, apitTaxable: item.apitTaxable,
         overtimeEligible: item.overtimeEligible, proration: item.proration as ItemForm["proration"],
@@ -79,7 +81,7 @@ export default function HrPackages() {
       code: form.code, name: form.name, description: form.description || null, payBasis: form.payBasis,
       basePayCents, baseEpfEligible: form.baseEpfEligible, baseEtfEligible: form.baseEtfEligible,
       baseApitTaxable: form.baseApitTaxable,
-      items: items.map(({ amountCents, ...item }) => ({ ...item, amountCents: amountCents! })),
+      items: items.map(({ id: _id, amountCents, ...item }) => ({ ...item, amountCents: amountCents! })),
     };
     if (editingId) update.mutate({ packageId: editingId, ...payload });
     else create.mutate(payload);
@@ -108,7 +110,7 @@ export default function HrPackages() {
 
           <div className="space-y-3 border-t pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-[14px] font-semibold">Recurring components</h3><p className="text-[12px] text-muted-foreground">Add allowances or deductions and mark statutory contribution/tax bases according to the component's legal treatment.</p></div><Button type="button" variant="outline" onClick={() => updateForm("items", [...form.items, emptyItem()])}>Add component</Button></div>
-            {form.items.map((item, index) => <div key={`${index}-${item.label}`} className="grid gap-3 rounded-md border p-3 md:grid-cols-2 xl:grid-cols-[1.3fr_130px_150px_1fr_auto]">
+            {form.items.map((item, index) => <div key={item.id} className="grid gap-3 rounded-md border p-3 md:grid-cols-2 xl:grid-cols-[1.3fr_130px_150px_1fr_auto]">
               <Field label="Component name"><Input required value={item.label} onChange={(e) => updateItem(index, { label: e.target.value })} /></Field>
               <Field label="Type"><select className={HR_CONTROL_CLASS} value={item.kind} onChange={(e) => updateItem(index, { kind: e.target.value as ItemForm["kind"], ...(e.target.value === "deduction" ? { epfEligible: false, etfEligible: false, apitTaxable: false, overtimeEligible: false } : {}) })}><option value="earning">Earning</option><option value="deduction">Deduction</option></select></Field>
               <Field label="Amount (LKR)"><Input type="number" min="0.01" step="0.01" required value={item.amountLkr} onChange={(e) => updateItem(index, { amountLkr: e.target.value })} /></Field>
@@ -128,8 +130,28 @@ export default function HrPackages() {
 
       <Card title="Package catalogue">
         <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[13px]">
-          <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Package</th><th className="p-2">Basis</th><th className="p-2 text-right">Base pay</th><th className="p-2">Components</th><th className="p-2">Status</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead>
-          <tbody>{(packages.data ?? []).map((pkg) => <tr key={pkg.id} className="border-b border-border/60"><td className="p-2 font-mono">{pkg.code}</td><td className="p-2 font-medium">{pkg.name}<span className="block text-[11px] text-muted-foreground">{pkg.description}</span></td><td className="p-2">{pkg.payBasis}</td><td className="p-2 text-right font-mono">LKR {centsToLkr(pkg.basePayCents)}</td><td className="p-2">{pkg.items.length} components</td><td className="p-2"><Badge variant={pkg.active ? "good" : "outline"}>{pkg.active ? "active" : "inactive"}</Badge></td><td className="p-2"><Button size="sm" variant="outline" onClick={() => edit(pkg)}>Edit</Button></td></tr>)}</tbody>
+          <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Package</th><th className="p-2">Basis</th><th className="p-2 text-right">Full package amount</th><th className="p-2">Components</th><th className="p-2">Status</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead>
+          <tbody>{(packages.data ?? []).map((pkg) => {
+            const recurringEarningsCents = pkg.items.reduce((total, item) => total + (item.kind === "earning" ? item.amountCents : 0), 0);
+            const recurringDeductionsCents = pkg.items.reduce((total, item) => total + (item.kind === "deduction" ? item.amountCents : 0), 0);
+            const grossEarningsCents = pkg.basePayCents + recurringEarningsCents;
+            const packageNetCents = grossEarningsCents - recurringDeductionsCents;
+            return <tr key={pkg.id} className="border-b border-border/60">
+              <td className="p-2 font-mono">{pkg.code}</td>
+              <td className="p-2 font-medium">{pkg.name}<span className="block text-[11px] text-muted-foreground">{pkg.description}</span></td>
+              <td className="p-2">{pkg.payBasis}</td>
+              <td className="p-2 font-mono">
+                <strong className="whitespace-nowrap">LKR {centsToLkr(grossEarningsCents)}</strong>
+                <span className="block text-[11px] text-muted-foreground">Full earnings · {pkg.payBasis}</span>
+                <span className="block whitespace-nowrap text-[11px] text-muted-foreground">Base {centsToLkr(pkg.basePayCents)} + recurring earnings {centsToLkr(recurringEarningsCents)}</span>
+                <span className="block whitespace-nowrap text-[11px] text-muted-foreground">Recurring deductions {centsToLkr(recurringDeductionsCents)}</span>
+                <span className="block whitespace-nowrap text-[11px] text-muted-foreground">After package deductions {centsToLkr(packageNetCents)} · before statutory deductions</span>
+              </td>
+              <td className="p-2">{pkg.items.length} components</td>
+              <td className="p-2"><Badge variant={pkg.active ? "good" : "outline"}>{pkg.active ? "active" : "inactive"}</Badge></td>
+              <td className="p-2"><Button size="sm" variant="outline" onClick={() => edit(pkg)}>Edit</Button></td>
+            </tr>;
+          })}</tbody>
         </table>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
       </Card>
     </Page>

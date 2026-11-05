@@ -8,10 +8,11 @@ import { HR_CONTROL_CLASS, todayInColombo } from "./shared";
 import { HrNavigation } from "./navigation";
 
 type Status = "not_recorded" | "present" | "absent" | "leave" | "off_duty";
-type Draft = { status: Status; regularHours: string; overtimeHours: string; note: string };
+type Draft = { status: Status; inTime: string; outTime: string; regularHours: string; overtimeHours: string; note: string };
 const LABEL: Record<Status, string> = { not_recorded: "Not recorded", present: "Present", absent: "Absent", leave: "Leave", off_duty: "Off duty" };
 const today = todayInColombo();
 const toHours = (minutes: number) => (minutes / 60).toFixed(2).replace(/\.00$/, "");
+const emptyDraft = (): Draft => ({ status: "not_recorded", inTime: "", outTime: "", regularHours: "8", overtimeHours: "0", note: "" });
 
 export default function HrAttendance() {
   const queryClient = useQueryClient();
@@ -21,12 +22,15 @@ export default function HrAttendance() {
   const [localError, setLocalError] = React.useState<string | null>(null);
   const employees = useQuery({ ...orpc.hr.employees.queryOptions({ input: { status: "active", limit: 5000 } }) });
   const rows = useQuery({ ...orpc.hr.timesheets.queryOptions({ input: { from: workDate, to: workDate } }) });
+
   React.useEffect(() => {
     const saved = new Map((rows.data ?? []).map((row) => [row.employeeId, row]));
     setDrafts(Object.fromEntries((employees.data ?? []).map((employee) => {
       const record = saved.get(employee.id);
       return [employee.id, {
         status: record ? record.attendanceStatus as Status : "not_recorded",
+        inTime: record?.inTime ?? "",
+        outTime: record?.outTime ?? "",
         regularHours: record ? toHours(record.regularMinutes) : "8",
         overtimeHours: record ? toHours(record.overtimeMinutes) : "0",
         note: record?.note ?? "",
@@ -48,12 +52,14 @@ export default function HrAttendance() {
 
   function setStatus(employeeId: string, status: Status) {
     setDrafts((current) => {
-      const previous = current[employeeId] ?? { status: "not_recorded", regularHours: "8", overtimeHours: "0", note: "" };
+      const previous = current[employeeId] ?? emptyDraft();
       const enteringPresent = status === "present" && previous.status !== "present";
       const nonWorking = ["absent", "leave", "off_duty"].includes(status);
       return { ...current, [employeeId]: {
         ...previous,
         status,
+        inTime: nonWorking ? "" : previous.inTime,
+        outTime: nonWorking ? "" : previous.outTime,
         regularHours: nonWorking ? "0" : enteringPresent ? "8" : previous.regularHours,
         overtimeHours: nonWorking ? "0" : previous.overtimeHours,
       } };
@@ -63,10 +69,12 @@ export default function HrAttendance() {
   function markAll(status: "present" | "absent") {
     setDrafts(Object.fromEntries(activeEmployees.map((employee) => [employee.id, {
       status,
+      inTime: status === "present" ? drafts[employee.id]?.inTime ?? "" : "",
+      outTime: status === "present" ? drafts[employee.id]?.outTime ?? "" : "",
       regularHours: status === "present" ? "8" : "0",
       overtimeHours: "0",
       note: drafts[employee.id]?.note ?? "",
-    }])));
+    }] as const)));
   }
 
   function saveAttendance(event: React.FormEvent) {
@@ -94,6 +102,8 @@ export default function HrAttendance() {
       return [{
         employeeCode: employee.employeeCode,
         workDate,
+        inTime: draft.inTime || null,
+        outTime: draft.outTime || null,
         regularMinutes: Math.round(regular * 60),
         overtimeMinutes: Math.round(overtime * 60),
         attendanceStatus: draft.status as Exclude<Status, "not_recorded">,
@@ -109,7 +119,7 @@ export default function HrAttendance() {
 
   const error = employees.error ?? rows.error ?? save.error;
   return (
-    <Page title="Attendance" description="Record each employee's daily status and hours. Attendance is HR-entered; it is not a biometric clock-in or employee self-service feature.">
+    <Page title="Attendance" description="Record each employee's daily status, IN/OUT clock times and hours. Clock times are local 24-hour values; payable regular/overtime hours remain explicit HR entries, not automatic time calculations.">
       <HrNavigation />
       {notice ? <SuccessNote>{notice}</SuccessNote> : null}
       {localError ? <ErrorNote>{localError}</ErrorNote> : null}
@@ -120,15 +130,28 @@ export default function HrAttendance() {
           <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => markAll("present")} disabled={!activeEmployees.length}>Mark all present · 8h</Button><Button type="button" variant="outline" onClick={() => markAll("absent")} disabled={!activeEmployees.length}>Mark all absent</Button></div>
         </div>
         <form onSubmit={saveAttendance}>
-          <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2">Department</th><th className="p-2">Status</th><th className="p-2 text-right">Regular hours</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead><tbody>
-            {activeEmployees.map((employee) => {
-              const draft = drafts[employee.id] ?? { status: "not_recorded", regularHours: "8", overtimeHours: "0", note: "" };
-              const change = (patch: Partial<Draft>) => setDrafts((current) => ({ ...current, [employee.id]: { ...draft, ...patch } }));
-              const disabled = draft.status !== "present";
-              return <tr key={employee.id} className="border-b border-border/60"><td className="p-2"><span className="font-mono text-[11px]">{employee.employeeCode}</span><span className="ml-2 font-medium">{employee.fullName}</span></td><td className="p-2">{employee.department}</td><td className="p-2"><select aria-label={`Attendance status for ${employee.employeeCode}`} className={HR_CONTROL_CLASS} value={draft.status} onChange={(event) => setStatus(employee.id, event.target.value as Status)}>{Object.entries(LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td><td className="p-2"><Input aria-label={`Regular hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.regularHours} disabled={disabled} onChange={(event) => change({ regularHours: event.target.value })} /></td><td className="p-2"><Input aria-label={`Overtime hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.overtimeHours} disabled={disabled} onChange={(event) => change({ overtimeHours: event.target.value })} /></td><td className="p-2"><Input aria-label={`Attendance note for ${employee.employeeCode}`} maxLength={500} value={draft.note} onChange={(event) => change({ note: event.target.value })} /></td></tr>;
-            })}
-          </tbody></table>{!employees.isPending && activeEmployees.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No active employees are in the register.</p> : null}</div>
-          <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="submit" pending={save.isPending} disabled={recordedCount === 0}>Save attendance</Button><p className="text-[11px] text-muted-foreground">Saved hours also appear in Timesheets and feed the payroll calculation basis. Approved leave must still be recorded in Leave management.</p></div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1120px] text-left text-[13px]">
+              <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2">Department</th><th className="p-2">Status</th><th className="p-2">IN time</th><th className="p-2">OUT time</th><th className="p-2 text-right">Regular hours</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead>
+              <tbody>{activeEmployees.map((employee) => {
+                const draft = drafts[employee.id] ?? emptyDraft();
+                const change = (patch: Partial<Draft>) => setDrafts((current) => ({ ...current, [employee.id]: { ...draft, ...patch } }));
+                const disabled = draft.status !== "present";
+                return <tr key={employee.id} className="border-b border-border/60">
+                  <td className="p-2"><span className="font-mono text-[11px]">{employee.employeeCode}</span><span className="ml-2 font-medium">{employee.fullName}</span></td>
+                  <td className="p-2">{employee.department}</td>
+                  <td className="p-2"><select aria-label={`Attendance status for ${employee.employeeCode}`} className={HR_CONTROL_CLASS} value={draft.status} onChange={(event) => setStatus(employee.id, event.target.value as Status)}>{Object.entries(LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                  <td className="p-2"><Input aria-label={`IN time for ${employee.employeeCode}`} className="w-32" type="time" step={60} value={draft.inTime} disabled={disabled} onChange={(event) => change({ inTime: event.target.value })} /></td>
+                  <td className="p-2"><Input aria-label={`OUT time for ${employee.employeeCode}`} className="w-32" type="time" step={60} value={draft.outTime} disabled={disabled} onChange={(event) => change({ outTime: event.target.value })} /></td>
+                  <td className="p-2"><Input aria-label={`Regular hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.regularHours} disabled={disabled} onChange={(event) => change({ regularHours: event.target.value })} /></td>
+                  <td className="p-2"><Input aria-label={`Overtime hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.overtimeHours} disabled={disabled} onChange={(event) => change({ overtimeHours: event.target.value })} /></td>
+                  <td className="p-2"><Input aria-label={`Attendance note for ${employee.employeeCode}`} maxLength={500} value={draft.note} onChange={(event) => change({ note: event.target.value })} /></td>
+                </tr>;
+              })}</tbody>
+            </table>
+            {!employees.isPending && activeEmployees.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No active employees are in the register.</p> : null}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="submit" pending={save.isPending} disabled={recordedCount === 0}>Save attendance</Button><p className="text-[11px] text-muted-foreground">Saved status, IN/OUT times and hours also appear in Timesheets. Approved leave must still be recorded in Leave management.</p></div>
         </form>
       </Card>
     </Page>

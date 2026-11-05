@@ -11,7 +11,7 @@ import {
 import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
-import { isValidIsoDate } from "./validation";
+import { isValidIsoDate, isValidLocalTime } from "./validation";
 
 export type EmployeeRow = typeof hrEmployee.$inferSelect;
 export type SalaryPackageRow = typeof hrSalaryPackage.$inferSelect;
@@ -310,6 +310,8 @@ export interface TimesheetInput {
   workDate: string;
   regularMinutes: number;
   overtimeMinutes: number;
+  inTime?: string | null;
+  outTime?: string | null;
   attendanceStatus?: "present" | "absent" | "leave" | "off_duty";
   note?: string | null;
   source: "manual" | "excel";
@@ -339,6 +341,9 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
     for (const [value, field] of [[row.regularMinutes, "regular hours"], [row.overtimeMinutes, "overtime hours"]] as const) {
       if (!Number.isSafeInteger(value) || value < 0 || value > 1440) errors.badRequest(`${field} for ${code} must be between 0 and 24 hours.`);
     }
+    for (const [value, field] of [[row.inTime, "IN time"], [row.outTime, "OUT time"]] as const) {
+      if (value != null && !isValidLocalTime(value)) errors.badRequest(`${field} for ${code} must use 24-hour HH:MM format.`);
+    }
     if (row.regularMinutes + row.overtimeMinutes > 1440) errors.badRequest(`Total recorded time for ${code} on ${row.workDate} exceeds 24 hours.`);
     let employee = employeeByCode.get(code);
     if (!employee) {
@@ -360,6 +365,8 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
       workDate: row.workDate,
       regularMinutes: row.regularMinutes,
       overtimeMinutes: row.overtimeMinutes,
+      inTime: row.inTime ?? null,
+      outTime: row.outTime ?? null,
       attendanceStatus: row.attendanceStatus ?? "present",
       note: row.note?.trim() || null,
       source: row.source,
@@ -370,6 +377,8 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
       set: {
         regularMinutes: row.regularMinutes,
         overtimeMinutes: row.overtimeMinutes,
+        ...(row.inTime !== undefined ? { inTime: row.inTime } : {}),
+        ...(row.outTime !== undefined ? { outTime: row.outTime } : {}),
         attendanceStatus: row.attendanceStatus ?? "present",
         note: row.note?.trim() || null,
         source: row.source,
@@ -393,6 +402,8 @@ export async function listTimesheets(input: { from: string; to: string; employee
     workDate: hrTimesheet.workDate,
     regularMinutes: hrTimesheet.regularMinutes,
     overtimeMinutes: hrTimesheet.overtimeMinutes,
+    inTime: hrTimesheet.inTime,
+    outTime: hrTimesheet.outTime,
     attendanceStatus: hrTimesheet.attendanceStatus,
     note: hrTimesheet.note,
     source: hrTimesheet.source,

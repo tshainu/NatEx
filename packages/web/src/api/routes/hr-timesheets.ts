@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { hrProc, mutate } from "../middleware/pipeline";
 import * as hr from "../modules/hr/service";
-import { isValidIsoDate } from "../modules/hr/validation";
+import { isValidIsoDate, isValidLocalTime } from "../modules/hr/validation";
 
 const isoDay = z.string().refine(isValidIsoDate, "Use a real calendar date in YYYY-MM-DD format.");
+const localTime = z.string().refine(isValidLocalTime, "Use 24-hour HH:MM format.").nullish();
 const row = z.object({
   employeeCode: z.string().trim().min(2).max(20),
   workDate: isoDay,
   regularMinutes: z.number().int().min(0).max(1440),
   overtimeMinutes: z.number().int().min(0).max(1440),
+  inTime: localTime,
+  outTime: localTime,
   attendanceStatus: z.enum(["present", "absent", "leave", "off_duty"]).optional(),
   note: z.string().max(500).nullish(),
   source: z.enum(["manual", "excel"]),

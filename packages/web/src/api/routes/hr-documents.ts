@@ -1,9 +1,16 @@
 import { z } from "zod";
 import { hrProc, mutate } from "../middleware/pipeline";
 import * as documents from "../modules/hr/documents";
+import { HR_PROFILE_PHOTO_MAX_BYTES, HR_PROFILE_PHOTO_TYPES } from "../modules/hr/validation";
 
 const category = z.enum(documents.HR_DOCUMENT_CATEGORIES);
 const contentType = z.enum(documents.HR_DOCUMENT_TYPES);
+const profilePhotoInput = z.object({
+  employeeId: z.string().min(1),
+  fileName: z.string().trim().min(1).max(240),
+  contentType: z.enum(HR_PROFILE_PHOTO_TYPES),
+  sizeBytes: z.number().int().min(1).max(HR_PROFILE_PHOTO_MAX_BYTES),
+});
 const documentInput = z.object({
   employeeId: z.string().min(1),
   category,
@@ -39,4 +46,27 @@ export const employeeDocumentView = hrProc
   .input(z.object({ documentId: z.string().min(1) }))
   .handler(({ input }) => documents.employeeDocumentView(input.documentId));
 
-export const hrDocuments = { employeeDocuments, employeeDocumentUpload, attachEmployeeDocument, employeeDocumentView };
+export const employeePhotoUpload = hrProc.input(profilePhotoInput).handler(({ input, context }) =>
+  mutate(context, input, {
+    route: "hr.employeePhotoUpload",
+    entity: "hr_employee_document",
+    entityId: () => input.employeeId,
+    action: "hr.employee_photo_upload_slot_created",
+    idempotency: false,
+  }, () => documents.createEmployeePhotoUpload(input)),
+);
+
+export const attachEmployeePhoto = hrProc.input(profilePhotoInput.extend({ storageRef: z.string().min(8).max(300) })).handler(({ input, context }) =>
+  mutate(context, input, {
+    route: "hr.attachEmployeePhoto",
+    entity: "hr_employee_document",
+    entityId: (row) => (row as { id: string }).id,
+    action: "hr.employee_photo_attached",
+  }, () => documents.attachEmployeePhoto(input, context.principal.userId)),
+);
+
+export const employeePhotoView = hrProc
+  .input(z.object({ employeeId: z.string().min(1) }))
+  .handler(({ input }) => documents.employeePhotoView(input.employeeId));
+
+export const hrDocuments = { employeeDocuments, employeeDocumentUpload, attachEmployeeDocument, employeeDocumentView, employeePhotoUpload, attachEmployeePhoto, employeePhotoView };

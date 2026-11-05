@@ -82,6 +82,7 @@ const SERVICE_GATED = [
   "parcels.create",
   "parcels.stateMachine",
   "parcels.transition",
+  "settings.bookingLimits",
 ];
 
 const FIELD_ROLES: Role[] = ["rider", "transport", "merchant"];
@@ -137,7 +138,7 @@ describe("route guards (static inventory)", () => {
   test("desk-only reads (staff phones, consignee messages, commercial terms) refuse field roles", () => {
     const desk = guards.filter(
       (g) =>
-        /^(rateCards|settings)\./.test(g.path) ||
+        g.path.startsWith("rateCards.") || (g.path.startsWith("settings.") && g.path !== "settings.bookingLimits") ||
         ["identity.listUsers", "notifications.messages", "notifications.templates", "notifications.template",
           "notifications.templatePreview", "notifications.summary"].includes(g.path),
     );
@@ -171,6 +172,7 @@ describe("route guards (static inventory)", () => {
     const hrOnly = [
       "hr.branchOptions", "hr.employees", "hr.createEmployee", "hr.updateEmployee",
       "hr.employeeDocuments", "hr.employeeDocumentUpload", "hr.attachEmployeeDocument", "hr.employeeDocumentView",
+      "hr.employeePhotoUpload", "hr.attachEmployeePhoto", "hr.employeePhotoView",
       "hr.salaryPackages", "hr.createSalaryPackage", "hr.updateSalaryPackage",
       "hr.assignSalaryPackage", "hr.employeePackages", "hr.timesheets", "hr.saveTimesheets",
       "hr.leaveTypes", "hr.saveLeaveType", "hr.leaveBalances", "hr.leaveRequests",

@@ -7,6 +7,7 @@ import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, KeyValue, KeyValueGrid, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, currentMonthRange, HR_CONTROL_CLASS, todayInColombo } from "./shared";
 import { EmployeeDocuments } from "./employee-documents";
+import { EmployeeProfilePhoto } from "./employee-profile-photo";
 
 type Employee = {
   id: string; employeeCode: string; fullName: string; nationalId: string | null; phone: string | null;
@@ -58,7 +59,7 @@ export function EmployeeDetails({ employee, branchName, packages, initialSection
       <div role="tablist" aria-label={`Employee record sections for ${employee.employeeCode}`} className="mb-4 flex gap-1 overflow-x-auto border-b border-border">
         {SECTIONS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={section === item.id} onClick={() => setSection(item.id)} className={`-mb-px border-b-2 px-3 py-2 text-[12px] font-medium ${section === item.id ? "border-brand text-brand" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item.label}</button>)}
       </div>
-      {section === "profile" ? <div role="tabpanel"><KeyValueGrid columns={3}>
+      {section === "profile" ? <div role="tabpanel"><EmployeeProfilePhoto employeeId={employee.id} fullName={employee.fullName} /><KeyValueGrid columns={3}>
         <KeyValue label="Employee code" mono>{employee.employeeCode}</KeyValue>
         <KeyValue label="Status"><Badge variant={employee.status === "active" ? "good" : "outline"}>{employee.status}</Badge></KeyValue>
         <KeyValue label="Branch / hub">{branchName}</KeyValue>
@@ -80,7 +81,7 @@ export function EmployeeDetails({ employee, branchName, packages, initialSection
       {section === "attendance" ? <div role="tabpanel">
         <div className="mb-3 flex flex-wrap items-end gap-3"><Field label="Attendance month"><Input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonthRange().from.slice(0, 7))} /></Field><span className="pb-2 text-[12px] text-muted-foreground">{from} → {to}</span></div>
         {attendance.error ? <ErrorNote>{apiMessage(attendance.error, "Attendance history could not be loaded.")}</ErrorNote> : null}
-        <div className="overflow-x-auto"><table className="w-full min-w-[540px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Date</th><th className="p-2">Status</th><th className="p-2 text-right">Regular</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead><tbody>{(attendance.data ?? []).map((row) => <tr key={row.id} className="border-b border-border/60"><td className="p-2 font-mono">{row.workDate}</td><td className="p-2">{row.attendanceStatus.replaceAll("_", " ")}</td><td className="p-2 text-right font-mono">{hours(row.regularMinutes)} h</td><td className="p-2 text-right font-mono">{hours(row.overtimeMinutes)} h</td><td className="p-2">{row.note ?? "—"}</td></tr>)}</tbody></table>{!attendance.isPending && (attendance.data?.length ?? 0) === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">No attendance rows for this month.</p> : null}</div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Date</th><th className="p-2">Status</th><th className="p-2">IN time</th><th className="p-2">OUT time</th><th className="p-2 text-right">Regular</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead><tbody>{(attendance.data ?? []).map((row) => <tr key={row.id} className="border-b border-border/60"><td className="p-2 font-mono">{row.workDate}</td><td className="p-2">{row.attendanceStatus.replaceAll("_", " ")}</td><td className="p-2 font-mono">{row.inTime ?? "—"}</td><td className="p-2 font-mono">{row.outTime ?? "—"}</td><td className="p-2 text-right font-mono">{hours(row.regularMinutes)} h</td><td className="p-2 text-right font-mono">{hours(row.overtimeMinutes)} h</td><td className="p-2">{row.note ?? "—"}</td></tr>)}</tbody></table>{!attendance.isPending && (attendance.data?.length ?? 0) === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">No attendance rows for this month.</p> : null}</div>
       </div> : null}
       {section === "leave" ? <div role="tabpanel">
         {leave.error ? <ErrorNote>{apiMessage(leave.error, "Leave history could not be loaded.")}</ErrorNote> : null}

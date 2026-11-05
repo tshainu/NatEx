@@ -229,6 +229,27 @@ describe("HR and payroll database workflow", () => {
     const attendance = await hr.listTimesheets({ from: "2026-07-11", to: "2026-07-11", employeeId: employeeId! });
     expect(attendance[0]?.attendanceStatus).toBe("absent");
 
+    await hr.saveTimesheets([{
+      employeeCode: `P${RUN}`,
+      workDate: "2026-07-12",
+      regularMinutes: 480,
+      overtimeMinutes: 0,
+      inTime: "08:30",
+      outTime: "17:05",
+      source: "manual",
+    }], HR_ACTOR);
+    const clocked = await hr.listTimesheets({ from: "2026-07-12", to: "2026-07-12", employeeId: employeeId! });
+    expect(clocked[0]?.inTime).toBe("08:30");
+    expect(clocked[0]?.outTime).toBe("17:05");
+    await expect(hr.saveTimesheets([{
+      employeeCode: `P${RUN}`,
+      workDate: "2026-07-13",
+      regularMinutes: 480,
+      overtimeMinutes: 0,
+      inTime: "24:00",
+      source: "manual",
+    }], HR_ACTOR)).rejects.toThrow("IN time");
+
     const document = await documents.attachEmployeeDocument({
       employeeId: employeeId!,
       category: "identity",
@@ -239,6 +260,16 @@ describe("HR and payroll database workflow", () => {
     }, HR_ACTOR.userId);
     documentIds.push(document.id);
     expect((await documents.listEmployeeDocuments(employeeId!)).map((row) => row.id)).toContain(document.id);
+    const photo = await documents.attachEmployeePhoto({
+      employeeId: employeeId!,
+      fileName: "employee-photo.png",
+      contentType: "image/png",
+      sizeBytes: 1024,
+      storageRef: `s3:hr/employees/${employeeId}/test-employee-photo.png`,
+    }, HR_ACTOR.userId);
+    documentIds.push(photo.id);
+    expect(photo.category).toBe("profile_photo");
+    expect((await documents.listEmployeeDocuments(employeeId!)).map((row) => row.id)).toContain(photo.id);
     await expect(documents.attachEmployeeDocument({
       employeeId: employeeId!,
       category: "identity",
