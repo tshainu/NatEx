@@ -21,6 +21,7 @@ import {
 } from "../modules/parcels/state-machine";
 import { errors } from "../shared/errors";
 import { isGlobalScope } from "../shared/auth";
+import { getBranch } from "../modules/identity/service";
 
 const statusEnum = z.enum(PARCEL_STATUSES as unknown as [string, ...string[]]);
 
@@ -59,11 +60,28 @@ export const get = readProc
   );
 
 export const board = readProc.handler(async ({ context }) => {
+  const { principal } = context;
+  const globalScope = isGlobalScope(principal.role);
   const [counts, events] = await Promise.all([
-    parcelsService.statusCounts(context.principal),
-    parcelsService.recentEvents(context.principal, 25),
+    parcelsService.statusCounts(principal),
+    parcelsService.recentEvents(principal, 25),
   ]);
-  return { counts, events, generatedAt: new Date().toISOString() };
+  const allocatedBranch = !globalScope && typeof principal.branchId === "string" && principal.branchId.trim()
+    ? await getBranch(principal.branchId)
+    : null;
+  return {
+    counts,
+    events,
+    scope: globalScope
+      ? { kind: "network" as const, branch: null }
+      : {
+          kind: "branch" as const,
+          branch: allocatedBranch
+            ? { id: allocatedBranch.id, code: allocatedBranch.code, name: allocatedBranch.name }
+            : null,
+        },
+    generatedAt: new Date().toISOString(),
+  };
 });
 
 /** Dashboard tallies, aggregated in SQL under the caller's §5 scope. */

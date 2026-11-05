@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { mutate, opsProc, publicMutate, publicProc, readProc } from "../middleware/pipeline";
+import { adminProc, authedProc, mutate, opsProc, publicMutate, publicProc, readProc } from "../middleware/pipeline";
+import { requireRole } from "../middleware/auth";
 import { consumeToken } from "../middleware/rate-limit";
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
-import { isGlobalScope } from "../shared/auth";
 import { DISTRICTS } from "../shared/address";
 
 function normalizeRegistrationPhone(value: string): string {
@@ -35,6 +35,8 @@ const registrationPhone = z
   .regex(/^\+?[0-9][0-9\s().-]*$/)
   .transform(normalizeRegistrationPhone)
   .pipe(z.string().regex(/^\+947\d{8}$/));
+
+const operationsProc = authedProc.use(requireRole("ops"));
 
 export const registrationInputSchema = z.object({
   businessName: z.string().trim().min(2).max(160),
@@ -103,7 +105,7 @@ export const options = readProc.handler(({ context }) =>
   merchantsService.merchantOptions(context.principal),
 );
 
-export const create = opsProc
+export const create = adminProc
   .input(
     z.object({
       name: z.string().min(2).max(160),
@@ -120,8 +122,7 @@ export const create = opsProc
     }),
   )
   .handler(async ({ input, context }) => {
-    const effectiveBranchId = isGlobalScope(context.principal.role) ? input.branchId : context.principal.branchId;
-    await validatePickupRider(input.pickupRiderId, effectiveBranchId);
+    await validatePickupRider(input.pickupRiderId, input.branchId);
     return mutate(
       context,
       input,
@@ -132,6 +133,34 @@ export const create = opsProc
         action: "merchant.created",
       },
       () => merchantsService.createMerchant(input, context.principal),
+    );
+  });
+
+export const submitOnboardingRequest = operationsProc
+  .input(z.object({
+    name: z.string().trim().min(2).max(160),
+    pickupRiderId: z.string().min(1).nullish(),
+    vatNo: z.string().trim().max(40).nullish(),
+    address: z.string().trim().min(4),
+    lat: z.number().int().nullish(),
+    lng: z.number().int().nullish(),
+    contactName: z.string().trim().min(2).max(120),
+    contactPhone: z.string().min(9).max(20),
+    codEnabled: z.boolean().default(true),
+    podPolicy: z.enum(["signature", "otp", "photo"]).default("signature"),
+  }))
+  .handler(async ({ input, context }) => {
+    await validatePickupRider(input.pickupRiderId, context.principal.branchId);
+    return mutate(
+      context,
+      input,
+      {
+        route: "merchants.submitOnboardingRequest",
+        entity: "merchants_onboarding_request",
+        entityId: (result) => (result as merchantsService.MerchantOnboardingRequestRow).id,
+        action: "merchant.onboarding_requested",
+      },
+      () => merchantsService.createStaffOnboardingRequest(input, context.principal),
     );
   });
 
@@ -163,5 +192,6 @@ export const merchants = {
   get,
   options,
   create,
+  submitOnboardingRequest,
   setStatus,
 };

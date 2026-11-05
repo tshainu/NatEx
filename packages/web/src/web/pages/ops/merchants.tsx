@@ -23,8 +23,10 @@ import {
 } from "./merchant-admin";
 import { RegistrationRequests } from "./registration-requests";
 import type { MerchantRegistrationRequest } from "./merchant-registration";
+import { StaffOnboardingRequests } from "./staff-onboarding-requests";
+import type { StaffOnboardingRequest } from "./staff-onboarding-request";
 
-const MERCHANT_TABS = ["register", "requests"] as const;
+const MERCHANT_TABS = ["register", "requests", "onboarding"] as const;
 
 /**
  * Merchant register (§5 merchants). Ops and admin manage it; a merchant user
@@ -67,6 +69,7 @@ export default function Merchants({
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [registrationTarget, setRegistrationTarget] = React.useState<MerchantRegistrationRequest | undefined>();
+  const [staffRequestTarget, setStaffRequestTarget] = React.useState<StaffOnboardingRequest | undefined>();
   const [activeTab, setActiveTab] = useTabParam("tab", MERCHANT_TABS, "register");
 
   const debounced = useDebounced(search, 250);
@@ -91,11 +94,21 @@ export default function Merchants({
     refetchInterval: 30_000,
   });
   const newRequestCount = isAdmin ? requestCount.data?.newCount ?? 0 : 0;
-  const visibleTab = isAdmin ? activeTab : "register";
+  const onboardingCount = useQuery({
+    ...orpc.merchants.onboardingRequestCount.queryOptions(),
+    enabled: canWrite,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const pendingOnboardingCount = canWrite ? onboardingCount.data?.pendingCount ?? 0 : 0;
+  const visibleTab = canWrite ? activeTab : "register";
   const tabItems: { id: typeof MERCHANT_TABS[number]; label: string; badge?: number }[] = [
     { id: "register", label: "Merchants" },
     ...(isAdmin
       ? [{ id: "requests" as const, label: "Merchants Requests", ...(newRequestCount > 0 ? { badge: newRequestCount } : {}) }]
+      : []),
+    ...(canWrite
+      ? [{ id: "onboarding" as const, label: "Onboarding approvals", ...(pendingOnboardingCount > 0 ? { badge: pendingOnboardingCount } : {}) }]
       : []),
   ];
 
@@ -264,6 +277,27 @@ export default function Merchants({
         />
       </div> : null}
 
+      {canWrite && visibleTab === "onboarding" ? <div
+        role="tabpanel"
+        id="panel-onboarding"
+        aria-labelledby="tab-onboarding"
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <StaffOnboardingRequests
+          branchName={branchName}
+          canApprove={isAdmin}
+          onApprove={(request) => {
+            if (!isAdmin) return;
+            setStaffRequestTarget(request);
+            setCreating(true);
+          }}
+          onViewMerchant={(merchantId) => {
+            setActiveTab("register");
+            setOpenId(merchantId);
+          }}
+        />
+      </div> : null}
+
       <MerchantDrawer
         id={openId}
         canWrite={canWrite}
@@ -277,14 +311,19 @@ export default function Merchants({
           open={creating}
           onOpenChange={(open) => {
             setCreating(open);
-            if (!open) setRegistrationTarget(undefined);
+            if (!open) {
+              setRegistrationTarget(undefined);
+              setStaffRequestTarget(undefined);
+            }
           }}
           branches={branches.data ?? []}
           defaultBranchId={session!.user.branchId}
           registrationRequest={registrationTarget}
+          staffRequest={staffRequestTarget}
           onDone={(id) => {
             setCreating(false);
             setRegistrationTarget(undefined);
+            setStaffRequestTarget(undefined);
             setActiveTab("register");
             setOpenId(id);
           }}
@@ -295,9 +334,10 @@ export default function Merchants({
           onOpenChange={setCreating}
           branches={branches.data ?? []}
           defaultBranchId={session!.user.branchId}
-          onCreated={(id) => {
+          branchName={branchName(session!.user.branchId)}
+          onSubmitted={() => {
             setCreating(false);
-            setOpenId(id);
+            setActiveTab("onboarding");
           }}
         />
       ) : null}
@@ -499,13 +539,15 @@ function CreateMerchantDialog({
   onOpenChange,
   branches,
   defaultBranchId,
-  onCreated,
+  branchName,
+  onSubmitted,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   branches: { id: string; name: string }[];
   defaultBranchId: string;
-  onCreated: (id: string) => void;
+  branchName: string;
+  onSubmitted: () => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState({
@@ -531,14 +573,14 @@ function CreateMerchantDialog({
   }, [open]);
 
   const create = useMutation({
-    ...orpc.merchants.create.mutationOptions(),
-    onSuccess: (row) => {
+    ...orpc.merchants.submitOnboardingRequest.mutationOptions(),
+    onSuccess: () => {
       void queryClient.invalidateQueries();
       setForm((f) => ({ ...f, name: "", pickupRiderId: "", vatNo: "", address: { ...EMPTY_ADDRESS }, contactName: "", contactPhone: "" }));
-      onCreated((row as { id: string }).id);
+      onSubmitted();
     },
     onError: (error) =>
-      setProblem(apiMessage(error, "This merchant could not be created.")),
+      setProblem(apiMessage(error, "The onboarding request could not be submitted.")),
   });
 
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
@@ -555,20 +597,19 @@ function CreateMerchantDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Add a merchant"
-      description="The branch you choose owns the relationship and scopes every read of this merchant's data."
+      title="Request merchant onboarding"
+      description="Your allocated branch is pinned to this request. No merchant register entry or portal login is created until an Admin approves it."
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
-            disabled={!ready}
+            disabled={!ready || create.isPending}
             pending={create.isPending}
             onClick={() =>
               create.mutate({
                 name: form.name.trim(),
-                branchId: form.branchId,
                 pickupRiderId: form.pickupRiderId || null,
                 vatNo: form.vatNo.trim() || null,
                 address: formatAddress(form.address),
@@ -579,7 +620,7 @@ function CreateMerchantDialog({
               })
             }
           >
-            Create merchant
+            Submit for approval
           </Button>
         </div>
       }
@@ -589,17 +630,10 @@ function CreateMerchantDialog({
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Owning branch">
-            <Select value={form.branchId} onChange={(e) => {
-              if (e.target.value !== form.branchId) set("pickupRiderId", "");
-              set("branchId", e.target.value);
-            }}>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
+          <Field label="Allocated branch" hint="Pinned to your authenticated staff account.">
+            <div className="flex h-9 items-center rounded-md border border-border bg-muted/40 px-3 text-[13px]" aria-readonly="true">
+              {branchName || branches.find((branch) => branch.id === defaultBranchId)?.name || defaultBranchId}
+            </div>
           </Field>
           <Field label="VAT number" hint="Optional.">
             <Input

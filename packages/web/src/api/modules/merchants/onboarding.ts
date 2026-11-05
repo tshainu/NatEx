@@ -1,11 +1,15 @@
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import type { Principal } from "../../shared/auth";
+import { errors } from "../../shared/errors";
+import { writeAudit } from "../../shared/audit";
 import { createUser } from "../identity/service";
 import { assignRateCard } from "./rate-cards";
 import {
   convertRegistrationRequest,
   createMerchant,
+  getStaffOnboardingRequestForApproval,
+  markStaffOnboardingApproved,
   type CreateMerchantInput,
 } from "./service";
 
@@ -19,6 +23,10 @@ export interface OnboardMerchantInput extends CreateMerchantInput {
     password?: string;
   } | null;
 }
+
+export type StaffOnboardingApprovalInput = Omit<OnboardMerchantInput, "branchId" | "registrationRequestId"> & {
+  requestId: string;
+};
 
 async function createOnboardedMerchant(
   input: OnboardMerchantInput,
@@ -106,10 +114,48 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>): Promise<T> {
 
 /** Registration conversions are all-or-nothing; ordinary onboarding keeps its existing write path. */
 export async function onboardMerchant(input: OnboardMerchantInput, actor: Principal) {
+  if (actor.role !== "admin") errors.forbidden("Only an admin can onboard a merchant.");
   if (input.registrationRequestId) {
     return withRegistrationConversionLock(input.registrationRequestId, () =>
       withSqliteBusyRetry(() => db.transaction((tx) => createOnboardedMerchant(input, actor, tx))),
     );
   }
   return createOnboardedMerchant(input, actor, db);
+}
+
+/** Convert an internal Operations request only after Admin's final modal save. */
+export async function approveStaffOnboardingRequest(input: StaffOnboardingApprovalInput, actor: Principal, requestIdForAudit?: string) {
+  if (actor.role !== "admin") errors.forbidden("Only an admin can approve an Operations onboarding request.");
+  const { requestId, ...merchantDetails } = input;
+  return withRegistrationConversionLock(`operations:${requestId}`, () =>
+    withSqliteBusyRetry(() => db.transaction(async (tx) => {
+      const request = await getStaffOnboardingRequestForApproval(requestId, tx);
+      if (request.status !== "pending") errors.conflict("This onboarding request has already been approved.");
+      const onboarded = await createOnboardedMerchant(
+        {
+          ...merchantDetails,
+          branchId: request.branchId,
+          lat: merchantDetails.lat === undefined ? request.lat : merchantDetails.lat,
+          lng: merchantDetails.lng === undefined ? request.lng : merchantDetails.lng,
+        },
+        actor,
+        tx,
+      );
+      await markStaffOnboardingApproved(requestId, onboarded.merchant.id, actor, tx);
+      const result = {
+        ...onboarded,
+        staffRequest: { id: requestId, status: "approved" as const, approvedMerchantId: onboarded.merchant.id },
+      };
+      await writeAudit({
+        entity: "merchants_onboarding_request",
+        entityId: requestId,
+        action: "merchant.onboarding_approved",
+        actor,
+        requestId: requestIdForAudit,
+        before: { status: request.status, branchId: request.branchId },
+        after: result,
+      }, tx);
+      return result;
+    })),
+  );
 }

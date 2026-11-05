@@ -122,6 +122,13 @@ describe("route guards (static inventory)", () => {
     for (const path of ["merchants.registrationRequests", "merchants.registrationRequestCount", "merchants.registrationRequest"]) {
       expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["admin"] });
     }
+    for (const path of ["merchants.create", "merchants.onboard", "merchants.approveOnboardingRequest"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["admin"] });
+    }
+    expect(byPath.get("merchants.submitOnboardingRequest")?.roles).toEqual(["ops"]);
+    for (const path of ["merchants.onboardingRequests", "merchants.onboardingRequestCount", "merchants.onboardingRequest"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["ops", "admin"] });
+    }
     expect(byPath.get("settings.set")?.roles).toEqual(["admin"]);
   });
 

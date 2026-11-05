@@ -138,7 +138,15 @@ function scopeFilter(scope: Principal) {
     // A merchant sees only its own parcels (§5 row-level scoping).
     return eq(parcel.merchantId, scope.merchantId ?? "__none__");
   }
-  return eq(parcel.branchId, scope.branchId);
+  return allocatedBranchFilter(scope);
+}
+
+/** A missing allocation is an empty scope, never an implicit network scope. */
+function allocatedBranchFilter(scope: Principal) {
+  const branchId = scope.branchId;
+  return typeof branchId === "string" && branchId.trim().length > 0
+    ? eq(parcel.branchId, branchId)
+    : sql`0 = 1`;
 }
 
 /** Assert the caller is allowed to see this parcel at all. */
@@ -629,14 +637,6 @@ export async function topMerchants(
 
 /** Recent custody events across the branch — the ops live feed. */
 export async function recentEvents(scope: Principal, limit = 25) {
-  const scoped = await db
-    .select({ id: parcel.id })
-    .from(parcel)
-    .where(scopeFilter(scope))
-    .limit(500);
-  const ids = scoped.map((r) => r.id);
-  if (ids.length === 0) return [];
-
   return db
     .select({
       id: parcelEvent.id,
@@ -650,7 +650,7 @@ export async function recentEvents(scope: Principal, limit = 25) {
     })
     .from(parcelEvent)
     .innerJoin(parcel, eq(parcel.id, parcelEvent.parcelId))
-    .where(inArray(parcelEvent.parcelId, ids))
+    .where(scopeFilter(scope))
     .orderBy(desc(parcelEvent.ts))
     .limit(limit);
 }

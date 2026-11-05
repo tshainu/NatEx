@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
 import {
   deliveryAttempt,
@@ -137,7 +137,14 @@ function runsheetFilters(
       errors.forbidden("A rider may only read their own runsheets.");
     }
     filters.push(eq(runsheet.riderId, scope.userId));
-  } else if (!isGlobalScope(scope.role)) filters.push(eq(runsheet.branchId, scope.branchId));
+  } else if (!isGlobalScope(scope.role)) {
+    const branchId = scope.branchId;
+    filters.push(
+      typeof branchId === "string" && branchId.trim().length > 0
+        ? eq(runsheet.branchId, branchId)
+        : sql`0 = 1`,
+    );
+  }
   const term = input.search?.trim();
   if (term) {
     const safe = term.replace(/[%_]/g, "");

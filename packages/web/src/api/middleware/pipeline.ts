@@ -124,6 +124,8 @@ export interface MutateOptions {
   bucket?: BucketSpec;
   /** Skip the Idempotency-Key requirement (only for non-side-effecting writes). */
   idempotency?: boolean;
+  /** Only set when run() writes the audit in the SAME transaction as its business changes. */
+  auditWrittenByHandler?: boolean;
 }
 
 const DEFAULT_BUCKET: BucketSpec = { capacity: 120, refillPerMinute: 120 };
@@ -168,14 +170,18 @@ export async function mutate<T>(
     const result = await run();
 
     // 6 — Audit: who, what, when, from which device.
-    await writeAudit({
-      entity: options.entity,
-      entityId: options.entityId(result),
-      action: options.action,
-      actor: context.principal,
-      requestId: context.requestId,
-      after: result,
-    });
+    // A transaction-owning handler can write this before commit, so an audit
+    // failure cannot leave an approved request with a partially reported result.
+    if (!options.auditWrittenByHandler) {
+      await writeAudit({
+        entity: options.entity,
+        entityId: options.entityId(result),
+        action: options.action,
+        actor: context.principal,
+        requestId: context.requestId,
+        after: result,
+      });
+    }
 
     if (key) await idem.complete(key, result);
     return result;

@@ -167,6 +167,13 @@ export default function OpsBoard() {
                 style={{ backgroundColor: GROUP_COLOUR.good }}
               />
               Polling every {POLL_MS / 1000}s
+              {board.data
+                ? ` · ${board.data.scope.kind === "network"
+                    ? "All branches"
+                    : board.data.scope.branch
+                      ? `${board.data.scope.branch.code} · ${board.data.scope.branch.name}`
+                      : "Branch not assigned"}`
+                : ""}
               {board.data ? ` · updated ${time(board.data.generatedAt)}` : ""}
             </p>
           </div>

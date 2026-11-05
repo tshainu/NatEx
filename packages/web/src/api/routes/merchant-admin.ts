@@ -3,7 +3,7 @@ import { adminProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
 import { getUserByPhone, getUserByUsername, isActiveRiderInBranch, requireActiveBranch } from "../modules/identity/service";
 import * as merchantsService from "../modules/merchants/service";
-import { onboardMerchant } from "../modules/merchants/onboarding";
+import { approveStaffOnboardingRequest, onboardMerchant } from "../modules/merchants/onboarding";
 import { errors } from "../shared/errors";
 import { normaliseLkPhone } from "../shared/sms";
 
@@ -32,6 +32,21 @@ export const registrationRequestCount = adminProc.handler(() => merchantsService
 export const registrationRequest = adminProc
   .input(z.object({ id: z.string().min(1).max(100) }))
   .handler(({ input }) => merchantsService.getRegistrationRequest(input.id));
+
+export const onboardingRequests = opsProc
+  .input(z.object({
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(1).max(100).default(25),
+    status: z.enum(["pending", "approved"]).optional(),
+  }))
+  .handler(({ input, context }) => merchantsService.listStaffOnboardingRequests(input, context.principal));
+
+export const onboardingRequestCount = opsProc
+  .handler(({ context }) => merchantsService.staffOnboardingRequestCount(context.principal));
+
+export const onboardingRequest = opsProc
+  .input(z.object({ id: z.string().min(1).max(100) }))
+  .handler(({ input, context }) => merchantsService.getStaffOnboardingRequest(input.id, context.principal));
 
 async function validatePickupRider(riderId: string | null | undefined, branchId: string) {
   if (riderId && !(await isActiveRiderInBranch(riderId, branchId))) {
@@ -121,6 +136,57 @@ export const onboard = adminProc
     );
   });
 
+const staffApprovalInputSchema = z.object({
+  requestId: z.string().min(1).max(100),
+  name: z.string().trim().min(2).max(160),
+  pickupRiderId: z.string().min(1).nullish(),
+  vatNo: z.string().trim().max(40).nullish(),
+  address: z.string().trim().min(4),
+  lat: z.number().int().nullish(),
+  lng: z.number().int().nullish(),
+  contactName: z.string().trim().min(2).max(120),
+  contactPhone: z.string().min(9).max(20),
+  codEnabled: z.boolean().default(true),
+  podPolicy: pod.default("signature"),
+  rateCardId: z.string().min(1).nullish(),
+  portalUser: z.object({
+    name: z.string().trim().min(2).max(120),
+    phone: z.string().min(9).max(20),
+    username: z.string().trim().min(2).max(60).optional(),
+    password: z.string().min(8).max(200).optional(),
+  }).refine((portal) => Boolean(portal.username) === Boolean(portal.password), {
+    message: "Provide both a username and password, or leave both blank.",
+    path: ["username"],
+  }).nullish(),
+});
+
+export const approveOnboardingRequest = adminProc
+  .input(staffApprovalInputSchema)
+  .handler(async ({ input, context }) => {
+    const source = await merchantsService.getStaffOnboardingRequest(input.requestId, context.principal);
+    await requireActiveBranch(source.branchId);
+    await validatePickupRider(input.pickupRiderId, source.branchId);
+    if (input.portalUser) {
+      const clash = await getUserByPhone(normaliseLkPhone(input.portalUser.phone));
+      if (clash) errors.conflict("A user with that phone already exists.");
+      if (input.portalUser.username && await getUserByUsername(input.portalUser.username)) {
+        errors.conflict("That username is already taken.");
+      }
+    }
+    return mutate(
+      context,
+      input,
+      {
+        route: "merchants.approveOnboardingRequest",
+        entity: "merchants_onboarding_request",
+        entityId: (result) => (result as { staffRequest: { id: string } }).staffRequest.id,
+        action: "merchant.onboarding_approved",
+        auditWrittenByHandler: true,
+      },
+      () => approveStaffOnboardingRequest(input, context.principal, context.requestId),
+    );
+  });
+
 export const portalUsers = adminProc
   .input(z.object({ merchantId: z.string().min(1) }))
   .handler(({ input }) => usersForMerchant(input.merchantId));
@@ -132,4 +198,8 @@ export const merchantAdmin = {
   registrationRequests,
   registrationRequestCount,
   registrationRequest,
+  onboardingRequests,
+  onboardingRequestCount,
+  onboardingRequest,
+  approveOnboardingRequest,
 };

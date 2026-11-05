@@ -1,6 +1,6 @@
 import { and, count, desc, eq, inArray, like, lte, or } from "drizzle-orm";
 import { db } from "../../database";
-import { merchant, merchantRegistrationCooldown, merchantRegistrationRequest } from "../../database/schema/merchants";
+import { merchant, merchantOnboardingRequest, merchantRegistrationCooldown, merchantRegistrationRequest } from "../../database/schema/merchants";
 import { prefixedId } from "../../shared/ulid";
 import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
@@ -14,6 +14,7 @@ import { requireActiveBranch } from "../identity/service";
 
 export type MerchantRow = typeof merchant.$inferSelect;
 export type MerchantRegistrationRequestRow = typeof merchantRegistrationRequest.$inferSelect;
+export type MerchantOnboardingRequestRow = typeof merchantOnboardingRequest.$inferSelect;
 
 const REGISTRATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -130,8 +131,8 @@ export async function createMerchant(
   actor: Principal,
   executor: DbTransaction | typeof db = db,
 ): Promise<MerchantRow> {
-  // Ops may only create merchants inside their own branch (§5).
-  const branchId = isGlobalScope(actor.role) ? input.branchId : actor.branchId;
+  if (actor.role !== "admin") errors.forbidden("Only an admin can create an active merchant.");
+  const branchId = input.branchId;
   await requireActiveBranch(branchId);
 
   const [row] = await executor
@@ -153,6 +154,101 @@ export async function createMerchant(
     })
     .returning();
   return row!;
+}
+
+export type StaffOnboardingInput = Omit<CreateMerchantInput, "branchId">;
+
+/** Ops can only submit into the authenticated principal's allocated branch. */
+export async function createStaffOnboardingRequest(
+  input: StaffOnboardingInput,
+  actor: Principal,
+  now = new Date(),
+): Promise<MerchantOnboardingRequestRow> {
+  if (actor.role !== "ops") errors.forbidden("Only Operations staff can submit an onboarding request.");
+  const branchId = actor.branchId;
+  if (!branchId) errors.forbidden("An allocated branch is required to submit an onboarding request.");
+  await requireActiveBranch(branchId);
+  const [row] = await db.insert(merchantOnboardingRequest).values({
+    id: prefixedId("mon"), branchId, name: input.name.trim(),
+    pickupRiderId: input.pickupRiderId ?? null, vatNo: input.vatNo?.trim() || null,
+    address: input.address.trim(), lat: input.lat ?? null, lng: input.lng ?? null,
+    contactName: input.contactName.trim(), contactPhone: input.contactPhone.trim(),
+    codEnabled: input.codEnabled, podPolicy: input.podPolicy,
+    createdById: actor.userId, createdByName: actor.name, status: "pending",
+    createdAt: now, approvedAt: null, approvedById: null, approvedByName: null, approvedMerchantId: null,
+  }).returning();
+  return row!;
+}
+
+function assertOnboardingRequestRole(scope: Principal): void {
+  if (scope.role !== "admin" && scope.role !== "ops") errors.forbidden("Onboarding requests are available only to Operations and Admin.");
+}
+
+export async function listStaffOnboardingRequests(
+  input: { page: number; pageSize: number; status?: "pending" | "approved" },
+  scope: Principal,
+) {
+  assertOnboardingRequestRole(scope);
+  const page = Math.max(1, input.page);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize));
+  const filters = [
+    input.status ? eq(merchantOnboardingRequest.status, input.status) : undefined,
+    scope.role === "ops" ? eq(merchantOnboardingRequest.branchId, scope.branchId) : undefined,
+  ].filter((filter) => filter !== undefined);
+  const where = filters.length ? and(...filters) : undefined;
+  const [rows, [total]] = await Promise.all([
+    db.select().from(merchantOnboardingRequest).where(where)
+      .orderBy(desc(merchantOnboardingRequest.createdAt)).limit(pageSize).offset((page - 1) * pageSize),
+    db.select({ value: count() }).from(merchantOnboardingRequest).where(where),
+  ]);
+  return { rows, total: total?.value ?? 0, page, pageSize };
+}
+
+export async function staffOnboardingRequestCount(scope: Principal): Promise<{ pendingCount: number }> {
+  assertOnboardingRequestRole(scope);
+  const filters = [
+    eq(merchantOnboardingRequest.status, "pending"),
+    scope.role === "ops" ? eq(merchantOnboardingRequest.branchId, scope.branchId) : undefined,
+  ].filter((filter) => filter !== undefined);
+  const [row] = await db.select({ value: count() }).from(merchantOnboardingRequest).where(and(...filters));
+  return { pendingCount: row?.value ?? 0 };
+}
+
+export async function getStaffOnboardingRequest(id: string, scope: Principal): Promise<MerchantOnboardingRequestRow> {
+  assertOnboardingRequestRole(scope);
+  const [row] = await db.select().from(merchantOnboardingRequest).where(eq(merchantOnboardingRequest.id, id)).limit(1);
+  if (!row) errors.notFound("Merchant onboarding request");
+  if (scope.role === "ops" && row!.branchId !== scope.branchId) errors.forbidden("This onboarding request belongs to another branch.");
+  return row!;
+}
+
+/** Internal transaction-bound read; only the Admin approval service may call this. */
+export async function getStaffOnboardingRequestForApproval(
+  id: string,
+  executor: DbTransaction | typeof db,
+): Promise<MerchantOnboardingRequestRow> {
+  const [row] = await executor.select().from(merchantOnboardingRequest)
+    .where(eq(merchantOnboardingRequest.id, id)).limit(1);
+  if (!row) errors.notFound("Merchant onboarding request");
+  return row!;
+}
+
+/** The status compare-and-set participates in the same transaction as merchant, tariff and portal writes. */
+export async function markStaffOnboardingApproved(
+  id: string,
+  merchantId: string,
+  actor: Principal,
+  executor: DbTransaction | typeof db,
+  now = new Date(),
+): Promise<void> {
+  const [updated] = await executor.update(merchantOnboardingRequest).set({
+    status: "approved", approvedAt: now, approvedById: actor.userId,
+    approvedByName: actor.name, approvedMerchantId: merchantId,
+  }).where(and(
+    eq(merchantOnboardingRequest.id, id),
+    eq(merchantOnboardingRequest.status, "pending"),
+  )).returning({ id: merchantOnboardingRequest.id });
+  if (!updated) errors.conflict("This onboarding request has already been approved or is unavailable.");
 }
 
 /** Create once by persistent submission UUID and atomically enforce the phone cooldown. */
@@ -319,7 +415,10 @@ export async function setMerchantStatus(
   status: "active" | "suspended",
   scope: Principal,
 ): Promise<MerchantRow> {
-  await getMerchantScoped(id, scope);
+  const before = await getMerchantScoped(id, scope);
+  if (scope.role !== "admin" && before.status !== "active" && before.status !== "suspended") {
+    errors.forbidden("Only Admin can change the status of a merchant that has not completed onboarding approval.");
+  }
   const [row] = await db
     .update(merchant)
     .set({ status })

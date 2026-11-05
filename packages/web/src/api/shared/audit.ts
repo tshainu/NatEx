@@ -3,6 +3,7 @@ import { auditLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 import type { Principal } from "./auth";
 import { redactForAudit } from "./redact";
+import type { DbTransaction } from "../database/transaction";
 
 /**
  * Append-only audit writer (PROJECT.md §4 step 6, §5).
@@ -39,10 +40,10 @@ export function auditValues(input: AuditInput): typeof auditLog.$inferInsert {
 }
 
 /** Build an append-only audit insert so callers can batch it with a mutation. */
-export function auditInsert(input: AuditInput) {
-  return db.insert(auditLog).values(auditValues(input));
+export function auditInsert(input: AuditInput, executor: DbTransaction | typeof db = db) {
+  return executor.insert(auditLog).values(auditValues(input));
 }
 
-export async function writeAudit(input: AuditInput): Promise<void> {
-  await auditInsert(input);
+export async function writeAudit(input: AuditInput, executor: DbTransaction | typeof db = db): Promise<void> {
+  await auditInsert(input, executor);
 }

@@ -21,6 +21,14 @@ const ddl = [
     contact_phone TEXT NOT NULL, rate_card_id TEXT, cod_enabled INTEGER NOT NULL DEFAULT 1,
     pod_policy TEXT NOT NULL DEFAULT 'signature', status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE merchants_onboarding_request (
+    id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, name TEXT NOT NULL, pickup_rider_id TEXT, vat_no TEXT,
+    address TEXT NOT NULL, lat_e6 INTEGER, lng_e6 INTEGER, contact_name TEXT NOT NULL, contact_phone TEXT NOT NULL,
+    cod_enabled INTEGER NOT NULL DEFAULT 1, pod_policy TEXT NOT NULL DEFAULT 'signature',
+    created_by_id TEXT NOT NULL, created_by_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL, approved_at INTEGER, approved_by_id TEXT, approved_by_name TEXT,
+    approved_merchant_id TEXT REFERENCES merchants_merchant(id)
+  )`,
   `CREATE TABLE merchants_registration_request (
     id TEXT PRIMARY KEY, submission_id TEXT NOT NULL, business_name TEXT NOT NULL, contact_name TEXT NOT NULL,
     phone TEXT NOT NULL, email TEXT NOT NULL, district TEXT NOT NULL, business_type TEXT NOT NULL,
@@ -37,6 +45,11 @@ const ddl = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE shared_rate_limit (bucket TEXT PRIMARY KEY, tokens INTEGER NOT NULL, refilled_at INTEGER NOT NULL)`,
+  `CREATE TABLE shared_audit_log (
+    id TEXT PRIMARY KEY, entity TEXT NOT NULL, entity_id TEXT NOT NULL, action TEXT NOT NULL,
+    actor_id TEXT, actor_role TEXT, branch_id TEXT, device_id TEXT, request_id TEXT,
+    before_json TEXT, after_json TEXT, ts INTEGER NOT NULL
+  )`,
   `CREATE TABLE shared_sms_log (
     id TEXT PRIMARY KEY, to_phone TEXT NOT NULL, sender_id TEXT NOT NULL, body TEXT NOT NULL,
     purpose TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', gateway_ref TEXT, raw_response TEXT,
@@ -69,21 +82,31 @@ const { call } = await import("@orpc/server");
 const { db } = await import("../../database");
 const { branch, user } = await import("../../database/schema/identity");
 const { merchant } = await import("../../database/schema/merchants");
-const { outbox, smsLog } = await import("../../database/schema/shared");
+const { auditLog, outbox, smsLog } = await import("../../database/schema/shared");
 const { registrationInputSchema, submitRegistration } = await import("../../routes/merchants");
 const merchantsService = await import("./service");
-const { onboardMerchant } = await import("./onboarding");
+const { approveStaffOnboardingRequest, onboardMerchant } = await import("./onboarding");
 const { sendSms } = await import("../../shared/sms");
 const { dispatchMerchantRegistrationSms } = await import("../../jobs/worker");
 const { MERCHANT_REGISTRATION_ACCEPTED_SMS, MERCHANT_REGISTRATION_RECEIPT_SMS } = await import("../../shared/sms-policy");
 
 const RUN = `${process.pid}_${Date.now()}`;
 const BRANCH_ID = `brn_registration_${RUN}`;
+const OTHER_BRANCH_ID = `brn_registration_other_${RUN}`;
 const ACTOR = {
   userId: `usr_admin_${RUN}`,
   name: "Registration integration test admin",
   role: "admin" as const,
   roles: ["admin" as const],
+  branchId: BRANCH_ID,
+  merchantId: null,
+  deviceId: null,
+};
+const OPS_ACTOR = {
+  userId: `usr_ops_${RUN}`,
+  name: "Operations test staff",
+  role: "ops" as const,
+  roles: ["ops" as const],
   branchId: BRANCH_ID,
   merchantId: null,
   deviceId: null,
@@ -140,15 +163,26 @@ function onboardingInput(requestId: string, overrides: Record<string, unknown> =
 }
 
 beforeAll(async () => {
-  await db.insert(branch).values({
-    id: BRANCH_ID,
-    code: `RG${String(Date.now()).slice(-6)}`,
-    name: "Merchant registration test branch",
-    address: "No. 1 Test Road, Colombo, Western Province",
-    lat: 6_927_100,
-    lng: 79_861_200,
-    type: "branch",
-  });
+  await db.insert(branch).values([
+    {
+      id: BRANCH_ID,
+      code: `RG${String(Date.now()).slice(-6)}`,
+      name: "Merchant registration test branch",
+      address: "No. 1 Test Road, Colombo, Western Province",
+      lat: 6_927_100,
+      lng: 79_861_200,
+      type: "branch",
+    },
+    {
+      id: OTHER_BRANCH_ID,
+      code: `RO${String(Date.now()).slice(-6)}`,
+      name: "Other onboarding test branch",
+      address: "No. 2 Test Road, Kandy, Central Province",
+      lat: 7_290_000,
+      lng: 80_630_000,
+      type: "branch",
+    },
+  ]);
   await setupClient.execute({
     sql: `INSERT INTO merchants_rate_card (id, code, name, placeholder, created_at) VALUES (?, ?, ?, ?, ?)`,
     args: [`rtc_${RUN}`, `REG${String(Date.now()).slice(-6)}`, "Approved test card", 0, Date.now()],
@@ -363,5 +397,204 @@ describe("merchant registration backend (isolated SQLite)", () => {
       if (oldEnv.url === undefined) delete process.env.SMS_EXECUTION_URL;
       else process.env.SMS_EXECUTION_URL = oldEnv.url;
     }
+  });
+
+  test("Operations requests are branch-pinned, create no merchant/login/SMS, and cannot bypass Admin approval", async () => {
+    const initialMerchantCount = (await db.select().from(merchant)).length;
+    const initialUserCount = (await db.select().from(user)).length;
+    const initialOutboxCount = (await db.select().from(outbox)).length;
+    const submitted = await merchantsService.createStaffOnboardingRequest({
+      name: "Operations pending business",
+      address: "No. 8 Request Road, Colombo, Western Province",
+      contactName: "Operations Contact",
+      contactPhone: testPhone(),
+      codEnabled: true,
+      podPolicy: "signature",
+    }, OPS_ACTOR);
+
+    expect(submitted).toMatchObject({
+      branchId: BRANCH_ID,
+      createdById: OPS_ACTOR.userId,
+      createdByName: OPS_ACTOR.name,
+      status: "pending",
+      approvedMerchantId: null,
+    });
+    expect((await db.select().from(merchant)).length).toBe(initialMerchantCount);
+    expect((await db.select().from(user)).length).toBe(initialUserCount);
+    expect((await db.select().from(outbox)).length).toBe(initialOutboxCount);
+    expect((await merchantsService.staffOnboardingRequestCount(OPS_ACTOR)).pendingCount).toBe(1);
+
+    const otherBranchOps = { ...OPS_ACTOR, userId: `ops_other_${RUN}`, branchId: OTHER_BRANCH_ID };
+    expect((await merchantsService.listStaffOnboardingRequests({ page: 1, pageSize: 20 }, otherBranchOps)).total).toBe(0);
+    expect((await merchantsService.staffOnboardingRequestCount(otherBranchOps)).pendingCount).toBe(0);
+    await expect(merchantsService.getStaffOnboardingRequest(submitted.id, otherBranchOps)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await merchantsService.listStaffOnboardingRequests({ page: 1, pageSize: 20 }, ACTOR)).total).toBe(1);
+    expect((await merchantsService.staffOnboardingRequestCount(ACTOR)).pendingCount).toBe(1);
+    const riderActor = { ...OPS_ACTOR, role: "rider" as const, roles: ["rider" as const] };
+    await expect(merchantsService.listStaffOnboardingRequests({ page: 1, pageSize: 20 }, riderActor)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(merchantsService.getStaffOnboardingRequest(submitted.id, riderActor)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(merchantsService.createStaffOnboardingRequest({
+      name: "Admin cannot submit an Ops request",
+      address: "No. 1 Admin Road, Colombo, Western Province",
+      contactName: "Admin Contact",
+      contactPhone: testPhone(),
+      codEnabled: true,
+      podPolicy: "signature",
+    }, ACTOR)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(merchantsService.createMerchant({
+      name: "Direct Ops bypass",
+      branchId: BRANCH_ID,
+      address: "No. 2 Admin Road, Colombo, Western Province",
+      contactName: "Ops Contact",
+      contactPhone: testPhone(),
+      codEnabled: true,
+      podPolicy: "signature",
+    }, OPS_ACTOR)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(approveStaffOnboardingRequest({
+      requestId: submitted.id,
+      name: submitted.name,
+      address: submitted.address,
+      contactName: submitted.contactName,
+      contactPhone: submitted.contactPhone,
+      codEnabled: submitted.codEnabled,
+      podPolicy: "signature",
+    }, OPS_ACTOR)).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await db.insert(merchant).values({
+      id: `mch_pending_${RUN}`, branchId: BRANCH_ID, name: "Legacy pending row", address: "Road, Colombo",
+      contactName: "Pending Contact", contactPhone: testPhone(), codEnabled: true, podPolicy: "signature", status: "pending",
+    });
+    await expect(merchantsService.setMerchantStatus(`mch_pending_${RUN}`, "active", OPS_ACTOR)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(merchantsService.setMerchantStatus(`mch_pending_${RUN}`, "suspended", OPS_ACTOR)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await merchantsService.getMerchant(`mch_pending_${RUN}`))?.status).toBe("pending");
+  });
+
+  test("portal-phone conflict rolls back the whole approval and a concurrent replay creates exactly once", async () => {
+    const request = await merchantsService.createStaffOnboardingRequest({
+      name: "Atomic request rollback",
+      address: "No. 9 Request Road, Colombo, Western Province",
+      contactName: "Request Contact",
+      contactPhone: testPhone(),
+      codEnabled: true,
+      podPolicy: "signature",
+    }, OPS_ACTOR);
+    const conflictingPhone = testPhone();
+    await db.insert(user).values({
+      id: `usr_existing_${RUN}`, branchId: BRANCH_ID, role: "merchant", roles: JSON.stringify(["merchant"]),
+      username: null, passwordHash: null, name: "Existing phone", phone: conflictingPhone, deviceId: null,
+      status: "active", merchantId: null, createdAt: new Date(),
+    });
+    const beforeMerchantCount = (await db.select().from(merchant)).length;
+    const beforeOutboxCount = (await db.select().from(outbox)).length;
+    const approval = {
+      requestId: request.id,
+      // An untrusted extra field is ignored in favor of the stored request branch.
+      branchId: OTHER_BRANCH_ID,
+      name: request.name,
+      address: request.address,
+      contactName: request.contactName,
+      contactPhone: request.contactPhone,
+      codEnabled: request.codEnabled,
+      podPolicy: "signature",
+      rateCardId: `rtc_${RUN}`,
+      portalUser: { name: "Duplicate phone", phone: conflictingPhone },
+    };
+    await expect(approveStaffOnboardingRequest(approval as never, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await db.select().from(merchant)).length).toBe(beforeMerchantCount);
+    expect((await db.select().from(outbox)).length).toBe(beforeOutboxCount);
+    expect(await merchantsService.getStaffOnboardingRequest(request.id, ACTOR)).toMatchObject({
+      status: "pending", approvedMerchantId: null, approvedAt: null,
+    });
+
+    const replay = await merchantsService.createStaffOnboardingRequest({
+      name: "Concurrent approval request",
+      address: "No. 10 Request Road, Colombo, Western Province",
+      lat: 6927100,
+      lng: 79861200,
+      contactName: "Concurrent Contact",
+      contactPhone: testPhone(),
+      codEnabled: false,
+      podPolicy: "photo",
+    }, OPS_ACTOR);
+    const concurrentApproval = {
+      requestId: replay.id,
+      branchId: OTHER_BRANCH_ID,
+      name: replay.name,
+      address: replay.address,
+      contactName: replay.contactName,
+      contactPhone: replay.contactPhone,
+      codEnabled: replay.codEnabled,
+      podPolicy: "photo",
+      rateCardId: `rtc_${RUN}`,
+      portalUser: { name: "New merchant portal", phone: testPhone() },
+    };
+    const outcomes = await Promise.allSettled([
+      approveStaffOnboardingRequest(concurrentApproval as never, ACTOR),
+      approveStaffOnboardingRequest(concurrentApproval as never, ACTOR),
+    ]);
+    const fulfilled = outcomes.filter((outcome) => outcome.status === "fulfilled");
+    const rejected = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ code: "CONFLICT" });
+    const approved = await merchantsService.getStaffOnboardingRequest(replay.id, ACTOR);
+    expect(approved).toMatchObject({
+      status: "approved",
+      branchId: BRANCH_ID,
+      approvedById: ACTOR.userId,
+      approvedByName: ACTOR.name,
+      approvedMerchantId: fulfilled[0]!.value.merchant.id,
+    });
+    const merchantRow = await merchantsService.getMerchant(approved.approvedMerchantId!);
+    expect(merchantRow).toMatchObject({ branchId: BRANCH_ID, rateCardId: `rtc_${RUN}`, status: "active", lat: 6927100, lng: 79861200 });
+    expect(fulfilled[0]!.value.portalUser?.id).toBeTruthy();
+    expect((await db.select().from(outbox)).length).toBe(beforeOutboxCount);
+    const audits = (await db.select().from(auditLog)).filter((row) => row.entityId === replay.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actorId: ACTOR.userId, action: "merchant.onboarding_approved" });
+  });
+
+  test("approval audit failure rolls back request, merchant and portal creation before retry", async () => {
+    const request = await merchantsService.createStaffOnboardingRequest({
+      name: "Audit rollback request",
+      address: "No. 11 Request Road, Colombo, Western Province",
+      contactName: "Audit Contact",
+      contactPhone: testPhone(),
+      codEnabled: true,
+      podPolicy: "signature",
+    }, OPS_ACTOR);
+    const approval = {
+      requestId: request.id,
+      name: request.name,
+      address: request.address,
+      contactName: request.contactName,
+      contactPhone: request.contactPhone,
+      codEnabled: request.codEnabled,
+      podPolicy: "signature",
+      rateCardId: `rtc_${RUN}`,
+      portalUser: { name: "Audit merchant portal", phone: testPhone() },
+    };
+    const merchantCount = (await db.select().from(merchant)).length;
+    const userCount = (await db.select().from(user)).length;
+    const auditCount = (await db.select().from(auditLog)).length;
+    await setupClient.execute(`CREATE TRIGGER fail_onboarding_audit BEFORE INSERT ON shared_audit_log
+      WHEN NEW.action = 'merchant.onboarding_approved'
+      BEGIN SELECT RAISE(ABORT, 'Audit storage unavailable'); END`);
+    try {
+      await expect(approveStaffOnboardingRequest(approval, ACTOR, "req_audit_rollback")).rejects.toThrow("shared_audit_log");
+      expect((await db.select().from(merchant)).length).toBe(merchantCount);
+      expect((await db.select().from(user)).length).toBe(userCount);
+      expect((await db.select().from(auditLog)).length).toBe(auditCount);
+      expect(await merchantsService.getStaffOnboardingRequest(request.id, ACTOR)).toMatchObject({
+        status: "pending", approvedMerchantId: null, approvedAt: null,
+      });
+    } finally {
+      await setupClient.execute("DROP TRIGGER fail_onboarding_audit");
+    }
+    const result = await approveStaffOnboardingRequest(approval, ACTOR, "req_audit_recovered");
+    expect(result.staffRequest.status).toBe("approved");
+    const audits = (await db.select().from(auditLog)).filter((row) => row.entityId === request.id);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ requestId: "req_audit_recovered", actorId: ACTOR.userId });
   });
 });

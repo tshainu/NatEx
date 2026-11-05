@@ -39,6 +39,37 @@ export const merchant = sqliteTable(
   (t) => [index("merchants_merchant_branch_idx").on(t.branchId)],
 );
 
+/** Internal Operations requests; deliberately separate from public, SMS-consented applications. */
+export const merchantOnboardingRequest = sqliteTable(
+  "merchants_onboarding_request",
+  {
+    id: text("id").primaryKey(),
+    branchId: text("branch_id").notNull(),
+    name: text("name").notNull(),
+    pickupRiderId: text("pickup_rider_id"),
+    vatNo: text("vat_no"),
+    address: text("address").notNull(),
+    lat: integer("lat_e6"),
+    lng: integer("lng_e6"),
+    contactName: text("contact_name").notNull(),
+    contactPhone: text("contact_phone").notNull(),
+    codEnabled: integer("cod_enabled", { mode: "boolean" }).notNull().default(true),
+    podPolicy: text("pod_policy").notNull().default("signature"),
+    createdById: text("created_by_id").notNull(),
+    createdByName: text("created_by_name").notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    approvedById: text("approved_by_id"),
+    approvedByName: text("approved_by_name"),
+    approvedMerchantId: text("approved_merchant_id").references(() => merchant.id),
+  },
+  (t) => [
+    index("merchants_onboarding_branch_status_created_idx").on(t.branchId, t.status, t.createdAt),
+    index("merchants_onboarding_status_created_idx").on(t.status, t.createdAt),
+  ],
+);
+
 /** Public merchant applications; all reads are exposed only through admin procedures. */
 export const merchantRegistrationRequest = sqliteTable(
   "merchants_registration_request",

@@ -2,12 +2,12 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, MapPin } from "lucide-react";
 import { client, orpc, apiMessage } from "@/lib/api";
+import { filterBookableMerchants, MerchantPicker } from "./merchant-picker";
 import { money, toE6, metres } from "@/lib/format";
 import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/natex/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { AddressFields } from "@/components/natex/address-fields";
@@ -62,6 +62,7 @@ export default function OpsBook() {
     ...orpc.merchants.options.queryOptions(),
     staleTime: 5 * 60 * 1000,
   });
+  const bookableMerchants = filterBookableMerchants(merchants.data ?? [], "");
   const bookingLimits = useQuery({
     ...orpc.settings.bookingLimits.queryOptions(),
     staleTime: 0,
@@ -125,6 +126,7 @@ export default function OpsBook() {
 
   const valid =
     form.merchantId !== "" &&
+    bookableMerchants.some((merchant) => merchant.id === form.merchantId) &&
     "grams" in weight &&
     weight.grams > 0 &&
     !weightLimitError &&
@@ -177,15 +179,13 @@ export default function OpsBook() {
         <Card title="Merchant &amp; consignment">
           <div className="space-y-4">
             <Field label="Merchant" hint="Only merchants in your branch scope are listed.">
-              <Select value={form.merchantId} onChange={set("merchantId")} required>
-                <option value="">Select a merchant…</option>
-                {(merchants.data ?? []).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                    {m.codEnabled ? "" : " (COD disabled)"}
-                  </option>
-                ))}
-              </Select>
+              <MerchantPicker
+                merchants={bookableMerchants}
+                value={form.merchantId}
+                onChange={(merchantId) => setForm((prev) => ({ ...prev, merchantId }))}
+                loading={merchants.isLoading}
+                error={merchants.isError ? apiMessage(merchants.error, "Merchants could not be loaded.") : null}
+              />
             </Field>
             <Field label="Preprinted tracking number sticker" hint="Optional for staff. If entered, it must belong to this merchant and be unused.">
               <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" />

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { orpc, apiMessage } from "@/lib/api";
+import { humanise } from "@/lib/format";
 import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { AddressFields } from "@/components/natex/address-fields";
 import { addressPartsFromLegacy, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useMerchantPortalUsers, useRateCards } from "@/queries/admin";
 import { registrationOnboardPrefill, type MerchantRegistrationRequest } from "./merchant-registration";
+import { staffOnboardingPrefill, type StaffOnboardingRequest } from "./staff-onboarding-request";
 
 /**
  * Merchant onboarding and maintenance (§10 M5 "merchant onboarding").
@@ -53,11 +55,13 @@ export function MerchantFields({
   set,
   branches,
   branchLocked,
+  branchLockedHint,
 }: {
   form: MerchantForm;
   set: <K extends keyof MerchantForm>(key: K, value: MerchantForm[K]) => void;
   branches: { id: string; name: string }[];
   branchLocked?: boolean;
+  branchLockedHint?: string;
 }) {
   const riders = useQuery({
     ...orpc.identity.pickupRiderOptions.queryOptions({ input: { branchId: form.branchId } }),
@@ -70,7 +74,7 @@ export function MerchantFields({
         <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
       </Field>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Owning branch" hint={branchLocked ? "Only an admin may move a merchant." : undefined}>
+        <Field label="Owning branch" hint={branchLocked ? branchLockedHint ?? "Only an admin may move a merchant." : undefined}>
           <Select
             value={form.branchId}
             disabled={branchLocked}
@@ -240,6 +244,7 @@ export function OnboardMerchantDialog({
   branches,
   defaultBranchId,
   registrationRequest,
+  staffRequest,
   onDone,
 }: {
   open: boolean;
@@ -247,22 +252,27 @@ export function OnboardMerchantDialog({
   branches: { id: string; name: string }[];
   defaultBranchId: string;
   registrationRequest?: MerchantRegistrationRequest;
+  staffRequest?: StaffOnboardingRequest;
   onDone: (merchantId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const cards = useRateCards();
   const blank = React.useMemo<MerchantForm>(() => ({
-    ...registrationOnboardPrefill(defaultBranchId, registrationRequest),
-    pickupRiderId: "",
-    vatNo: "",
-    codEnabled: true,
-    podPolicy: "signature",
-  }), [defaultBranchId, registrationRequest]);
+    ...(staffRequest
+      ? staffOnboardingPrefill(staffRequest)
+      : {
+          ...registrationOnboardPrefill(defaultBranchId, registrationRequest),
+          pickupRiderId: "",
+          vatNo: "",
+          codEnabled: true,
+          podPolicy: "signature" as const,
+        }),
+  }), [defaultBranchId, registrationRequest, staffRequest]);
   const [form, setForm] = React.useState(blank);
   const [rateCardId, setRateCardId] = React.useState("");
   const [withPortal, setWithPortal] = React.useState(true);
-  const [portalName, setPortalName] = React.useState(registrationRequest?.contactName ?? "");
-  const [portalPhone, setPortalPhone] = React.useState(registrationRequest?.phone ?? "");
+  const [portalName, setPortalName] = React.useState(registrationRequest?.contactName ?? staffRequest?.contactName ?? "");
+  const [portalPhone, setPortalPhone] = React.useState(registrationRequest?.phone ?? staffRequest?.contactPhone ?? "");
   const [withPasswordLogin, setWithPasswordLogin] = React.useState(true);
   const [portalUsername, setPortalUsername] = React.useState("");
   const [portalPassword, setPortalPassword] = React.useState("");
@@ -285,22 +295,24 @@ export function OnboardMerchantDialog({
     setForm(blank);
     setRateCardId("");
     setWithPortal(true);
-    setPortalName(registrationRequest?.contactName ?? "");
-    setPortalPhone(registrationRequest?.phone ?? "");
+    setPortalName(registrationRequest?.contactName ?? staffRequest?.contactName ?? "");
+    setPortalPhone(registrationRequest?.phone ?? staffRequest?.contactPhone ?? "");
     setWithPasswordLogin(true);
     setPortalUsername("");
     setPortalPassword("");
     setProblem(null);
-  }, [open, blank, registrationRequest?.id, registrationRequest?.contactName, registrationRequest?.phone]);
+  }, [open, blank, registrationRequest?.id, registrationRequest?.contactName, registrationRequest?.phone, staffRequest?.id, staffRequest?.contactName, staffRequest?.contactPhone]);
 
-  const onboard = useMutation({
-    ...orpc.merchants.onboard.mutationOptions(),
-    onSuccess: (result) => {
+  const finishOnboarding = (merchantId: string) => {
       void queryClient.invalidateQueries();
       void queryClient.invalidateQueries({ queryKey: orpc.merchants.list.key() });
       if (registrationRequest) {
         void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequests.key() });
         void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequestCount.key() });
+      }
+      if (staffRequest) {
+        void queryClient.invalidateQueries({ queryKey: orpc.merchants.onboardingRequests.key() });
+        void queryClient.invalidateQueries({ queryKey: orpc.merchants.onboardingRequestCount.key() });
       }
       submitting.current = false;
       setForm(blank);
@@ -310,12 +322,22 @@ export function OnboardMerchantDialog({
       setWithPasswordLogin(true);
       setPortalUsername("");
       setPortalPassword("");
-      onDone(result.merchant.id);
-    },
-    onError: (error) => {
+      onDone(merchantId);
+  };
+  const failOnboarding = (error: unknown) => {
       submitting.current = false;
       setProblem(apiMessage(error, "This merchant could not be onboarded."));
-    },
+  };
+
+  const onboard = useMutation({
+    ...orpc.merchants.onboard.mutationOptions(),
+    onSuccess: (result) => finishOnboarding(result.merchant.id),
+    onError: failOnboarding,
+  });
+  const approve = useMutation({
+    ...orpc.merchants.approveOnboardingRequest.mutationOptions(),
+    onSuccess: (result) => finishOnboarding(result.merchant.id),
+    onError: failOnboarding,
   });
 
   const assignable = (cards.data ?? []).filter((c) => c.activeVersion && !c.placeholder);
@@ -325,29 +347,31 @@ export function OnboardMerchantDialog({
     (portalName.trim().length >= 2 &&
       portalPhone.trim().length >= 9 &&
       (!withPasswordLogin || (portalUsername.trim().length >= 2 && portalPassword.length >= 8)));
+  const saving = onboard.isPending || approve.isPending;
 
   return (
     <Dialog
       open={open}
       onOpenChange={changeOpen}
-      title="Onboard a merchant"
-      description="Creates the merchant, its first merchant-portal login and its rate card in one audited step. The portal phone and username are checked first, so a clash is reported before creating the merchant."
+      title={staffRequest ? "Approve & onboard merchant" : "Onboard a merchant"}
+      description={staffRequest
+        ? "Review the Operations submission. The allocated branch is pinned; only the final Admin save creates the merchant, rate card and portal login."
+        : "Creates the merchant, its first merchant-portal login and its rate card in one audited step. The portal phone and username are checked first, so a clash is reported before creating the merchant."}
       className="w-[560px]"
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="outline" disabled={onboard.isPending} onClick={() => changeOpen(false)}>
+          <Button variant="outline" disabled={saving} onClick={() => changeOpen(false)}>
             Cancel
           </Button>
           <Button
-            disabled={!formValid(form) || !portalOk}
-            pending={onboard.isPending}
+            disabled={!formValid(form) || !portalOk || saving}
+            pending={saving}
             onClick={() => {
               if (submitting.current) return;
               submitting.current = true;
               setProblem(null);
-              onboard.mutate({
+              const details = {
                 name: form.name.trim(),
-                branchId: form.branchId,
                 pickupRiderId: form.pickupRiderId || null,
                 vatNo: form.vatNo.trim() || null,
                 address: formatAddress(form.address),
@@ -365,11 +389,19 @@ export function OnboardMerchantDialog({
                         : {}),
                     }
                   : null,
-                ...(registrationRequest ? { registrationRequestId: registrationRequest.id } : {}),
-              });
+              };
+              if (staffRequest) {
+                approve.mutate({ requestId: staffRequest.id, ...details });
+              } else {
+                onboard.mutate({
+                  ...details,
+                  branchId: form.branchId,
+                  ...(registrationRequest ? { registrationRequestId: registrationRequest.id } : {}),
+                });
+              }
             }}
           >
-            Onboard merchant
+            {staffRequest ? "Approve & onboard" : "Onboard merchant"}
           </Button>
         </div>
       }
@@ -388,7 +420,24 @@ export function OnboardMerchantDialog({
             </KeyValueGrid>
           </section>
         ) : null}
-        <MerchantFields form={form} set={set} branches={branches} />
+        {staffRequest ? (
+          <section aria-labelledby="operations-request-summary-heading" className="flex flex-col gap-2 rounded-md border border-brand/30 bg-brand/5 p-3">
+            <h3 id="operations-request-summary-heading" className="label-xs text-muted-foreground">Operations request review</h3>
+            <KeyValueGrid>
+              <KeyValue label="Submitted by">{staffRequest.createdByName}</KeyValue>
+              <KeyValue label="Submitted">{new Date(staffRequest.createdAt).toLocaleString()}</KeyValue>
+              <KeyValue label="Allocated branch">{branches.find((branch) => branch.id === staffRequest.branchId)?.name ?? staffRequest.branchId}</KeyValue>
+              <KeyValue label="Request status">{humanise(staffRequest.status)}</KeyValue>
+            </KeyValueGrid>
+          </section>
+        ) : null}
+        <MerchantFields
+          form={form}
+          set={set}
+          branches={branches}
+          branchLocked={Boolean(staffRequest)}
+          branchLockedHint="Pinned to the branch recorded on the Operations request."
+        />
         <Field label="Rate card" hint="Only approved cards with a published version can be assigned.">
           <Select value={rateCardId} onChange={(e) => setRateCardId(e.target.value)}>
             <option value="">None yet</option>
