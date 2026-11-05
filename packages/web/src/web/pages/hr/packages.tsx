@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, HR_CONTROL_CLASS, lkrToCents } from "./shared";
+import { calculatePackageContributionEstimate, type PackagePayBasis } from "./package-contributions";
 import { HrNavigation } from "./navigation";
 
 type ItemForm = {
@@ -22,7 +23,7 @@ type PackageForm = {
   code: string;
   name: string;
   description: string;
-  payBasis: "monthly" | "daily" | "hourly";
+  payBasis: PackagePayBasis;
   basePayLkr: string;
   baseEpfEligible: boolean;
   baseEtfEligible: boolean;
@@ -37,6 +38,10 @@ const emptyItem = (): ItemForm => ({
   label: "", kind: "earning", amountLkr: "", epfEligible: false, etfEligible: false,
   apitTaxable: false, overtimeEligible: false, proration: "full_period",
 });
+
+function lkr(cents: number): string {
+  return `LKR ${centsToLkr(cents)}`;
+}
 
 export default function HrPackages() {
   const queryClient = useQueryClient();
@@ -57,7 +62,7 @@ export default function HrPackages() {
   function edit(pkg: NonNullable<typeof packages.data>[number]) {
     setEditingId(pkg.id);
     setForm({
-      code: pkg.code, name: pkg.name, description: pkg.description ?? "", payBasis: pkg.payBasis as PackageForm["payBasis"],
+      code: pkg.code, name: pkg.name, description: pkg.description ?? "", payBasis: pkg.payBasis as PackagePayBasis,
       basePayLkr: centsToLkr(pkg.basePayCents), baseEpfEligible: pkg.baseEpfEligible,
       baseEtfEligible: pkg.baseEtfEligible, baseApitTaxable: pkg.baseApitTaxable,
       items: pkg.items.map((item) => ({
@@ -85,7 +90,22 @@ export default function HrPackages() {
     else create.mutate(payload);
   }
 
+  const estimateInput = {
+    payBasis: form.payBasis,
+    basePayCents: lkrToCents(form.basePayLkr),
+    baseEpfEligible: form.baseEpfEligible,
+    baseEtfEligible: form.baseEtfEligible,
+    components: form.items.map((item) => ({
+      kind: item.kind,
+      amountCents: lkrToCents(item.amountLkr),
+      epfEligible: item.epfEligible,
+      etfEligible: item.etfEligible,
+    })),
+  } as const;
+  const estimate = calculatePackageContributionEstimate(estimateInput);
+  const monthly = form.payBasis === "monthly";
   const error = packages.error ?? create.error ?? update.error;
+
   return (
     <Page title="Salary packages" description="Design reusable compensation packages. Contribution and tax-base treatment is stored per component; approved payroll keeps an immutable snapshot.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
@@ -96,7 +116,7 @@ export default function HrPackages() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Package code"><Input required maxLength={20} value={form.code} onChange={(e) => updateForm("code", e.target.value.toUpperCase())} /></Field>
             <Field label="Package name"><Input required value={form.name} onChange={(e) => updateForm("name", e.target.value)} /></Field>
-            <Field label="Pay basis"><select className={HR_CONTROL_CLASS} value={form.payBasis} onChange={(e) => updateForm("payBasis", e.target.value as PackageForm["payBasis"])}><option value="monthly">Monthly</option><option value="daily">Daily rate</option><option value="hourly">Hourly rate</option></select></Field>
+            <Field label="Pay basis"><select className={HR_CONTROL_CLASS} value={form.payBasis} onChange={(e) => updateForm("payBasis", e.target.value as PackagePayBasis)}><option value="monthly">Monthly</option><option value="daily">Daily rate</option><option value="hourly">Hourly rate</option></select></Field>
             <Field label={`Base pay (LKR per ${form.payBasis === "monthly" ? "month" : form.payBasis})`}><Input inputMode="decimal" type="number" min="0.01" step="0.01" required value={form.basePayLkr} onChange={(e) => updateForm("basePayLkr", e.target.value)} /></Field>
           </div>
           <Field label="Package description"><Textarea maxLength={500} value={form.description} onChange={(e) => updateForm("description", e.target.value)} /></Field>
@@ -106,9 +126,23 @@ export default function HrPackages() {
             <label className="flex items-center gap-2"><input type="checkbox" aria-label="Base enters APIT wages" checked={form.baseApitTaxable} onChange={(e) => updateForm("baseApitTaxable", e.target.checked)} /> Base enters APIT wages</label>
           </div>
 
+          <section className="space-y-3 rounded-md border bg-muted/20 p-4" aria-label="Estimated salary package contributions">
+            <div>
+              <h3 className="text-[14px] font-semibold">{monthly ? "Estimated package totals · full month" : `Estimated contribution · base only per ${form.payBasis}`}</h3>
+              <p className="text-[12px] text-muted-foreground">{monthly ? "Full-period recurring earnings are included; attendance, overtime and APIT are not estimated." : "Daily/hourly amounts are per-unit base-only estimates. Fixed recurring components are shown separately and excluded from these estimates."}</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[780px] text-left text-[12px]">
+                <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF Company contribution · 3%</th><th className="p-2 text-right">Total earnings after staff EPF</th></tr></thead>
+                <tbody><tr className="font-mono"><td className="p-2">{estimate ? lkr(estimate.grossCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEtfCents) : "—"}</td><td className="p-2 text-right font-semibold">{estimate ? lkr(estimate.earningsAfterEmployeeEpfCents) : "—"}</td></tr></tbody>
+              </table>
+            </div>
+            {estimate ? <p className="text-[12px] text-muted-foreground">Fixed recurring components per pay period: {lkr(estimate.recurringEarningsCents)} earnings and {lkr(estimate.recurringDeductionsCents)} deductions{monthly ? " (earnings included above; deductions not subtracted from the after-staff-EPF total)." : " (reported separately; excluded from the per-unit figures)."} Company EPF/ETF are employer costs, not deductions from employee pay. “Earnings after staff EPF” subtracts only employee EPF; APIT and other deductions are not subtracted.</p> : <p className="text-[12px] text-muted-foreground">Enter a positive base pay and valid positive amounts for every component to see exact LKR estimates.</p>}
+          </section>
+
           <div className="space-y-3 border-t pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-[14px] font-semibold">Recurring components</h3><p className="text-[12px] text-muted-foreground">Add allowances or deductions and mark statutory contribution/tax bases according to the component's legal treatment.</p></div><Button type="button" variant="outline" onClick={() => updateForm("items", [...form.items, emptyItem()])}>Add component</Button></div>
-            {form.items.map((item, index) => <div key={`${index}-${item.label}`} className="grid gap-3 rounded-md border p-3 md:grid-cols-2 xl:grid-cols-[1.3fr_130px_150px_1fr_auto]">
+            {form.items.map((item, index) => <div key={index} className="grid gap-3 rounded-md border p-3 md:grid-cols-2 xl:grid-cols-[1.3fr_130px_150px_1fr_auto]">
               <Field label="Component name"><Input required value={item.label} onChange={(e) => updateItem(index, { label: e.target.value })} /></Field>
               <Field label="Type"><select className={HR_CONTROL_CLASS} value={item.kind} onChange={(e) => updateItem(index, { kind: e.target.value as ItemForm["kind"], ...(e.target.value === "deduction" ? { epfEligible: false, etfEligible: false, apitTaxable: false, overtimeEligible: false } : {}) })}><option value="earning">Earning</option><option value="deduction">Deduction</option></select></Field>
               <Field label="Amount (LKR)"><Input type="number" min="0.01" step="0.01" required value={item.amountLkr} onChange={(e) => updateItem(index, { amountLkr: e.target.value })} /></Field>
@@ -127,10 +161,38 @@ export default function HrPackages() {
       </Card>
 
       <Card title="Package catalogue">
-        <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[13px]">
-          <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Package</th><th className="p-2">Basis</th><th className="p-2 text-right">Base pay</th><th className="p-2">Components</th><th className="p-2">Status</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead>
-          <tbody>{(packages.data ?? []).map((pkg) => <tr key={pkg.id} className="border-b border-border/60"><td className="p-2 font-mono">{pkg.code}</td><td className="p-2 font-medium">{pkg.name}<span className="block text-[11px] text-muted-foreground">{pkg.description}</span></td><td className="p-2">{pkg.payBasis}</td><td className="p-2 text-right font-mono">LKR {centsToLkr(pkg.basePayCents)}</td><td className="p-2">{pkg.items.length} components</td><td className="p-2"><Badge variant={pkg.active ? "good" : "outline"}>{pkg.active ? "active" : "inactive"}</Badge></td><td className="p-2"><Button size="sm" variant="outline" onClick={() => edit(pkg)}>Edit</Button></td></tr>)}</tbody>
+        <div className="overflow-x-auto"><table className="w-full min-w-[1550px] text-left text-[13px]">
+          <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Package</th><th className="p-2">Basis</th><th className="p-2 text-right">Gross / basis</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF Company contribution · 3%</th><th className="p-2 text-right">Total earnings after staff EPF</th><th className="p-2">Fixed components / pay period</th><th className="p-2">Components</th><th className="p-2">Status</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead>
+          <tbody>{(packages.data ?? []).map((pkg) => {
+            const packageEstimate = calculatePackageContributionEstimate({
+              payBasis: pkg.payBasis as PackagePayBasis,
+              basePayCents: pkg.basePayCents,
+              baseEpfEligible: pkg.baseEpfEligible,
+              baseEtfEligible: pkg.baseEtfEligible,
+              components: pkg.items.map((item) => ({
+                kind: item.kind as "earning" | "deduction",
+                amountCents: item.amountCents,
+                epfEligible: item.epfEligible,
+                etfEligible: item.etfEligible,
+              })),
+            });
+            return <tr key={pkg.id} className="border-b border-border/60">
+              <td className="p-2 font-mono">{pkg.code}</td>
+              <td className="p-2 font-medium">{pkg.name}<span className="block text-[11px] text-muted-foreground">{pkg.description}</span></td>
+              <td className="p-2">{pkg.payBasis}</td>
+              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.grossCents) : "—"}</td>
+              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employeeEpfCents) : "—"}</td>
+              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employerEpfCents) : "—"}</td>
+              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employerEtfCents) : "—"}</td>
+              <td className="p-2 text-right font-mono font-semibold">{packageEstimate ? lkr(packageEstimate.earningsAfterEmployeeEpfCents) : "—"}</td>
+              <td className="p-2 text-[11px]">{packageEstimate ? <>{lkr(packageEstimate.recurringEarningsCents)} earnings · {lkr(packageEstimate.recurringDeductionsCents)} deductions{pkg.payBasis === "monthly" ? " (earnings included; deductions not subtracted above)" : " (excluded from per-unit estimate)"}</> : "—"}</td>
+              <td className="p-2">{pkg.items.length} components</td>
+              <td className="p-2"><Badge variant={pkg.active ? "good" : "outline"}>{pkg.active ? "active" : "inactive"}</Badge></td>
+              <td className="p-2"><Button size="sm" variant="outline" onClick={() => edit(pkg)}>Edit</Button></td>
+            </tr>;
+          })}</tbody>
         </table>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
+        <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. Company EPF and ETF are employer contributions—not employee deductions. Earnings after staff EPF deducts only employee EPF; APIT and other deductions are not deducted from that total.</p>
       </Card>
     </Page>
   );

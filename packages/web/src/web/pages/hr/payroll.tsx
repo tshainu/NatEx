@@ -8,14 +8,9 @@ import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { currentMonthRange, centsToLkr, downloadCsv, lkrToCents } from "./shared";
 import { HrNavigation } from "./navigation";
+import { Payslip } from "./payslip";
+import { payrollPaySummary, type PayrollLine as Line, type PayrollSnapshot as Snapshot } from "./payroll-presentation";
 
-type Line = {
-  id: string; employeeId: string; employeeCode: string; employeeName: string; payBasis: string;
-  grossCents: number; epfBaseCents: number; etfBaseCents: number; apitBaseCents: number;
-  employeeEpfCents: number; employerEpfCents: number; employerEtfCents: number;
-  apitCents: number; otherDeductionsCents: number; netCents: number; breakdownJson: string;
-};
-type Snapshot = { warnings: string[]; lines: { label: string; kind: "earning" | "deduction"; amountCents: number }[]; overtimeCents: number; apitScheduleVersion: string; manualApitReason?: string };
 type ApitBandForm = { maxMonthlyLkr: string; ratePercent: string; offsetLkr: string };
 const asLkr = (cents: number) => `LKR ${centsToLkr(cents)}`;
 const monthBounds = (month: string) => {
@@ -165,13 +160,20 @@ export default function HrPayroll() {
         <Card title="Payroll totals" description={selectedRun ? `${selectedRun.code} · ${selectedRun.employeeCount} employee(s)` : "Select a run to review totals."}>
           {selectedRun ? <dl className="grid grid-cols-2 gap-3 text-[13px]">
             <Total label="Gross earnings" value={selectedRun.grossCents} />
-            <Total label="Employee EPF deduction · 8%" value={selectedRun.employeeEpfCents} />
-            <Total label="Employer EPF · 12%" value={selectedRun.employerEpfCents} />
-            <Total label="Employer ETF · 3%" value={selectedRun.employerEtfCents} />
+            <Total label="EPF staff deduction · 8%" value={selectedRun.employeeEpfCents} />
+            <Total label="Total earnings after staff EPF" value={payrollPaySummary(selectedRun).earningsAfterStaffEpfCents} strong />
             <Total label="APIT withheld" value={selectedRun.apitCents} />
             <Total label="Other deductions" value={selectedRun.otherDeductionsCents} />
-            <Total label="Net pay" value={selectedRun.netCents} strong />
+            <Total label="Net pay / take-home pay" value={selectedRun.netCents} strong />
           </dl> : <p className="text-[13px] text-muted-foreground">Totals and employee calculations will appear here.</p>}
+          {selectedRun ? <div className="mt-4 border-t pt-3">
+            <h3 className="mb-3 text-[13px] font-semibold">Company-paid contributions</h3>
+            <dl className="grid grid-cols-2 gap-3 text-[13px]">
+              <Total label="EPF Company contribution · 12%" value={selectedRun.employerEpfCents} />
+              <Total label="ETF Company contribution · 3%" value={selectedRun.employerEtfCents} />
+            </dl>
+            <p className="mt-3 text-[11px] text-muted-foreground">Company contributions are paid separately by NatEx and do not reduce or increase staff take-home pay. Total earnings after staff EPF is before APIT and other deductions.</p>
+          </div> : null}
           {selectedRun && canExport ? <div className="mt-4 border-t pt-3"><Button variant="outline" disabled={!statutory.data} onClick={exportStatutory}>Download EPF / ETF / APIT CSV</Button><p className="mt-2 text-[11px] text-muted-foreground">This is an export basis for review/filing, not an IRD or statutory return form.</p></div> : null}
         </Card>
       </div>
@@ -218,9 +220,10 @@ function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, 
   }, []);
 
   return <>
-    <div className="overflow-x-auto"><table className="w-full min-w-[1250px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2 text-right">Gross</th><th className="p-2 text-right">EPF base</th><th className="p-2 text-right">EPF 8%</th><th className="p-2 text-right">EPF 12%</th><th className="p-2 text-right">ETF 3%</th><th className="p-2 text-right">APIT</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net</th><th className="p-2">Review / payslip</th></tr></thead><tbody>{lines.map((line) => {
+    <p className="mb-3 text-[12px] text-muted-foreground">Amounts are LKR. Total earnings after staff EPF = gross earnings − staff EPF. APIT and other deductions reduce final net pay; company EPF and ETF do not.</p>
+    <div className="overflow-x-auto"><table className="w-full min-w-[1600px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2 text-right">Gross earnings</th><th className="p-2 text-right">EPF base</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">Total earnings after staff EPF</th><th className="p-2 text-right">APIT</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net pay</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF Company contribution · 3%</th><th className="p-2">Review / payslip</th></tr></thead><tbody>{lines.map((line) => {
       const snapshot = JSON.parse(line.breakdownJson) as Snapshot;
-      return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.epfBaseCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={line.employerEpfCents} /><MoneyCell value={line.employerEtfCents} /><MoneyCell value={line.apitCents} /><MoneyCell value={line.otherDeductionsCents} bold /><MoneyCell value={line.netCents} bold />
+      return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.epfBaseCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={payrollPaySummary(line).earningsAfterStaffEpfCents} bold /><MoneyCell value={line.apitCents} /><MoneyCell value={line.otherDeductionsCents} /><MoneyCell value={line.netCents} bold /><MoneyCell value={line.employerEpfCents} /><MoneyCell value={line.employerEtfCents} />
         <td className="p-2"><div className="space-y-1">{snapshot.warnings.map((warning, index) => <p key={index} className="max-w-[300px] text-[10px] text-status-warn">{warning}</p>)}<div className="flex gap-1"><Button size="sm" variant="outline" onClick={() => print(line)}>Payslip</Button>{canDraft && status === "draft" ? <ManualApitForm line={line} runId={runId} onSave={onManualApit} pending={manualApitPending} /> : null}</div></div></td>
       </tr>;
     })}</tbody></table></div>
@@ -246,17 +249,4 @@ function ManualApitForm({ line, runId, onSave, pending }: {
     <input aria-label={`APIT review reference for ${line.employeeCode}`} className="h-8 w-32 rounded border px-2" placeholder="Reference" minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} />
     <Button size="sm" variant="ghost" type="submit" disabled={cents === null || reason.trim().length < 5} pending={pending}>Set APIT</Button>
   </form>;
-}
-
-function Payslip({ line, status, periodStart, periodEnd }: { line: Line; status: string; periodStart: string; periodEnd: string }) {
-  const snapshot = JSON.parse(line.breakdownJson) as Snapshot;
-  return <dialog open className="hr-print-slip" aria-label={`Payslip ${line.employeeCode}`}>
-    <style>{`@media screen {.hr-print-slip{display:none}} @media print {body *{visibility:hidden!important}.hr-print-slip,.hr-print-slip *{visibility:visible!important}.hr-print-slip{display:block!important;position:fixed;inset:0;background:white;color:#111;padding:36px;font-family:Arial,sans-serif}.hr-print-slip table{width:100%;border-collapse:collapse}.hr-print-slip th,.hr-print-slip td{padding:8px;border-bottom:1px solid #ddd;text-align:left}.hr-print-slip .right{text-align:right;font-family:monospace}}`}</style>
-    <header><h1 style={{ fontSize: 24, fontWeight: 700 }}>NatEx · Payslip</h1><p>Salary statement · {status === "paid" ? "Paid" : status === "approved" ? "Approved / ready for payment" : "DRAFT — not approved"}</p></header>
-    <div style={{ display: "flex", justifyContent: "space-between", margin: "24px 0" }}><div><strong>{line.employeeName}</strong><p>Employee code: {line.employeeCode}</p><p>Pay basis: {line.payBasis}</p></div><div><strong>Pay period</strong><p>{periodStart} – {periodEnd}</p><p>Schedule: {snapshot.apitScheduleVersion}</p></div></div>
-    <table><thead><tr><th>Pay / deduction item</th><th className="right">Amount (LKR)</th></tr></thead><tbody>{snapshot.lines.map((item, i) => <tr key={`${item.label}-${i}`}><td>{item.kind === "deduction" ? `${item.label} (deduction)` : item.label}</td><td className="right">{centsToLkr(item.amountCents)}</td></tr>)}</tbody></table>
-    <div style={{ marginTop: 24 }}><p>Gross earnings: <strong>LKR {centsToLkr(line.grossCents)}</strong></p><p>Employee EPF (8%): LKR {centsToLkr(line.employeeEpfCents)}</p><p>APIT: LKR {centsToLkr(line.apitCents)}</p><p>Other deductions: LKR {centsToLkr(line.otherDeductionsCents)}</p><p style={{ fontSize: 18, marginTop: 12 }}>Net pay: <strong>LKR {centsToLkr(line.netCents)}</strong></p><hr style={{ margin: "18px 0" }} /><p>Employer EPF (12%): LKR {centsToLkr(line.employerEpfCents)}</p><p>Employer ETF (3%): LKR {centsToLkr(line.employerEtfCents)}</p></div>
-    {snapshot.warnings.length ? <p style={{ marginTop: 24, fontSize: 11 }}>Review notes: {snapshot.warnings.join(" · ")}</p> : null}
-    <p style={{ marginTop: 48, fontSize: 10, color: "#555" }}>This payslip is a NatEx payroll record. Statutory submissions and withholding remain subject to current law and accountant review.</p>
-  </dialog>;
 }

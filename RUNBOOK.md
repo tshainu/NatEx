@@ -488,3 +488,11 @@ the Vite dev server and hosted Turso:
   every one of the 219 procedures. The public surface is allow-listed at 5,
   and pending-MFA tokens at 4.
 - Findings and fixes are listed in `task.md` → M5 → Security review.
+
+## 10. Salary contribution display (2026-11-05)
+
+Salary packages show read-only estimates of employee EPF, EPF Company contribution and ETF Company contribution from each component's existing contribution eligibility. Monthly packages estimate a full period before attendance/overtime/APIT adjustments. Daily/hourly packages show per-unit base-only estimates; their fixed recurring components are displayed separately and must not be interpreted as a monthly payroll total. Package estimates do not change the package or create payroll records.
+
+In Salary operations, **Total earnings after staff EPF** means gross earnings minus the stored employee EPF deduction only. APIT and other employee deductions still reduce final **Net pay / take-home pay**. Company EPF and ETF are company-paid statutory costs: they are neither added to employee earnings nor deducted from net pay. The payroll table, run totals and printed payslip explicitly separate these company contributions. The display reuses the existing staff EPF 8%, company EPF 12% and company ETF 3% calculations; it does not change rates or statutory-base rules.
+
+Payslips print the saved payroll line amounts and snapshot, including historical company contributions and final net pay, without recalculating approved records. This release does not alter payroll approval, payment, APIT validation or confidential HR access controls and requires no schema update. The contribution display regression suite is `bun test src/web/pages/hr/package-contributions.test.ts src/web/pages/hr/payroll-presentation.test.ts src/web/pages/hr/payslip.test.tsx src/api/modules/hr/calculations.test.ts src/api/modules/hr/validation.test.ts` from `packages/web`.
