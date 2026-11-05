@@ -3,8 +3,11 @@ import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 import {
+  assertRescheduleSms,
   assertMerchantRegistrationSms,
   assertPodSmsHasNoTrackingMaterial,
+  isSmsDisabled,
+  NATEX_SMS_SENDER_ID,
 } from "./sms-policy";
 
 /**
@@ -22,8 +25,8 @@ import {
 export interface SendSmsInput {
   to: string;
   body: string;
-  /** Authentication OTP, proof of delivery, or one of two fixed registration messages. */
-  purpose: "otp" | "pod" | "merchant_registration";
+  /** OTP, POD, two fixed registration messages, or the fixed reschedule notice. */
+  purpose: "otp" | "pod" | "merchant_registration" | "reschedule";
 }
 
 export interface SendSmsResult {
@@ -63,12 +66,14 @@ export function normaliseLkPhone(input: string): string {
 }
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
+  if (!["otp", "pod", "merchant_registration", "reschedule"].includes(input.purpose)) {
+    throw new Error("Unsupported SMS purpose.");
+  }
   if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(input.body);
   if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(input.body);
+  if (input.purpose === "reschedule") assertRescheduleSms(input.body);
   const url = process.env.SMS_EXECUTION_URL;
-  const senderId = input.purpose === "merchant_registration"
-    ? "AXISXNOR"
-    : process.env.SMS_SENDER_ID ?? "AXISXNOR";
+  const senderId = NATEX_SMS_SENDER_ID;
   const to = normaliseLkPhone(input.to);
 
   const logId = prefixedId("sms");
@@ -81,7 +86,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     state: "queued",
   });
 
-  if (process.env.SMS_DISABLE_ALL?.trim().toLowerCase() === "true") {
+  if (isSmsDisabled()) {
     const raw = "SMS sending is disabled by configuration.";
     await db
       .update(smsLog)

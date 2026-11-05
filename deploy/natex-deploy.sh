@@ -26,6 +26,19 @@ flock -n 9 || exit 0
 say() { echo "[natex-deploy] $*"; echo "$(date -Is) $*" >> "$STATE/deploy.log"; }
 as_natex() { runuser -u natex -- "$@"; }
 
+# Read root-protected configuration without weakening file permissions or putting
+# database credentials in command arguments. Database operations stay unprivileged.
+with_env() {
+  local env_file="$1"
+  shift
+  (
+    set -a
+    . "$env_file"
+    set +a
+    runuser -u natex --preserve-environment -- env -C "$APP/packages/web" "$@"
+  )
+}
+
 cd "$APP"
 as_natex git fetch -q origin main
 OLD=$(as_natex git rev-parse HEAD)
@@ -63,7 +76,11 @@ install_deps() {
 
 healthy() {
   for _ in $(seq 1 30); do
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH")" = "200" ]; then return 0; fi
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH")" = "200" ]; then
+      if [ ! -f "$DEMO_ENV" ] ||
+        { systemctl is-active --quiet natex-demo &&
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4201/api/health/ready)" = "200" ]; }; then return 0; fi
+    fi
     sleep 2
   done
   return 1
@@ -78,14 +95,14 @@ fi
 
 if [ "$MODE" = "--with-schema" ]; then
   say "backing up before the schema push"
-  as_natex bash -c "set -a; . /etc/natex/natex.env; set +a; cd $APP/packages/web && $BUN scripts/backup-drill.ts --discard" >> "$STATE/deploy.log" 2>&1 \
+  with_env /etc/natex/natex.env "$BUN" scripts/backup-drill.ts --discard >> "$STATE/deploy.log" 2>&1 \
     || { say "BACKUP FAILED; schema not pushed, still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
-  as_natex bash -c "set -a; . /etc/natex/natex.env; set +a; cd $APP/packages/web && $BUN x drizzle-kit push --force" >> "$STATE/deploy.log" 2>&1 \
+  with_env /etc/natex/natex.env "$BUN" x drizzle-kit push --force >> "$STATE/deploy.log" 2>&1 \
     || { say "SCHEMA PUSH FAILED; still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
   # The demo site (RUNBOOK §1) runs the same checkout on its own dummy DB.
   if [ -f "$DEMO_ENV" ]; then
-    as_natex bash -c "set -a; . $DEMO_ENV; set +a; cd $APP/packages/web && $BUN x drizzle-kit push --force" >> "$STATE/deploy.log" 2>&1 \
-      || say "demo schema push failed (production unaffected)"
+    with_env "$DEMO_ENV" "$BUN" x drizzle-kit push --force >> "$STATE/deploy.log" 2>&1 \
+      || { say "DEMO SCHEMA PUSH FAILED; release stopped"; build "$OLD" || true; exit 1; }
   fi
   rm -f "$STATE/held"
 fi

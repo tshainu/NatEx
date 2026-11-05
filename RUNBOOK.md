@@ -16,9 +16,9 @@ build (2026-10-03) unless it says otherwise.
 | `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | yes | Turso. |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
-| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Configure sender ID as `AXISXNOR`. Sign-in OTP remains enabled; customer parcel SMS is reserved for delivery/POD only. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Use the owner-whitelisted sender `NatEx` for OTP, POD, merchant registration, and receiver rescheduling. Other customer booking/status SMS remain disabled. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
 | `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception to the parcel-SMS policy; OTP and identifier-free POD remain unchanged. |
-| Tracking links in SMS | — | Disabled. Booking/status messages do not send SMS, and POD SMS contains no tracking number or link. |
+| Tracking links in SMS | — | Disabled. POD SMS contains no tracking number or link. The receiver reschedule message is the only non-OTP/POD receiver message and includes its tracking number, new date and reason; generic booking/status messages remain disabled. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
 
@@ -170,7 +170,7 @@ onboarding dialog. Staff complete the pickup address, branch, rate card and any 
 Saving atomically creates the merchant and links/converts the request. Converted requests cannot
 be onboarded a second time, and their original application remains available for reference.
 
-Production queues only the owner-approved receipt and acceptance messages from sender `AXISXNOR`.
+Production registration queues only the owner-approved receipt and acceptance messages from sender `NatEx`.
 The acceptance message is queued only after successful onboarding. The SMS uses the submitted
 applicant number, not an arbitrary replacement contact number chosen during onboarding. Gateway
 acceptance is not proof of handset delivery. Demo must keep `SMS_DISABLE_ALL=true`; never send a
@@ -181,6 +181,40 @@ The standalone website remains a static hosting package; no DB tokens or gateway
 in it. Its hosting CSP must allow the NatEx API origin in `connect-src`. Upload compiled assets first
 and `index.html` last, preserving local media and SPA route support for `/merchant-enrollment`.
 
+### Branch lifecycle, optional GPS and employee numbers
+
+Administrators use **Administration → Branches → Deactivate / Reactivate**. Deactivation retains
+the branch code, users and historical operational records. Inactive branches disappear from new
+assignment choices, and new bookings, user/merchant assignments, bags, trips and tracking-label
+allocations are rejected at inactive locations. Existing history remains readable. Deactivating
+a branch does not delete its accounts or silently move existing shipments to another location.
+
+Branch creation and editing do not require latitude or longitude. Unknown values are stored as
+NULL; edit omissions retain existing values and clearing the inputs removes the saved coordinates.
+GPS lookup excludes unlocated branches. Route ordering with no branch GPS starts at the first
+located booked stop, leaves the unknown origin leg NULL, and identifies its partial-distance
+estimate as `nearest_neighbour_js_unknown_origin` rather than inventing a coordinate.
+
+New HR employee records receive immutable server-assigned numbers: `N26002`, `N26003`, and so on.
+`N26001` is reserved; existing `N26001`, legacy `2055` and historical payroll snapshots are unchanged.
+The fixed `N26` sequence uses the unique employee-code constraint to arbitrate concurrent creates.
+Creation retry through the normal idempotent mutation returns the original created employee.
+
+### Receiver reschedule SMS
+
+On the NDR queue, successfully saving **Reattempt** or **Address change** with a new attempt date
+queues the receiver notice in the same transaction as the saved schedule. The message uses the
+corrected receiver phone when supplied, the tracking number, the date and a short public delivery
+reason label. Internal notes, addresses and names are never copied into SMS. The format is
+`NatEx: Tracking {number}. Delivery rescheduled to {YYYY-MM-DD}. Reason: {reason}.`
+Messages are ASCII/GSM-7, limited to one SMS, and never contain tracking links.
+
+The persistent schedule key and send state suppress replays; canceled/resolved schedules cannot
+send pending notices. Demo and the independent SMS-disable flag suppress gateway calls. A job
+interrupted after its one-time send claim is not blindly resent: check the SMS log before any
+operator intervention, since gateway acceptance is not proof of handset delivery. No booking,
+out-for-delivery, generic status, sender or RTO SMS is enabled by this change.
+
 ---
 
 ## 2. Backup and restore
@@ -188,9 +222,15 @@ and `index.html` last, preserving local media and SPA route support for `/mercha
 `packages/web/scripts/backup-drill.ts` does a full backup and a verified restore in one run:
 
 ```bash
-cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts            # keep the restore DB
-cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  # delete it afterwards
+cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts            # keep dump + manifest
+cd packages/web && bun --env-file=../../.env scripts/backup-drill.ts --discard  # delete dump + manifest
 ```
+
+The scratch restore uses Python 3's standard SQLite driver, executing complete statements rather
+than repeatedly parsing the whole dump. Python 3 is required on the operating host. This affects
+only the throwaway local restore database; all existing integrity, foreign-key, content-hash and
+tamper checks remain. The 2026-11-05 pre-release drills restored Production's 162,299 rows in
+4.8 seconds and Demo's 56,226 rows in 1.1 seconds. Both passed and were checksum-verified off-host.
 
 - **Backup:** every table is dumped inside one libsql read transaction (a
   consistent snapshot) to `/tmp/natex-backups/natex-<stamp>.sql.gz`, plus a

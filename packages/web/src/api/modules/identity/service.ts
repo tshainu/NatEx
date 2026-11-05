@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, user, otpChallenge, refreshToken } from "../../database/schema/identity";
 import {
@@ -500,8 +500,9 @@ export async function revokeAllSessions(userId: string): Promise<void> {
 
 // ── Branches & users (read paths other modules and the admin portal use) ─────
 
-export async function listBranches() {
-  return db.select().from(branch).orderBy(branch.code);
+export async function listBranches(options: { includeInactive?: boolean } = {}) {
+  if (options.includeInactive) return db.select().from(branch).orderBy(branch.code);
+  return db.select().from(branch).where(eq(branch.status, "active")).orderBy(branch.code);
 }
 
 export async function getBranch(id: string) {
@@ -509,12 +510,28 @@ export async function getBranch(id: string) {
   return row ?? null;
 }
 
+/** Use for new assignments and bookings; getBranch remains unrestricted for history. */
+export async function requireActiveBranch(id: string) {
+  const row = await getBranch(id);
+  if (!row) errors.notFound(`Branch/hub ${id}`);
+  if (row!.status !== "active") {
+    errors.conflict(`Branch/hub ${row!.name} is inactive and cannot receive new work.`, {
+      branchId: id,
+      branchStatus: row!.status,
+    });
+  }
+  return row!;
+}
+
 /** Nearest branch — Haversine stand-in for PostGIS `<->` (§5, see shared/geo.ts). */
 export async function nearestBranch(latE6: number, lngE6: number) {
-  const rows = await db.select().from(branch);
+  const rows = await db
+    .select()
+    .from(branch)
+    .where(and(eq(branch.status, "active"), isNotNull(branch.lat), isNotNull(branch.lng)));
   if (rows.length === 0) return null;
   const ranked = rows
-    .map((b) => ({ branch: b, metres: distanceMetres(b.lat, b.lng, latE6, lngE6) }))
+    .map((b) => ({ branch: b, metres: distanceMetres(b.lat!, b.lng!, latE6, lngE6) }))
     .sort((a, z) => a.metres - z.metres);
   return ranked[0];
 }
@@ -591,6 +608,7 @@ export async function createUser(input: {
   password?: string | null;
   merchantId?: string | null;
 }, executor: DbTransaction | typeof db = db): Promise<IdentityUser> {
+  await requireActiveBranch(input.branchId);
   const phone = normaliseLkPhone(input.phone);
   const [existing] = await executor.select().from(user).where(eq(user.phone, phone));
   if (existing) errors.conflict("A user with that phone already exists.");
@@ -642,8 +660,8 @@ export async function createBranch(input: {
   code: string;
   name: string;
   address: string;
-  latE6: number;
-  lngE6: number;
+  latE6?: number | null;
+  lngE6?: number | null;
   type: "hub" | "branch";
 }) {
   const [row] = await db
@@ -653,8 +671,8 @@ export async function createBranch(input: {
       code: input.code.toUpperCase(),
       name: input.name,
       address: input.address,
-      lat: input.latE6,
-      lng: input.lngE6,
+      lat: input.latE6 ?? null,
+      lng: input.lngE6 ?? null,
       type: input.type,
     })
     .returning();

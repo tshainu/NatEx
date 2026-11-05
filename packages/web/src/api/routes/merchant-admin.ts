@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { adminProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
-import { getBranch, getUserByPhone, getUserByUsername, isActiveRiderInBranch } from "../modules/identity/service";
+import { getUserByPhone, getUserByUsername, isActiveRiderInBranch, requireActiveBranch } from "../modules/identity/service";
 import * as merchantsService from "../modules/merchants/service";
 import { onboardMerchant } from "../modules/merchants/onboarding";
 import { errors } from "../shared/errors";
@@ -56,8 +56,8 @@ export const update = opsProc
   )
   .handler(async ({ input, context }) => {
     const { id, ...patch } = input;
-    if (patch.branchId && !(await getBranch(patch.branchId))) errors.badRequest(`Branch ${patch.branchId} does not exist.`);
     const before = await merchantsService.getMerchantScoped(id, context.principal);
+    if (patch.branchId && patch.branchId !== before.branchId) await requireActiveBranch(patch.branchId);
     const effectiveBranchId = patch.branchId ?? before.branchId;
     const effectiveRiderId = patch.pickupRiderId !== undefined ? patch.pickupRiderId : before.pickupRiderId;
     await validatePickupRider(effectiveRiderId, effectiveBranchId);
@@ -98,7 +98,7 @@ export const onboard = adminProc
     }),
   )
   .handler(async ({ input, context }) => {
-    if (!(await getBranch(input.branchId))) errors.badRequest(`Branch ${input.branchId} does not exist.`);
+    await requireActiveBranch(input.branchId);
     await validatePickupRider(input.pickupRiderId, input.branchId);
     if (input.portalUser) {
       const clash = await getUserByPhone(normaliseLkPhone(input.portalUser.phone));

@@ -128,8 +128,8 @@ export const updateBranch = adminProc
       id: z.string().min(1),
       name: z.string().trim().min(2).max(120).optional(),
       address: z.string().trim().min(4).optional(),
-      lat: z.number().min(-90).max(90).optional(),
-      lng: z.number().min(-180).max(180).optional(),
+      lat: z.number().min(-90).max(90).nullable().optional(),
+      lng: z.number().min(-180).max(180).nullable().optional(),
       type: z.enum(["hub", "branch"]).optional(),
       counterRateCardId: z.string().min(1).nullable().optional(),
     }),
@@ -144,13 +144,29 @@ export const updateBranch = adminProc
         adminService.updateBranch(input.id, {
           name: input.name,
           address: input.address,
-          latE6: input.lat === undefined ? undefined : toE6(input.lat),
-          lngE6: input.lng === undefined ? undefined : toE6(input.lng),
+          latE6: input.lat === undefined ? undefined : input.lat === null ? null : toE6(input.lat),
+          lngE6: input.lng === undefined ? undefined : input.lng === null ? null : toE6(input.lng),
           type: input.type,
           counterRateCardId: input.counterRateCardId,
         }),
     );
   });
+
+export const setBranchStatus = adminProc
+  .input(z.object({ id: z.string().min(1), status: z.enum(["active", "inactive"]) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "identity.setBranchStatus",
+        entity: "identity_branch",
+        entityId: () => input.id,
+        action: input.status === "inactive" ? "branch.deactivated" : "branch.reactivated",
+      },
+      () => adminService.changeBranchStatus(input.id, input.status),
+    ),
+  );
 
 /** Live sessions of any user (admin) — device, MFA level, start and last refresh. */
 export const userSessions = adminProc
@@ -198,6 +214,7 @@ export const identityAdmin = {
   updateMerchantUser,
   updateUser,
   updateBranch,
+  setBranchStatus,
   userSessions,
   revokeUserSessions,
   mySessions,

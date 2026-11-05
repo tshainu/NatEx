@@ -275,6 +275,10 @@ export const ndr = sqliteTable(
     newAddress: text("new_address"),
     newPhone: text("new_phone"),
     reattemptDate: text("reattempt_date"),
+    /** Hash of the receiver + fixed notice; same schedule instructions do not enqueue twice. */
+    rescheduleSmsKey: text("reschedule_sms_key"),
+    /** queued | sending | sent | failed | suppressed; `sending` is the crash/replay guard. */
+    rescheduleSmsState: text("reschedule_sms_state"),
 
     /** SLA clock (§8 configurable per merchant; default 24h from raise). */
     slaDueAt: integer("sla_due_at", { mode: "timestamp" }),

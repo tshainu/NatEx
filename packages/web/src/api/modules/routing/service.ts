@@ -10,7 +10,7 @@ import {
   ringContains,
   toE6,
 } from "../../shared/geo";
-import { nearestBranch } from "../identity/service";
+import { listBranches, nearestBranch, requireActiveBranch } from "../identity/service";
 
 /**
  * MODULE: routing — serviceability and nearest-branch.
@@ -54,7 +54,9 @@ export async function checkServiceability(params: {
   const lngE6 = toE6(params.lng);
   const zones = await db.select().from(zone);
 
+  const activeBranchIds = new Set((await listBranches()).map(branch => branch.id));
   for (const z of zones) {
+    if (!activeBranchIds.has(z.branchId)) continue;
     const inBox = bboxContains(
       { minLat: z.minLat, minLng: z.minLng, maxLat: z.maxLat, maxLng: z.maxLng },
       latE6,
@@ -164,6 +166,7 @@ export async function createZone(input: {
   ring?: [number, number][] | null;
   serviceable: boolean;
 }): Promise<ZoneRow> {
+  await requireActiveBranch(input.branchId);
   const [row] = await db
     .insert(zone)
     .values({
@@ -200,6 +203,9 @@ export async function updateZone(
 ): Promise<{ before: ZoneRow; after: ZoneRow }> {
   const [before] = await db.select().from(zone).where(eq(zone.id, id));
   if (!before) errors.notFound("Zone");
+  if (patch.branchId !== undefined && patch.branchId !== before!.branchId) {
+    await requireActiveBranch(patch.branchId);
+  }
   const next: Partial<typeof zone.$inferInsert> = {};
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.branchId !== undefined) next.branchId = patch.branchId;

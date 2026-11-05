@@ -254,8 +254,8 @@ export async function createBag(input: CreateBagInput, actor: Principal): Promis
     errors.badRequest("A bag's origin and destination hub must differ.");
   }
   const [origin, dest] = await Promise.all([
-    identity.getBranch(originHubId),
-    identity.getBranch(input.destHubId),
+    identity.requireActiveBranch(originHubId),
+    identity.requireActiveBranch(input.destHubId),
   ]);
   if (!origin) errors.notFound("Origin hub");
   if (!dest) errors.notFound("Destination hub");
@@ -339,7 +339,7 @@ export async function listBags(
     .orderBy(desc(bag.createdAt))
     .limit(200);
 
-  const branches = await identity.listBranches();
+  const branches = await identity.listBranches({ includeInactive: true });
   const nameOf = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
   return rows.map((r) => ({
     ...r,
@@ -827,8 +827,8 @@ export async function createTrip(input: CreateTripInput, actor: Principal): Prom
     errors.badRequest("A trip's origin and destination hub must differ.");
   }
   const [origin, dest] = await Promise.all([
-    identity.getBranch(originHubId),
-    identity.getBranch(input.destHubId),
+    identity.requireActiveBranch(originHubId),
+    identity.requireActiveBranch(input.destHubId),
   ]);
   if (!origin) errors.notFound("Origin hub");
   if (!dest) errors.notFound("Destination hub");
@@ -1151,7 +1151,7 @@ export async function getTripDetail(tripId: string, scope: Principal): Promise<T
   }
 
   const bagRows = await db.select().from(bag).where(eq(bag.tripId, tripRow!.id));
-  const branches = await identity.listBranches();
+  const branches = await identity.listBranches({ includeInactive: true });
   const nameOf = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
 
   return {
@@ -1176,7 +1176,7 @@ export async function linehaulBoard(scope: Principal) {
     .orderBy(desc(trip.createdAt))
     .limit(100);
 
-  const branches = await identity.listBranches();
+  const branches = await identity.listBranches({ includeInactive: true });
   const nameOf = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
 
   const bagRows =
@@ -1532,7 +1532,7 @@ export async function inboundBags(scope: Principal) {
     .orderBy(asc(bag.sealedAt))
     .limit(100);
 
-  const branches = await identity.listBranches();
+  const branches = await identity.listBranches({ includeInactive: true });
   const nameOf = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
   const tripIds = [...new Set(rows.map((r) => r.tripId).filter((t): t is string => !!t))];
   const trips =
@@ -1608,7 +1608,7 @@ export async function custodyChain(awb: string, scope: Principal) {
     .where(eq(custodyException.parcelId, detail.parcel.id))
     .orderBy(asc(custodyException.createdAt));
 
-  const branches = await identity.listBranches();
+  const branches = await identity.listBranches({ includeInactive: true });
   const nameOf = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
 
   return {

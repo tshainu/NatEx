@@ -11,6 +11,7 @@ import {
 import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
+import { nextEmployeeCode } from "./employee-number";
 import * as identity from "../identity/service";
 import { isValidIsoDate } from "./validation";
 
@@ -20,7 +21,6 @@ export type SalaryPackageItemRow = typeof hrSalaryPackageItem.$inferSelect;
 export type TimesheetRow = typeof hrTimesheet.$inferSelect;
 
 export interface EmployeeInput {
-  employeeCode: string;
   fullName: string;
   identityUserId?: string | null;
   nationalId?: string | null;
@@ -98,47 +98,60 @@ export async function getEmployee(employeeId: string): Promise<EmployeeRow> {
 }
 
 export async function createEmployee(input: EmployeeInput, actor: Principal): Promise<EmployeeRow> {
-  const code = input.employeeCode.trim().toUpperCase();
-  await assertLinkableOfficialStaff(input.identityUserId);
-  if (!/^[A-Z0-9][A-Z0-9_-]{1,19}$/.test(code)) errors.badRequest("Employee code must be 2–20 letters, numbers, underscores or hyphens.");
+  const identityUserId = input.identityUserId?.trim() || null;
+  await assertLinkableOfficialStaff(identityUserId);
   if (!isValidIsoDate(input.joinedOn)) errors.badRequest("Employee start date must be a real calendar date in YYYY-MM-DD format.");
   validateMoney(input.overtimeMultiplierBps, "Overtime multiplier");
   if (input.overtimeDivisorMinutes < 1 || !Number.isSafeInteger(input.overtimeDivisorMinutes)) {
     errors.badRequest("Overtime divisor must be a positive number of minutes.");
   }
-  const [existing] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(eq(hrEmployee.employeeCode, code));
-  if (existing) errors.conflict(`Employee code ${code} is already in use.`);
-  if (input.identityUserId) {
-    const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(eq(hrEmployee.identityUserId, input.identityUserId));
+  if (identityUserId) {
+    const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(eq(hrEmployee.identityUserId, identityUserId));
     if (linked) errors.conflict("This official staff account is already linked to an HR employee.");
   }
-  const [row] = await db
-    .insert(hrEmployee)
-    .values({
+  const values = {
+    fullName: input.fullName.trim(),
+    identityUserId,
+    nationalId: input.nationalId?.trim() || null,
+    phone: input.phone?.trim() || null,
+    email: input.email?.trim() || null,
+    address: input.address?.trim() || null,
+    branchId: input.branchId,
+    department: input.department.trim(),
+    jobTitle: input.jobTitle.trim(),
+    employmentType: input.employmentType,
+    joinedOn: input.joinedOn,
+    epfNumber: input.epfNumber?.trim() || null,
+    tin: input.tin?.trim() || null,
+    primaryEmployment: input.primaryEmployment,
+    overtimePolicy: input.overtimePolicy,
+    overtimeMultiplierBps: input.overtimeMultiplierBps,
+    overtimeDivisorMinutes: input.overtimeDivisorMinutes,
+    createdBy: actor.userId,
+    updatedBy: actor.userId,
+  };
+
+  // The unique employee_code constraint is the concurrency arbiter: if two
+  // creators read the same next number, exactly one insert wins and the other
+  // rereads the register and retries with the next free number.
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const codes = await db.select({ employeeCode: hrEmployee.employeeCode })
+      .from(hrEmployee)
+      .where(like(hrEmployee.employeeCode, "N26%"));
+    let employeeCode: string;
+    try {
+      employeeCode = nextEmployeeCode(codes.map((row) => row.employeeCode));
+    } catch {
+      return errors.conflict("The automatic employee number sequence is exhausted.");
+    }
+    const [row] = await db.insert(hrEmployee).values({
       id: prefixedId("emp"),
-      employeeCode: code,
-      fullName: input.fullName.trim(),
-      identityUserId: input.identityUserId?.trim() || null,
-      nationalId: input.nationalId?.trim() || null,
-      phone: input.phone?.trim() || null,
-      email: input.email?.trim() || null,
-      address: input.address?.trim() || null,
-      branchId: input.branchId,
-      department: input.department.trim(),
-      jobTitle: input.jobTitle.trim(),
-      employmentType: input.employmentType,
-      joinedOn: input.joinedOn,
-      epfNumber: input.epfNumber?.trim() || null,
-      tin: input.tin?.trim() || null,
-      primaryEmployment: input.primaryEmployment,
-      overtimePolicy: input.overtimePolicy,
-      overtimeMultiplierBps: input.overtimeMultiplierBps,
-      overtimeDivisorMinutes: input.overtimeDivisorMinutes,
-      createdBy: actor.userId,
-      updatedBy: actor.userId,
-    })
-    .returning();
-  return row!;
+      employeeCode: employeeCode!,
+      ...values,
+    }).onConflictDoNothing({ target: hrEmployee.employeeCode }).returning();
+    if (row) return row;
+  }
+  return errors.conflict("Could not allocate a unique employee number after repeated concurrent attempts. Please retry.");
 }
 
 export async function updateEmployee(employeeId: string, patch: Partial<EmployeeInput> & { status?: "active" | "inactive"; endedOn?: string | null }, actor: Principal): Promise<EmployeeRow> {
@@ -149,7 +162,6 @@ export async function updateEmployee(employeeId: string, patch: Partial<Employee
   if (!isValidIsoDate(joinedOn)) errors.badRequest("Employee start date must be a real calendar date in YYYY-MM-DD format.");
   if (endedOn !== null && (!isValidIsoDate(endedOn) || endedOn < joinedOn)) errors.badRequest("Employee end date must be valid and on or after the start date.");
   const set: Partial<typeof hrEmployee.$inferInsert> = { updatedBy: actor.userId, updatedAt: new Date() };
-  if (patch.employeeCode !== undefined) set.employeeCode = patch.employeeCode.trim().toUpperCase();
   if (patch.fullName !== undefined) set.fullName = patch.fullName.trim();
   if (patch.identityUserId !== undefined) set.identityUserId = patch.identityUserId?.trim() || null;
   if (patch.nationalId !== undefined) set.nationalId = patch.nationalId?.trim() || null;
@@ -169,12 +181,6 @@ export async function updateEmployee(employeeId: string, patch: Partial<Employee
   if (patch.overtimePolicy !== undefined) set.overtimePolicy = patch.overtimePolicy;
   if (patch.overtimeMultiplierBps !== undefined) set.overtimeMultiplierBps = patch.overtimeMultiplierBps;
   if (patch.overtimeDivisorMinutes !== undefined) set.overtimeDivisorMinutes = patch.overtimeDivisorMinutes;
-  if (patch.employeeCode !== undefined) {
-    const code = set.employeeCode!;
-    if (!/^[A-Z0-9][A-Z0-9_-]{1,19}$/.test(code)) errors.badRequest("Employee code must be 2–20 letters, numbers, underscores or hyphens.");
-    const [duplicate] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.employeeCode, code), ne(hrEmployee.id, employeeId)));
-    if (duplicate) errors.conflict(`Employee code ${code} is already in use.`);
-  }
   if (patch.identityUserId) {
     const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.identityUserId, patch.identityUserId), ne(hrEmployee.id, employeeId)));
     if (linked) errors.conflict("This official staff account is already linked to another HR employee.");

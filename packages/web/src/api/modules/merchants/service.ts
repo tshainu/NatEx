@@ -6,6 +6,7 @@ import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import type { DbTransaction } from "../../database/transaction";
 import { enqueue } from "../../shared/outbox";
+import { requireActiveBranch } from "../identity/service";
 
 /**
  * MODULE: merchants. The ONLY file that reads merchants_* tables (§4).
@@ -131,6 +132,7 @@ export async function createMerchant(
 ): Promise<MerchantRow> {
   // Ops may only create merchants inside their own branch (§5).
   const branchId = isGlobalScope(actor.role) ? input.branchId : actor.branchId;
+  await requireActiveBranch(branchId);
 
   const [row] = await executor
     .insert(merchant)
@@ -351,6 +353,7 @@ export async function updateMerchant(
   if (patch.branchId !== undefined && patch.branchId !== before.branchId && !isGlobalScope(scope.role)) {
     errors.forbidden("Only an admin can move a merchant to another branch.");
   }
+  if (patch.branchId !== undefined && patch.branchId !== before.branchId) await requireActiveBranch(patch.branchId);
   const next: Partial<typeof merchant.$inferInsert> = {};
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.branchId !== undefined) next.branchId = patch.branchId;

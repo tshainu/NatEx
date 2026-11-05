@@ -44,7 +44,7 @@ const ddl = [
   )`,
   `CREATE TABLE identity_branch (
     id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL,
-    lat_e6 INTEGER NOT NULL, lng_e6 INTEGER NOT NULL, type TEXT NOT NULL, counter_rate_card_id TEXT,
+    lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', counter_rate_card_id TEXT,
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE identity_user (
@@ -237,7 +237,7 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect(confirmation).toEqual({ registrationRequestId: request.id, stage: "confirmation" });
 
     const sent: { to: string; body: string; purpose: string }[] = [];
-    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "merchant_registration" }) => {
+    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "merchant_registration" | "reschedule" }) => {
       sent.push(message);
       return { logId: "sms_test", state: "sent" as const, gatewayRef: null, raw: "accepted" };
     };

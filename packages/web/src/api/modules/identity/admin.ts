@@ -10,6 +10,7 @@ import {
   getUserByPhone,
   getUserByUsername,
   normaliseUsername,
+  requireActiveBranch,
   revokeAllSessions,
   rolesOf,
   type IdentityUser,
@@ -118,8 +119,7 @@ export async function updateUser(
   else if (patch.password === "") next.passwordHash = null;
 
   if (patch.branchId !== undefined && patch.branchId !== before!.branchId) {
-    const [b] = await db.select({ id: branch.id }).from(branch).where(eq(branch.id, patch.branchId));
-    if (!b) errors.badRequest(`Branch ${patch.branchId} does not exist.`);
+    await requireActiveBranch(patch.branchId);
     next.branchId = patch.branchId;
   }
 
@@ -148,6 +148,7 @@ export async function changeUserStatus(
 ): Promise<IdentityUser> {
   const target = await getUserById(userId);
   if (!target) errors.notFound("User");
+  if (status === "active") await requireActiveBranch(target!.branchId);
   if (status === "suspended") await guardAdminLoss(actor, target!, "suspend");
   const [row] = await db.update(user).set({ status }).where(eq(user.id, userId)).returning();
   if (status === "suspended") await revokeAllSessions(userId);
@@ -161,7 +162,7 @@ export async function changeUserStatus(
  */
 export async function updateBranch(
   id: string,
-  patch: { name?: string; address?: string; latE6?: number; lngE6?: number; type?: "hub" | "branch"; counterRateCardId?: string | null },
+  patch: { name?: string; address?: string; latE6?: number | null; lngE6?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null },
 ) {
   const [before] = await db.select().from(branch).where(eq(branch.id, id));
   if (!before) errors.notFound("Branch");
@@ -175,6 +176,15 @@ export async function updateBranch(
   if (Object.keys(next).length === 0) return { before, after: before };
   const [after] = await db.update(branch).set(next).where(eq(branch.id, id)).returning();
   return { before, after: after! };
+}
+
+/** Deactivate/reactivate without deleting or rewriting branch-owned history. */
+export async function changeBranchStatus(id: string, status: "active" | "inactive") {
+  const [before] = await db.select().from(branch).where(eq(branch.id, id));
+  if (!before) errors.notFound("Branch");
+  if (before!.status === status) return { before: before!, after: before! };
+  const [after] = await db.update(branch).set({ status }).where(eq(branch.id, id)).returning();
+  return { before: before!, after: after! };
 }
 
 export interface SessionView {

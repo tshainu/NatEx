@@ -129,7 +129,14 @@ export const logout = authedProc.handler(({ context }) =>
   ),
 );
 
-export const listBranches = staffProc.handler(() => identityService.listBranches());
+export const listBranches = staffProc
+  .input(z.object({ includeInactive: z.boolean().optional() }).optional())
+  .handler(({ input, context }) => {
+    if (input?.includeInactive && !context.principal.roles.includes("admin")) {
+      errors.forbidden("Only administrators may include inactive branches.");
+    }
+    return identityService.listBranches({ includeInactive: input?.includeInactive });
+  });
 
 /** Current staff member's branch only; used for branch-scoped Counter defaults. */
 export const myBranch = staffProc.handler(({ context }) => identityService.getBranch(context.principal.branchId));
@@ -219,8 +226,8 @@ export const createBranch = adminProc
       code: z.string().min(2).max(12),
       name: z.string().min(2).max(120),
       address: z.string().min(4),
-      lat: z.number().min(-90).max(90),
-      lng: z.number().min(-180).max(180),
+      lat: z.number().min(-90).max(90).nullable().optional(),
+      lng: z.number().min(-180).max(180).nullable().optional(),
       type: z.enum(["hub", "branch"]),
     }),
   )
@@ -240,8 +247,8 @@ export const createBranch = adminProc
           name: input.name,
           address: input.address,
           // Coordinates are stored as microdegrees (integer) — see shared/geo.ts.
-          latE6: toE6(input.lat),
-          lngE6: toE6(input.lng),
+          latE6: input.lat == null ? null : toE6(input.lat),
+          lngE6: input.lng == null ? null : toE6(input.lng),
           type: input.type,
         }),
     ),

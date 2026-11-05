@@ -1,9 +1,11 @@
 import { and, asc, count, desc, eq, inArray, like, lt, type SQL } from "drizzle-orm";
 import { db } from "../../database";
-import { deliveryPod, ndr, rto } from "../../database/schema/delivery";
+import { deliveryPod, ndr, reasonCode, rto } from "../../database/schema/delivery";
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
+import { normaliseLkPhone } from "../../shared/sms";
+import { buildRescheduleSms } from "../../shared/sms-policy";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import { colomboToday, formatLkDate, hoursFromNow } from "../../shared/time";
 import {
@@ -383,6 +385,33 @@ export interface InstructNdrResult {
   rto: RtoRow | null;
 }
 
+/** Internal failure notes and consignee-entered details are never used in SMS copy. */
+async function publicRescheduleReason(row: NdrRow): Promise<string> {
+  const label = row.lastReasonLabel?.trim();
+  if (!label) return "Delivery issue";
+  if (row.lastReasonCode) {
+    const [reason] = await db
+      .select({ notifyConsignee: reasonCode.notifyConsignee })
+      .from(reasonCode)
+      .where(eq(reasonCode.code, row.lastReasonCode));
+    if (reason && !reason.notifyConsignee) return "Delivery issue";
+  }
+  return label;
+}
+
+async function rescheduleNoticeKey(ndrId: string, toPhone: string, body: string): Promise<string> {
+  const data = new TextEncoder().encode(`${ndrId}\0${normaliseLkPhone(toPhone)}\0${body}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function isValidScheduleDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year!, month! - 1, day!));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month! - 1 && parsed.getUTCDate() === day;
+}
+
 /**
  * The merchant's (or ops') answer to a failed delivery. This is the only place
  * an NDR leaves the queue under its own power.
@@ -395,6 +424,12 @@ export async function instructNdr(
   input: InstructNdrInput,
   actor: Principal,
 ): Promise<InstructNdrResult> {
+  if (input.instruction === "reattempt" || input.instruction === "address_change") {
+    const requestedDate = input.reattemptDate ?? colomboToday();
+    if (!isValidScheduleDate(requestedDate)) {
+      errors.badRequest("A reattempt date must be a valid YYYY-MM-DD date in Asia/Colombo.");
+    }
+  }
   const row = await getNdr(input.ndrId);
   if (!row) errors.notFound(`NDR ${input.ndrId}`);
   assertNdrVisible(row!, actor);
@@ -517,29 +552,104 @@ export async function instructNdr(
     }
   }
 
-  const [updated] = await db
-    .update(ndr)
-    .set({
-      state: nextState,
-      merchantInstruction: input.instruction,
-      instructionNotes: input.notes ?? null,
-      instructedByName: actor.name,
-      instructedAt: now,
-      newAddress: input.newAddress ?? null,
-      newPhone: input.newPhone ?? null,
-      reattemptDate:
-        input.instruction === "reattempt" || input.instruction === "address_change"
-          ? (input.reattemptDate ?? colomboToday())
-          : null,
-      actionedAt: now,
-      actionedByName: actor.name,
-      closedAt: nextState === "rto" ? now : null,
-      closeReason: nextState === "rto" ? "Returned to sender on instruction" : null,
-    })
-    .where(eq(ndr.id, row!.id))
-    .returning();
+  const reattemptDate = input.instruction === "reattempt" || input.instruction === "address_change"
+    ? (input.reattemptDate ?? colomboToday())
+    : null;
+  const updateValues = {
+    state: nextState,
+    merchantInstruction: input.instruction,
+    instructionNotes: input.notes ?? null,
+    instructedByName: actor.name,
+    instructedAt: now,
+    newAddress: input.newAddress ?? null,
+    newPhone: input.newPhone ?? null,
+    reattemptDate,
+    actionedAt: now,
+    actionedByName: actor.name,
+    closedAt: nextState === "rto" ? now : null,
+    closeReason: nextState === "rto" ? "Returned to sender on instruction" : null,
+  };
+
+  let updated: NdrRow | undefined;
+  if (nextState === "reattempt_scheduled" && reattemptDate) {
+    const toPhone = parcelAfter.consigneePhone;
+    const reason = await publicRescheduleReason(row!);
+    const body = buildRescheduleSms({ trackingNumber: row!.awb, newDate: reattemptDate, reason });
+    const scheduleKey = await rescheduleNoticeKey(`${row!.id}:${row!.attempts}`, toPhone, body);
+
+    updated = await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(ndr).where(eq(ndr.id, row!.id));
+      if (!current) throw new Error(`NDR ${row!.id} disappeared while scheduling its reattempt.`);
+      const alreadyQueuedForThisSchedule = current.rescheduleSmsKey === scheduleKey && current.rescheduleSmsState !== null;
+      const smsState = alreadyQueuedForThisSchedule ? current.rescheduleSmsState : "queued";
+      const [schedule] = await tx
+        .update(ndr)
+        .set({
+          ...updateValues,
+          rescheduleSmsKey: scheduleKey,
+          rescheduleSmsState: smsState,
+        })
+        .where(eq(ndr.id, row!.id))
+        .returning();
+      if (!schedule) throw new Error(`NDR ${row!.id} disappeared while scheduling its reattempt.`);
+
+      if (!alreadyQueuedForThisSchedule) {
+        await enqueue(
+          "sms.send",
+          {
+            purpose: "reschedule",
+            ndrId: row!.id,
+            scheduleKey,
+            toPhone,
+            trackingNumber: row!.awb,
+            newDate: reattemptDate,
+            reason,
+          },
+          tx,
+        );
+      }
+      return schedule;
+    });
+  } else {
+    const [schedule] = await db.update(ndr).set(updateValues).where(eq(ndr.id, row!.id)).returning();
+    updated = schedule;
+  }
 
   return { ndr: updated!, parcel: parcelAfter, rto: rtoRow };
+}
+
+/** Claim once before the gateway call; a replay or crash can never send this schedule twice. */
+export async function claimRescheduleSms(ndrId: string, scheduleKey: string): Promise<boolean> {
+  const claimed = await db
+    .update(ndr)
+    .set({ rescheduleSmsState: "sending" })
+    .where(
+      and(
+        eq(ndr.id, ndrId),
+        eq(ndr.rescheduleSmsKey, scheduleKey),
+        eq(ndr.state, "reattempt_scheduled"),
+        eq(ndr.rescheduleSmsState, "queued"),
+      ),
+    )
+    .returning({ id: ndr.id });
+  return claimed.length > 0;
+}
+
+export async function finishRescheduleSms(
+  ndrId: string,
+  scheduleKey: string,
+  state: "sent" | "failed" | "suppressed",
+): Promise<void> {
+  await db
+    .update(ndr)
+    .set({ rescheduleSmsState: state })
+    .where(
+      and(
+        eq(ndr.id, ndrId),
+        eq(ndr.rescheduleSmsKey, scheduleKey),
+        eq(ndr.rescheduleSmsState, "sending"),
+      ),
+    );
 }
 
 /** Ops closing a report without an instruction — a duplicate, or resolved off-system. */

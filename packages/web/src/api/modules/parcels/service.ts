@@ -722,6 +722,8 @@ export async function createParcel(
   }
   const owner = await getMerchant(input.merchantId);
   if (!owner) errors.notFound(`Merchant ${input.merchantId}`);
+  await identityService.requireActiveBranch(input.branchId);
+  if (owner!.branchId !== input.branchId) await identityService.requireActiveBranch(owner!.branchId);
   if (!isGlobalScope(actor.role) && actor.role !== "merchant" && owner!.branchId !== actor.branchId) {
     errors.forbidden("This merchant belongs to another branch.", {
       merchantBranchId: owner!.branchId,
@@ -928,8 +930,7 @@ export async function createRetailCounterBooking(
       errors.badRequest("Enter the bank, QR or card payment reference.");
     }
   }
-  const branch = await identityService.getBranch(input.branchId);
-  if (!branch) errors.notFound(`Branch/hub ${input.branchId}`);
+  const branch = await identityService.requireActiveBranch(input.branchId);
 
   const suppliedAwb = input.awb?.trim().toUpperCase() || null;
   if (suppliedAwb) {

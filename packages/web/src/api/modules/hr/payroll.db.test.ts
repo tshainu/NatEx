@@ -48,6 +48,7 @@ const EXTRA_OFFICIAL_ROLES = ["admin", "finance", "hr", "ops"] as const;
 const EXTRA_OFFICIAL_USER_IDS = EXTRA_OFFICIAL_ROLES.map((role) => `usr_hr_role_${role}_${RUN}`);
 let employeeId: string | null = null;
 let secondaryEmployeeId: string | null = null;
+let employeeCode: string | null = null;
 let packageId: string | null = null;
 const runIds: string[] = [];
 const documentIds: string[] = [];
@@ -87,7 +88,6 @@ beforeAll(async () => {
   })) as never);
 
   const employee = await hr.createEmployee({
-    employeeCode: `P${RUN}`,
     fullName: "Primary payroll test employee",
     identityUserId: STAFF_USER_ID,
     branchId: testBranchId,
@@ -101,8 +101,8 @@ beforeAll(async () => {
     overtimeDivisorMinutes: 14_400,
   }, HR_ACTOR);
   employeeId = employee.id;
+  employeeCode = employee.employeeCode;
   const secondary = await hr.createEmployee({
-    employeeCode: `S${RUN}`,
     fullName: "Secondary payroll test employee",
     branchId: testBranchId,
     department: "Finance",
@@ -270,7 +270,7 @@ describe("HR and payroll database workflow", () => {
       overtimeDivisorMinutes: 14_400,
     };
     for (const identityUserId of [MERCHANT_USER_ID, SUSPENDED_STAFF_USER_ID, UNKNOWN_ROLE_USER_ID, `missing_${RUN}`]) {
-      await expect(hr.createEmployee({ ...baseInput, employeeCode: `X${RUN}`, identityUserId }, HR_ACTOR))
+      await expect(hr.createEmployee({ ...baseInput, identityUserId }, HR_ACTOR))
         .rejects.toThrow("active official NatEx staff account");
       await expect(hr.updateEmployee(secondaryEmployeeId!, { identityUserId }, HR_ACTOR))
         .rejects.toThrow("active official NatEx staff account");
@@ -279,7 +279,7 @@ describe("HR and payroll database workflow", () => {
 
   test("records explicit attendance states and keeps employee documents scoped to their owner", async () => {
     await hr.saveTimesheets([{
-      employeeCode: `P${RUN}`,
+      employeeCode: employeeCode!,
       workDate: "2026-07-11",
       regularMinutes: 0,
       overtimeMinutes: 0,
@@ -335,7 +335,7 @@ describe("HR and payroll database workflow", () => {
     expect(secondary.breakdownJson).toContain("secondary employment");
 
     await expect(hr.saveTimesheets([
-      { employeeCode: `P${RUN}`, workDate: "2026-07-10", regularMinutes: 480, overtimeMinutes: 0, source: "manual" },
+      { employeeCode: employeeCode!, workDate: "2026-07-10", regularMinutes: 480, overtimeMinutes: 0, source: "manual" },
     ], HR_ACTOR)).rejects.toThrow("Timesheets cannot be changed");
 
     await expect(payroll.submitPayrollRun(draft.run.id, HR_ACTOR)).rejects.toThrow("Automatic APIT is configured");
@@ -351,7 +351,7 @@ describe("HR and payroll database workflow", () => {
     expect(paid.status).toBe("paid");
     expect(paid.paymentReference).toBe("TEST-BANK-UTR-001");
     const report = await payroll.statutoryReport(draft.run.id, FINANCE_ACTOR);
-    expect(report.rows.find((row) => row.employeeCode === `P${RUN}`)?.employeeEpfCents).toBe(2_025_403);
+    expect(report.rows.find((row) => row.employeeCode === employeeCode)?.employeeEpfCents).toBe(2_025_403);
   });
 
   test("cancels a draft without deleting history and allows a replacement run for that month", async () => {

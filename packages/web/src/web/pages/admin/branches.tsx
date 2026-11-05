@@ -2,7 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
-import { date, coords } from "@/lib/format";
+import { date, coords, fromE6, toE6 } from "@/lib/format";
 import { Input, Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,10 @@ interface BranchRow {
   code: string;
   name: string;
   address: string;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
   type: string;
+  status: "active" | "inactive";
   counterRateCardId: string | null;
   createdAt: string | Date;
 }
@@ -38,7 +39,7 @@ export default function AdminBranches() {
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<BranchRow | null>(null);
 
-  const branches = useQuery(orpc.identity.listBranches.queryOptions());
+  const branches = useQuery(orpc.identity.listBranches.queryOptions({ input: { includeInactive: true } }));
   const zones = useQuery(orpc.routing.listZones.queryOptions({ input: {} }));
 
   const zoneCount = React.useCallback(
@@ -58,6 +59,12 @@ export default function AdminBranches() {
           {r.type === "hub" ? "Hub" : "Branch"}
         </Badge>
       ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "w-[100px]",
+      cell: (r) => <Badge variant={r.status === "active" ? "good" : "warn"}>{r.status === "active" ? "Active" : "Inactive"}</Badge>,
     },
     {
       key: "address",
@@ -94,7 +101,7 @@ export default function AdminBranches() {
   return (
     <Page
       title="Branches"
-      description={`The branch network. A branch with no serviceability zone can still receive parcels, but no address will resolve to it automatically.${isAdmin ? " Open a row to edit it; the code is permanent." : ""}`}
+      description={`The branch network. Inactive branches remain visible for history but cannot receive new work. Missing coordinates stay unknown and are skipped for distance calculations.${isAdmin ? " Open a row to edit it; the code is permanent." : ""}`}
       actions={
         isAdmin ? (
           <Button onClick={() => setCreating(true)}>
@@ -163,14 +170,13 @@ function CreateBranchDialog({
 
   const lat = Number(form.lat);
   const lng = Number(form.lng);
+  const coordsValid = (form.lat === "" || (Number.isFinite(lat) && lat >= -90 && lat <= 90)) &&
+    (form.lng === "" || (Number.isFinite(lng) && lng >= -180 && lng <= 180));
   const ready =
     form.code.trim().length >= 2 &&
     form.name.trim().length >= 2 &&
     isCompleteAddress(form.address) &&
-    Number.isFinite(lat) &&
-    form.lat !== "" &&
-    Number.isFinite(lng) &&
-    form.lng !== "";
+    coordsValid;
 
   return (
     <Dialog
@@ -191,8 +197,8 @@ function CreateBranchDialog({
                 code: form.code.trim().toUpperCase(),
                 name: form.name.trim(),
                 address: formatAddress(form.address),
-                lat,
-                lng,
+                lat: form.lat === "" ? null : lat,
+                lng: form.lng === "" ? null : lng,
                 type: form.type,
               })
             }
@@ -226,7 +232,7 @@ function CreateBranchDialog({
         </Field>
         <AddressFields title="Branch address" value={form.address} onChange={(address) => set("address", address)} />
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Latitude" hint="Decimal degrees.">
+          <Field label="Latitude" hint="Optional; decimal degrees.">
             <Input
               value={form.lat}
               onChange={(e) => set("lat", e.target.value)}
@@ -235,7 +241,7 @@ function CreateBranchDialog({
               className="font-mono"
             />
           </Field>
-          <Field label="Longitude">
+          <Field label="Longitude" hint="Optional; decimal degrees.">
             <Input
               value={form.lng}
               onChange={(e) => set("lng", e.target.value)}
@@ -246,9 +252,9 @@ function CreateBranchDialog({
           </Field>
         </div>
         <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
-          Coordinates are stored as integer microdegrees so nearest-branch distance never
-          drifts on floating point. Geocoding happens once, here — the address is never sent
-          to a maps provider again.
+          Coordinates are optional. Leave them blank when unknown; missing coordinates are
+          stored as null and are not used to estimate nearest-branch distances. Saved
+          coordinates are stored as integer microdegrees and are never re-geocoded.
         </p>
         {problem ? <ErrorNote>{problem}</ErrorNote> : null}
       </div>
@@ -261,8 +267,8 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   const rateCards = useQuery(orpc.rateCards.list.queryOptions());
   const [name, setName] = React.useState(branch.name);
   const [address, setAddress] = React.useState<AddressParts>(() => addressPartsFromLegacy(branch.address));
-  const [lat, setLat] = React.useState(String(branch.lat));
-  const [lng, setLng] = React.useState(String(branch.lng));
+  const [lat, setLat] = React.useState(() => String(fromE6(branch.lat) ?? ""));
+  const [lng, setLng] = React.useState(() => String(fromE6(branch.lng) ?? ""));
   const [type, setType] = React.useState(branch.type as "hub" | "branch");
   const [counterRateCardId, setCounterRateCardId] = React.useState(branch.counterRateCardId ?? "");
   const [problem, setProblem] = React.useState<string | null>(null);
@@ -275,26 +281,35 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
     },
     onError: (error) => setProblem(apiMessage(error, "This branch could not be saved.")),
   });
+  const changeStatus = useMutation({
+    ...orpc.identity.setBranchStatus.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
+      onClose();
+    },
+    onError: (error) => setProblem(apiMessage(error, "This branch status could not be changed.")),
+  });
 
   const latN = Number(lat);
   const lngN = Number(lng);
-  const patch: { id: string; name?: string; address?: string; lat?: number; lng?: number; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
+  const patch: { id: string; name?: string; address?: string; lat?: number | null; lng?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
     id: branch.id,
   };
   if (name.trim() !== branch.name) patch.name = name.trim();
   const formattedAddress = formatAddress(address);
   if (formattedAddress !== branch.address) patch.address = formattedAddress;
-  if (lat !== "" && Number.isFinite(latN) && latN !== branch.lat) patch.lat = latN;
-  if (lng !== "" && Number.isFinite(lngN) && lngN !== branch.lng) patch.lng = lngN;
+  if (lat === "" && branch.lat !== null) patch.lat = null;
+  else if (lat !== "" && Number.isFinite(latN) && toE6(latN) !== branch.lat) patch.lat = latN;
+  if (lng === "" && branch.lng !== null) patch.lng = null;
+  else if (lng !== "" && Number.isFinite(lngN) && toE6(lngN) !== branch.lng) patch.lng = lngN;
   if (type !== branch.type) patch.type = type;
   if (counterRateCardId !== (branch.counterRateCardId ?? "")) patch.counterRateCardId = counterRateCardId || null;
+  const coordsValid = (lat === "" || (Number.isFinite(latN) && latN >= -90 && latN <= 90)) &&
+    (lng === "" || (Number.isFinite(lngN) && lngN >= -180 && lngN <= 180));
   const valid =
     name.trim().length >= 2 &&
     isCompleteAddress(address) &&
-    lat !== "" &&
-    lng !== "" &&
-    Number.isFinite(latN) &&
-    Number.isFinite(lngN);
+    coordsValid;
   const changed = Object.keys(patch).length > 1;
 
   return (
@@ -302,22 +317,34 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
       open
       onOpenChange={(open) => !open && onClose()}
       title={`Edit ${branch.code}`}
-      description="The branch code is printed on manifests and seals already in circulation, so it cannot be changed. Moving the geocode changes nearest-branch routing for new addresses only."
+      description="The branch code is permanent. Coordinates are optional; clear a saved value to explicitly remove it. Deactivation keeps existing records and history intact."
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
+        <div className="flex w-full items-center justify-between gap-2">
           <Button
-            disabled={!valid || !changed}
-            pending={save.isPending}
+            variant={branch.status === "active" ? "destructive" : "outline"}
+            pending={changeStatus.isPending}
             onClick={() => {
               setProblem(null);
-              save.mutate(patch);
+              changeStatus.mutate({ id: branch.id, status: branch.status === "active" ? "inactive" : "active" });
             }}
           >
-            Save branch
+            {branch.status === "active" ? "Deactivate branch" : "Reactivate branch"}
           </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!valid || !changed}
+              pending={save.isPending}
+              onClick={() => {
+                setProblem(null);
+                save.mutate(patch);
+              }}
+            >
+              Save branch
+            </Button>
+          </div>
         </div>
       }
     >
@@ -353,10 +380,10 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
           </p>
         ) : null}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Latitude">
+          <Field label="Latitude" hint="Optional; decimal degrees. Clear to remove this saved coordinate.">
             <Input value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" className="font-mono" />
           </Field>
-          <Field label="Longitude">
+          <Field label="Longitude" hint="Optional; decimal degrees. Clear to remove this saved coordinate.">
             <Input value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" className="font-mono" />
           </Field>
         </div>

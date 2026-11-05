@@ -228,6 +228,7 @@ export async function assignAwbBatch(
   } else {
     const location = await getBranch(assigneeId);
     if (!location || location.type !== assigneeType) errors.notFound(`${assigneeType} ${assigneeId}`);
+    if (location!.status !== "active") errors.conflict(`Branch/hub ${location!.name} is inactive; a label batch cannot be assigned.`);
     assigneeName = location!.name;
   }
 

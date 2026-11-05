@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, statSync, rmSync } from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const outDir = args.includes("--out") ? args[args.indexOf("--out") + 1]! : "/tmp/natex-backups";
@@ -140,7 +141,24 @@ const scratchPath = `/tmp/natex-restore-${stamp}.db`;
 const t2 = performance.now();
 const scratch = createClient({ url: `file:${scratchPath}` });
 const sql = gunzipSync(readFileSync(dumpPath)).toString("utf8");
-await scratch.executeMultiple(sql);
+// Replay only into the fresh local scratch DB. Feeding one complete SQL statement
+// at a time avoids quadratic bulk-script parsing on large tracking-label dumps.
+// SQLite's completeness parser also handles multiline strings and trigger bodies.
+execFileSync("python3", ["-c", `
+import sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+statement = ''
+try:
+    for line in sys.stdin:
+        statement += line
+        if sqlite3.complete_statement(statement):
+            connection.execute(statement)
+            statement = ''
+    if statement.strip():
+        raise RuntimeError('Incomplete SQL statement in backup')
+finally:
+    connection.close()
+`, scratchPath], { input: sql, timeout: 120_000 });
 const restoreTime = ms(t2);
 check(true, "dump replayed", `${scratchPath} in ${restoreTime}`);
 

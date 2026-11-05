@@ -4,10 +4,13 @@ import { smsLog } from "../database/schema/shared";
 import { claimBatch, markDone, markFailed } from "../shared/outbox";
 import { sendSms } from "../shared/sms";
 import {
+  buildRescheduleSms,
   containsTrackingMaterial,
+  isSmsDisabled,
   MERCHANT_REGISTRATION_ACCEPTED_SMS,
   MERCHANT_REGISTRATION_RECEIPT_SMS,
 } from "../shared/sms-policy";
+import * as deliveryNdrService from "../modules/delivery/ndr";
 import * as notifications from "../modules/notifications/service";
 import type { NotifyInput } from "../modules/notifications/service";
 import * as alerts from "../modules/cod/alerts";
@@ -53,6 +56,67 @@ interface MerchantRegistrationSmsPayload {
   stage: "receipt" | "confirmation";
 }
 
+interface RescheduleSmsPayload {
+  purpose: "reschedule";
+  ndrId: string;
+  scheduleKey: string;
+  toPhone: string;
+  trackingNumber: string;
+  newDate: string;
+  reason: string;
+}
+
+/** Fixed-purpose receiver notice; the payload cannot supply arbitrary SMS copy. */
+export async function dispatchRescheduleSms(
+  payload: RescheduleSmsPayload,
+  sender: typeof sendSms = sendSms,
+): Promise<void> {
+  const expectedKeys = "ndrId,newDate,purpose,reason,scheduleKey,toPhone,trackingNumber";
+  if (
+    !payload ||
+    payload.purpose !== "reschedule" ||
+    typeof payload.ndrId !== "string" ||
+    typeof payload.scheduleKey !== "string" ||
+    !/^[a-f0-9]{64}$/.test(payload.scheduleKey) ||
+    typeof payload.toPhone !== "string" ||
+    payload.toPhone.length < 9 ||
+    payload.toPhone.length > 24 ||
+    typeof payload.trackingNumber !== "string" ||
+    typeof payload.newDate !== "string" ||
+    typeof payload.reason !== "string" ||
+    Object.keys(payload).sort().join(",") !== expectedKeys
+  ) {
+    throw new Error("Invalid NDR reschedule SMS job payload.");
+  }
+
+  const body = buildRescheduleSms({
+    trackingNumber: payload.trackingNumber,
+    newDate: payload.newDate,
+    reason: payload.reason,
+  });
+  if (!(await deliveryNdrService.claimRescheduleSms(payload.ndrId, payload.scheduleKey))) return;
+
+  // Production is required, and SMS_DISABLE_ALL remains an independent kill switch.
+  if (process.env.NODE_ENV !== "production") {
+    await deliveryNdrService.finishRescheduleSms(payload.ndrId, payload.scheduleKey, "suppressed");
+    return;
+  }
+  if (isSmsDisabled()) {
+    await deliveryNdrService.finishRescheduleSms(payload.ndrId, payload.scheduleKey, "suppressed");
+    return;
+  }
+
+  try {
+    const result = await sender({ to: payload.toPhone, body, purpose: "reschedule" });
+    const state = result.state === "sent" ? "sent" : "failed";
+    await deliveryNdrService.finishRescheduleSms(payload.ndrId, payload.scheduleKey, state);
+    if (state === "failed") throw new Error("NDR reschedule SMS delivery failed.");
+  } catch (err) {
+    await deliveryNdrService.finishRescheduleSms(payload.ndrId, payload.scheduleKey, "failed");
+    throw err;
+  }
+}
+
 /** Dedicated job: its payload has no phone or message field. */
 export async function dispatchMerchantRegistrationSms(
   payload: MerchantRegistrationSmsPayload,
@@ -71,7 +135,11 @@ export async function dispatchMerchantRegistrationSms(
   if (!request) return;
 
   // Fail closed outside Production even if a gateway URL is configured.
-  if (process.env.NODE_ENV !== "production" || process.env.SMS_DISABLE_ALL?.trim().toLowerCase() === "true") {
+  if (process.env.NODE_ENV !== "production") {
+    await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, "suppressed");
+    return;
+  }
+  if (isSmsDisabled()) {
     await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, "suppressed");
     return;
   }
@@ -104,7 +172,12 @@ async function handle(topic: string, payloadJson: string): Promise<void> {
     }
 
     case "sms.send": {
-      const p = parse<SmsSendPayload>(payloadJson);
+      const parsed = parse<SmsSendPayload | RescheduleSmsPayload>(payloadJson);
+      if (parsed?.purpose === "reschedule") {
+        await dispatchRescheduleSms(parsed);
+        return;
+      }
+      const p = parsed as SmsSendPayload;
       // Booking/status notifications and unsafe legacy POD bodies are drained,
       // never retried or sent. The gateway boundary repeats the same guard.
       await dispatchQueuedSms(p);

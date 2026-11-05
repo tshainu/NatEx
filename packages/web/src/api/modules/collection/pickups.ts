@@ -8,6 +8,7 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { addDays, colomboToday } from "../../shared/time";
 import { getMerchant } from "../merchants/service";
 import { getParcelByAwb } from "../parcels/service";
+import { requireActiveBranch } from "../identity/service";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 
 /**
@@ -196,6 +197,7 @@ export async function requestPickup(input: RequestPickupInput, actor: Principal)
   if (!isGlobalScope(actor.role) && actor.role !== "merchant" && owner!.branchId !== actor.branchId) {
     errors.forbidden("This merchant belongs to another branch.");
   }
+  await requireActiveBranch(owner!.branchId);
   if (owner!.status !== "active") {
     errors.conflict(`Merchant ${owner!.name} is ${owner!.status} and cannot request pickups.`, {
       merchantStatus: owner!.status,

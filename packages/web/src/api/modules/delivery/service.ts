@@ -428,6 +428,11 @@ export async function createRunsheet(
   const hubId = input.hubId ?? rider!.branchId;
   const hub = await getBranch(hubId);
   if (!hub) errors.notFound(`Hub ${hubId}`);
+  if (hub!.status !== "active") errors.conflict(`Hub ${hub!.name} is inactive and cannot receive a new runsheet.`);
+  if (rider!.branchId !== hubId) {
+    const riderBranch = await getBranch(rider!.branchId);
+    if (!riderBranch || riderBranch.status !== "active") errors.conflict("The rider's branch is inactive and cannot receive new runsheets.");
+  }
 
   // One live run per rider per day. A second one splits the rider's cash
   // accountability across two sheets, which §1's "money must reconcile"
@@ -683,22 +688,29 @@ export async function optimiseRunsheet(
   while (remaining.length > 0) {
     let bestIndex = 0;
     let bestMetres = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < remaining.length; i += 1) {
-      const candidate = remaining[i]!;
-      const d = distanceMetres(curLat, curLng, candidate.destLat!, candidate.destLng!);
-      if (d < bestMetres) {
-        bestMetres = d;
-        bestIndex = i;
+    const hasOrigin = curLat !== null && curLng !== null;
+    if (curLat !== null && curLng !== null) {
+      for (let i = 0; i < remaining.length; i += 1) {
+        const candidate = remaining[i]!;
+        const d = distanceMetres(curLat, curLng, candidate.destLat!, candidate.destLng!);
+        if (d < bestMetres) {
+          bestMetres = d;
+          bestIndex = i;
+        }
       }
+    } else {
+      // No saved branch GPS: start at the first booked located stop. The
+      // unknown branch-to-stop leg stays null, rather than a fake zero distance.
+      bestMetres = 0;
     }
     const next = remaining.splice(bestIndex, 1)[0]!;
     seq += 1;
     total += bestMetres;
     await db
       .update(runsheetItem)
-      .set({ seq, legMetres: bestMetres })
+      .set({ seq, legMetres: hasOrigin ? bestMetres : null })
       .where(eq(runsheetItem.id, next.id));
-    ordered.push({ seq, awb: next.awb, legMetres: bestMetres, located: true });
+    ordered.push({ seq, awb: next.awb, legMetres: hasOrigin ? bestMetres : null, located: true });
     curLat = next.destLat!;
     curLng = next.destLng!;
   }
@@ -712,7 +724,9 @@ export async function optimiseRunsheet(
     ordered.push({ seq, awb: item.awb, legMetres: null, located: false });
   }
 
-  const method = "nearest_neighbour_js";
+  const method = hub!.lat === null || hub!.lng === null
+    ? "nearest_neighbour_js_unknown_origin"
+    : "nearest_neighbour_js";
   const [updated] = await db
     .update(runsheet)
     .set({

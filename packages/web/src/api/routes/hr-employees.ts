@@ -5,13 +5,11 @@ import * as identity from "../modules/identity/service";
 import { errors } from "../shared/errors";
 import { isValidIsoDate } from "../modules/hr/validation";
 
-const employeeCode = z.string().trim().min(2).max(20);
 const isoDay = z.string().refine(isValidIsoDate, "Use a real calendar date in YYYY-MM-DD format.");
 const employmentType = z.enum(["permanent", "probation", "contract", "temporary", "casual", "intern", "other"]);
 const overtimePolicy = z.enum(["none", "shop_office", "custom"]);
 
 const employeeFields = z.object({
-  employeeCode,
   fullName: z.string().trim().min(2).max(160),
   identityUserId: z.string().trim().min(1).max(100).nullish(),
   nationalId: z.string().trim().max(40).nullish(),
@@ -53,9 +51,10 @@ const packageFields = z.object({
   items: z.array(packageItem).max(100).default([]),
 });
 
-async function assertBranch(branchId: string): Promise<void> {
+async function assertBranch(branchId: string, requireActive = false): Promise<void> {
   const branch = await identity.getBranch(branchId);
   if (!branch) errors.badRequest("Select a valid NatEx branch or hub.");
+  if (requireActive && branch.status !== "active") errors.badRequest("Select an active NatEx branch or hub for new employee assignments.");
 }
 
 async function assertStaffAccount(identityUserId?: string | null): Promise<void> {
@@ -64,7 +63,7 @@ async function assertStaffAccount(identityUserId?: string | null): Promise<void>
   if (!account) errors.badRequest("Select an active official NatEx staff account with a recognized staff role. Merchant portal accounts cannot be linked.");
 }
 
-export const branchOptions = hrProc.handler(() => identity.listBranches());
+export const branchOptions = hrProc.handler(() => identity.listBranches({ includeInactive: true }));
 export const staffOptions = hrProc.handler(() => identity.listOfficialStaffOptions());
 
 export const employees = hrProc
@@ -72,19 +71,20 @@ export const employees = hrProc
   .handler(({ input }) => hr.listEmployees(input));
 
 export const createEmployee = hrProc.input(employeeFields).handler(async ({ input, context }) => {
-  await assertBranch(input.branchId);
-  await assertStaffAccount(input.identityUserId);
   return mutate(context, input, {
     route: "hr.createEmployee",
     entity: "hr_employee",
     entityId: (row) => (row as { id: string }).id,
     action: "hr.employee_created",
-  }, () => hr.createEmployee(input, context.principal));
+  }, async () => {
+    await assertBranch(input.branchId, true);
+    await assertStaffAccount(input.identityUserId);
+    return hr.createEmployee(input, context.principal);
+  });
 });
 
 export const updateEmployee = hrProc.input(z.object({
   employeeId: z.string().min(1),
-  employeeCode: employeeCode.optional(),
   fullName: z.string().trim().min(2).max(160).optional(),
   identityUserId: z.string().trim().min(1).max(100).nullish(),
   nationalId: z.string().trim().max(40).nullish(),
@@ -105,15 +105,20 @@ export const updateEmployee = hrProc.input(z.object({
   overtimeMultiplierBps: z.number().int().min(0).max(50_000).optional(),
   overtimeDivisorMinutes: z.number().int().min(1).max(144_000).optional(),
 })).handler(async ({ input, context }) => {
-  if (input.branchId) await assertBranch(input.branchId);
-  if (input.identityUserId !== undefined) await assertStaffAccount(input.identityUserId);
   const { employeeId, ...patch } = input;
   return mutate(context, input, {
     route: "hr.updateEmployee",
     entity: "hr_employee",
     entityId: () => employeeId,
     action: "hr.employee_updated",
-  }, () => hr.updateEmployee(employeeId, patch, context.principal));
+  }, async () => {
+    if (input.branchId) {
+      const existing = await hr.getEmployee(employeeId);
+      await assertBranch(input.branchId, input.branchId !== existing.branchId);
+    }
+    if (input.identityUserId !== undefined) await assertStaffAccount(input.identityUserId);
+    return hr.updateEmployee(employeeId, patch, context.principal);
+  });
 });
 
 export const salaryPackages = hrProc.handler(() => hr.listSalaryPackages());

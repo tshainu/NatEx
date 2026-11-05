@@ -10,7 +10,6 @@ import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
 
 type EmployeeForm = {
-  employeeCode: string;
   fullName: string;
   identityUserId: string;
   nationalId: string;
@@ -33,7 +32,6 @@ type EmployeeForm = {
 };
 
 const emptyForm = (): EmployeeForm => ({
-  employeeCode: "",
   fullName: "",
   identityUserId: "",
   nationalId: "",
@@ -99,7 +97,6 @@ export default function HrEmployees() {
   function editEmployee(employee: NonNullable<typeof employees.data>[number]) {
     setEditingId(employee.id);
     setForm({
-      employeeCode: employee.employeeCode,
       fullName: employee.fullName,
       identityUserId: employee.identityUserId ?? "",
       nationalId: employee.nationalId ?? "",
@@ -134,7 +131,6 @@ export default function HrEmployees() {
       return;
     }
     const common = {
-      employeeCode: form.employeeCode.trim(),
       fullName: form.fullName.trim(),
       identityUserId: form.identityUserId || null,
       nationalId: form.nationalId || null,
@@ -197,7 +193,7 @@ export default function HrEmployees() {
       <HrNavigation />
       <Card title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users.">
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
-          <Field label="Employee code"><Input required maxLength={20} value={form.employeeCode} onChange={(e) => setField("employeeCode", e.target.value.toUpperCase())} /></Field>
+          {editingId ? <Field label="Employee number"><Input readOnly value={employees.data?.find((employee) => employee.id === editingId)?.employeeCode ?? ""} /></Field> : <p className="self-center text-[12px] text-muted-foreground">Employee number is assigned automatically when you save. The next available number starts at N26002.</p>}
           <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
           <Field label="Official courier-staff login" hint="Optional. Link this HR record to an active official account (Rider, Transport, Ops, Finance, Admin, HR, or any combination). Inactive accounts and Merchant portal users are excluded.">
             <select className={HR_CONTROL_CLASS} value={form.identityUserId} onChange={(e) => setField("identityUserId", e.target.value)}>
@@ -213,7 +209,7 @@ export default function HrEmployees() {
           <Field label="Branch / hub">
             <select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}>
               <option value="">Select branch or hub</option>
-              {(branches.data ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}</option>)}
+              {(branches.data ?? []).filter((branch) => branch.status === "active" || branch.id === form.branchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}{branch.status === "active" ? "" : " · inactive"}</option>)}
             </select>
           </Field>
           <Field label="Department"><Input required value={form.department} onChange={(e) => setField("department", e.target.value)} /></Field>

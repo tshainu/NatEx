@@ -14,11 +14,13 @@ export const branch = sqliteTable("identity_branch", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   address: text("address").notNull(),
-  /** Geocoded once and stored forever (PROJECT.md §5). Never re-sent to Maps. */
-  lat: integer("lat_e6").notNull(),
-  lng: integer("lng_e6").notNull(),
+  /** Optional geocode in microdegrees. Unknown coordinates remain NULL, not (0, 0). */
+  lat: integer("lat_e6"),
+  lng: integer("lng_e6"),
   /** hub | branch */
   type: text("type").notNull(),
+  /** Inactive branches remain available for historical reads, but not new work. */
+  status: text("status").notNull().default("active"),
   /** Active, NatEx-approved rate card used for automatic walk-in Counter pricing. */
   counterRateCardId: text("counter_rate_card_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
