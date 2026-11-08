@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, like, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "../../database";
+import type { DbTransaction } from "../../database/transaction";
 import {
   hrEmployee,
   hrEmployeePackage,
@@ -9,6 +10,7 @@ import {
   hrTimesheet,
 } from "../../database/schema/hr";
 import type { Principal } from "../../shared/auth";
+import { writeAudit } from "../../shared/audit";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import { nextEmployeeCode } from "./employee-number";
@@ -19,6 +21,7 @@ export type EmployeeRow = typeof hrEmployee.$inferSelect;
 export type SalaryPackageRow = typeof hrSalaryPackage.$inferSelect;
 export type SalaryPackageItemRow = typeof hrSalaryPackageItem.$inferSelect;
 export type TimesheetRow = typeof hrTimesheet.$inferSelect;
+type HrExecutor = typeof db | DbTransaction;
 
 export interface EmployeeInput {
   fullName: string;
@@ -91,8 +94,8 @@ export async function listEmployees(input: { q?: string; status?: string; limit?
   return query.limit(input.limit ?? 500);
 }
 
-export async function getEmployee(employeeId: string): Promise<EmployeeRow> {
-  const [row] = await db.select().from(hrEmployee).where(eq(hrEmployee.id, employeeId));
+export async function getEmployee(employeeId: string, executor: HrExecutor = db): Promise<EmployeeRow> {
+  const [row] = await executor.select().from(hrEmployee).where(eq(hrEmployee.id, employeeId));
   if (!row) errors.notFound("Employee");
   return row!;
 }
@@ -154,8 +157,10 @@ export async function createEmployee(input: EmployeeInput, actor: Principal): Pr
   return errors.conflict("Could not allocate a unique employee number after repeated concurrent attempts. Please retry.");
 }
 
-export async function updateEmployee(employeeId: string, patch: Partial<EmployeeInput> & { status?: "active" | "inactive"; endedOn?: string | null }, actor: Principal): Promise<EmployeeRow> {
-  const before = await getEmployee(employeeId);
+type EmployeePatch = Partial<EmployeeInput> & { status?: "active" | "inactive"; endedOn?: string | null };
+
+async function updateEmployeeWithExecutor(employeeId: string, patch: EmployeePatch, actor: Principal, executor: HrExecutor): Promise<EmployeeRow> {
+  const before = await getEmployee(employeeId, executor);
   if (patch.identityUserId !== undefined) await assertLinkableOfficialStaff(patch.identityUserId);
   const joinedOn = patch.joinedOn ?? before.joinedOn;
   const endedOn = patch.endedOn !== undefined ? patch.endedOn : before.endedOn;
@@ -182,15 +187,19 @@ export async function updateEmployee(employeeId: string, patch: Partial<Employee
   if (patch.overtimeMultiplierBps !== undefined) set.overtimeMultiplierBps = patch.overtimeMultiplierBps;
   if (patch.overtimeDivisorMinutes !== undefined) set.overtimeDivisorMinutes = patch.overtimeDivisorMinutes;
   if (patch.identityUserId) {
-    const [linked] = await db.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.identityUserId, patch.identityUserId), ne(hrEmployee.id, employeeId)));
+    const [linked] = await executor.select({ id: hrEmployee.id }).from(hrEmployee).where(and(eq(hrEmployee.identityUserId, patch.identityUserId), ne(hrEmployee.id, employeeId)));
     if (linked) errors.conflict("This official staff account is already linked to another HR employee.");
   }
   if (patch.overtimeMultiplierBps !== undefined) validateMoney(patch.overtimeMultiplierBps, "Overtime multiplier");
   if (patch.overtimeDivisorMinutes !== undefined && (patch.overtimeDivisorMinutes < 1 || !Number.isSafeInteger(patch.overtimeDivisorMinutes))) {
     errors.badRequest("Overtime divisor must be a positive number of minutes.");
   }
-  const [row] = await db.update(hrEmployee).set(set).where(eq(hrEmployee.id, employeeId)).returning();
+  const [row] = await executor.update(hrEmployee).set(set).where(eq(hrEmployee.id, employeeId)).returning();
   return row ?? before;
+}
+
+export async function updateEmployee(employeeId: string, patch: EmployeePatch, actor: Principal): Promise<EmployeeRow> {
+  return updateEmployeeWithExecutor(employeeId, patch, actor, db);
 }
 
 export async function listSalaryPackages(activeOnly = false) {
@@ -199,10 +208,10 @@ export async function listSalaryPackages(activeOnly = false) {
   return Promise.all(filtered.map(async (pkg) => ({ ...pkg, items: await db.select().from(hrSalaryPackageItem).where(eq(hrSalaryPackageItem.packageId, pkg.id)).orderBy(asc(hrSalaryPackageItem.sortOrder)) })));
 }
 
-export async function getSalaryPackage(packageId: string) {
-  const [pkg] = await db.select().from(hrSalaryPackage).where(eq(hrSalaryPackage.id, packageId));
+export async function getSalaryPackage(packageId: string, executor: HrExecutor = db) {
+  const [pkg] = await executor.select().from(hrSalaryPackage).where(eq(hrSalaryPackage.id, packageId));
   if (!pkg) errors.notFound("Salary package");
-  const items = await db.select().from(hrSalaryPackageItem).where(eq(hrSalaryPackageItem.packageId, packageId)).orderBy(asc(hrSalaryPackageItem.sortOrder));
+  const items = await executor.select().from(hrSalaryPackageItem).where(eq(hrSalaryPackageItem.packageId, packageId)).orderBy(asc(hrSalaryPackageItem.sortOrder));
   return { ...pkg!, items };
 }
 
@@ -287,23 +296,25 @@ export async function updateSalaryPackage(packageId: string, input: SalaryPackag
   return { ...current, ...await getSalaryPackage(packageId) };
 }
 
-export async function assignSalaryPackage(input: { employeeId: string; packageId: string; effectiveFrom: string }, actor: Principal) {
+type SalaryAssignmentInput = { employeeId: string; packageId: string; effectiveFrom: string };
+
+async function assignSalaryPackageWithExecutor(input: SalaryAssignmentInput, actor: Principal, executor: HrExecutor) {
   if (!isValidIsoDate(input.effectiveFrom)) errors.badRequest("Package effective date must be a real calendar date in YYYY-MM-DD format.");
-  const employee = await getEmployee(input.employeeId);
+  const employee = await getEmployee(input.employeeId, executor);
   if (input.effectiveFrom < employee.joinedOn) errors.badRequest("Salary package cannot take effect before the employee's start date.");
-  const pkg = await getSalaryPackage(input.packageId);
+  const pkg = await getSalaryPackage(input.packageId, executor);
   if (!pkg.active) errors.conflict("An inactive salary package cannot be assigned.");
   if (employee.status !== "active") errors.conflict("A salary package can only be assigned to an active employee.");
-  const assignments = await db.select().from(hrEmployeePackage).where(eq(hrEmployeePackage.employeeId, input.employeeId)).orderBy(asc(hrEmployeePackage.effectiveFrom));
+  const assignments = await executor.select().from(hrEmployeePackage).where(eq(hrEmployeePackage.employeeId, input.employeeId)).orderBy(asc(hrEmployeePackage.effectiveFrom));
   const later = assignments.find((a) => a.effectiveFrom >= input.effectiveFrom);
   if (later?.effectiveFrom === input.effectiveFrom) errors.conflict("This employee already has a package effective on that date.");
   if (later) errors.conflict(`A future package is already scheduled from ${later.effectiveFrom}.`);
   const open = assignments.find((a) => a.effectiveTo === null || a.effectiveTo >= input.effectiveFrom);
   if (open) {
     if (open.effectiveFrom >= input.effectiveFrom) errors.conflict("Salary package effective dates overlap.");
-    await db.update(hrEmployeePackage).set({ effectiveTo: dateBefore(input.effectiveFrom) }).where(eq(hrEmployeePackage.id, open.id));
+    await executor.update(hrEmployeePackage).set({ effectiveTo: dateBefore(input.effectiveFrom) }).where(eq(hrEmployeePackage.id, open.id));
   }
-  const [row] = await db.insert(hrEmployeePackage).values({
+  const [row] = await executor.insert(hrEmployeePackage).values({
     id: prefixedId("hpe"),
     employeeId: input.employeeId,
     packageId: input.packageId,
@@ -311,6 +322,46 @@ export async function assignSalaryPackage(input: { employeeId: string; packageId
     createdBy: actor.userId,
   }).returning();
   return row!;
+}
+
+export async function assignSalaryPackage(input: SalaryAssignmentInput, actor: Principal) {
+  return assignSalaryPackageWithExecutor(input, actor, db);
+}
+
+/**
+ * Update an employee and, when requested, assign a salary package in one
+ * transaction. The audit row is deliberately written through the same
+ * executor so a rejected salary assignment rolls back the profile update and
+ * does not leave an apparently successful audit trail.
+ */
+export async function updateEmployeeWithSalary(
+  employeeId: string,
+  patch: EmployeePatch,
+  salaryAssignment: Omit<SalaryAssignmentInput, "employeeId"> | null | undefined,
+  actor: Principal,
+  requestId?: string,
+): Promise<EmployeeRow & { salaryAssignment: typeof hrEmployeePackage.$inferSelect | null }> {
+  return db.transaction(async (tx) => {
+    const before = await getEmployee(employeeId, tx);
+    const beforeAssignments = await tx.select().from(hrEmployeePackage)
+      .where(eq(hrEmployeePackage.employeeId, employeeId))
+      .orderBy(asc(hrEmployeePackage.effectiveFrom));
+    const employee = await updateEmployeeWithExecutor(employeeId, patch, actor, tx);
+    const assignment = salaryAssignment
+      ? await assignSalaryPackageWithExecutor({ ...salaryAssignment, employeeId }, actor, tx)
+      : null;
+    const result = { ...employee, salaryAssignment: assignment };
+    await writeAudit({
+      entity: "hr_employee",
+      entityId: employeeId,
+      action: "hr.employee_updated",
+      actor,
+      requestId,
+      before: { employee: before, salaryAssignments: beforeAssignments },
+      after: result,
+    }, tx);
+    return result;
+  });
 }
 
 export async function listEmployeePackages(employeeId: string) {

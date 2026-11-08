@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { adminProc, merchantProc, mutate, opsProc } from "../middleware/pipeline";
 import * as awbBatchService from "../modules/parcels/awb-batches";
+import { MAX_LABELS_PER_GENERATION, MAX_NUMBERS_PER_BATCH } from "../modules/parcels/awb-series";
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
@@ -15,7 +16,14 @@ export const list = adminProc.handler(async ({ context }) => {
 });
 
 export const generate = adminProc
-  .input(z.object({ count: z.number().int().min(1).max(awbBatchService.MAX_BATCHES_PER_GENERATION) }))
+  .input(z.object({
+    count: z.number().int().min(1).max(awbBatchService.MAX_BATCHES_PER_GENERATION),
+    numbersPerBatch: z.number().int().min(1).max(MAX_NUMBERS_PER_BATCH),
+    startingTrackingNumber: z.string().trim().regex(/^NX\d{10}$/i),
+  }).refine((input) => input.count * input.numbersPerBatch <= MAX_LABELS_PER_GENERATION, {
+    message: `A generation may reserve at most ${MAX_LABELS_PER_GENERATION.toLocaleString()} tracking numbers.`,
+    path: ["numbersPerBatch"],
+  }))
   .handler(({ input, context }) =>
     mutate(
       context,
@@ -26,7 +34,7 @@ export const generate = adminProc
         entityId: (rows) => (rows as awbBatchService.AwbBatchRow[])[0]?.id ?? "none",
         action: "awb.batch.generated",
       },
-      () => awbBatchService.createAwbBatches(input.count, context.principal),
+      () => awbBatchService.createAwbBatches(input.count, input.numbersPerBatch, input.startingTrackingNumber, context.principal),
     ),
   );
 

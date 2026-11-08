@@ -181,7 +181,7 @@ describe("route guards (static inventory)", () => {
 
   test("HR records and drafts are HR/Admin-only; Finance/Admin review and approve payroll", () => {
     const hrOnly = [
-      "hr.branchOptions", "hr.staffOptions", "hr.employees", "hr.createEmployee", "hr.updateEmployee",
+      "hr.branchOptions", "hr.staffOptions", "hr.employees", "hr.createEmployee", "hr.updateEmployee", "hr.updateEmployeeWithSalary",
       "hr.employeeDocuments", "hr.employeeDocumentUpload", "hr.attachEmployeeDocument", "hr.employeeDocumentView",
       "hr.salaryPackages", "hr.createSalaryPackage", "hr.updateSalaryPackage",
       "hr.assignSalaryPackage", "hr.employeePackages", "hr.timesheets", "hr.saveTimesheets",
@@ -202,6 +202,14 @@ describe("route guards (static inventory)", () => {
   test("round 6 procedures carry the intended gates", () => {
     expect(byPath.get("dashboard.company")?.roles).toEqual(["admin"]);
     for (const r of FIELD_ROLES) expect(byPath.get("cod.dailyFlow")?.roles).not.toContain(r);
+    expect(byPath.get("cod.entries")?.roles).toEqual(["ops", "admin", "finance", "rider", "merchant"]);
+    for (const path of ["cod.riderCash", "cod.cashCeiling", "cod.myUndeposited"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["ops", "admin", "finance", "rider"] });
+    }
+    for (const path of ["cod.stale", "cod.deposits", "cod.depositPage"]) {
+      expect({ path, roles: byPath.get(path)?.roles }).toEqual({ path, roles: ["ops", "admin", "finance"] });
+    }
+    expect(byPath.get("cod.declareDeposit")?.roles).toEqual(["rider", "ops", "admin"]);
     // A bag photo is read like the bag itself: the same staff gate, never a merchant.
     expect(byPath.get("transport.bagPhotoView")?.roles).toEqual(byPath.get("transport.bagGet")!.roles);
     expect(byPath.get("transport.bagPhotoView")?.roles).not.toContain("merchant");

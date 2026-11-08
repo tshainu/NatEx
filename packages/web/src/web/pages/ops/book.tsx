@@ -1,8 +1,16 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, MapPin } from "lucide-react";
+import { CheckCircle2, MapPin, Printer } from "lucide-react";
 import { client, orpc, apiMessage } from "@/lib/api";
 import { filterBookableMerchants, MerchantPicker } from "./merchant-picker";
+import {
+  closeCounterReceiptWindow,
+  openCounterReceiptWindow,
+  printCounterReceiptWindow,
+  renderCounterBookingReceipt,
+  type CounterBookingReceiptData,
+  type ReceiptPrintWindow,
+} from "./counter-print";
 import { money, toE6, metres } from "@/lib/format";
 import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
@@ -53,16 +61,46 @@ const EMPTY: Form = {
   destLng: "",
 };
 
+type Booking = Awaited<ReturnType<typeof client.parcels.create>>;
+
+function receiptDataForBooking(booking: Booking, branch: CounterBookingReceiptData["branch"], receiptContact?: CounterBookingReceiptData["receiptContact"]): CounterBookingReceiptData {
+  return {
+    awb: booking.parcel.awb,
+    status: booking.parcel.status,
+    branch,
+    receiptContact,
+    originAddress: booking.parcel.originAddress,
+    consigneeName: booking.parcel.consigneeName,
+    consigneePhone: booking.parcel.consigneePhone,
+    destAddress: booking.parcel.destAddress,
+    weightGrams: booking.parcel.weightGrams,
+    lengthCm: booking.parcel.lengthCm,
+    widthCm: booking.parcel.widthCm,
+    heightCm: booking.parcel.heightCm,
+    declaredValueCents: booking.parcel.declaredValueCents ?? 0,
+    codAmountCents: booking.parcel.codAmountCents,
+    bookedAt: booking.parcel.createdAt,
+  };
+}
+
 export default function OpsBook() {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState<Form>(EMPTY);
-  const [booked, setBooked] = React.useState<{ awb: string; status: string } | null>(null);
+  const [booked, setBooked] = React.useState<Booking | null>(null);
+  const [printNotice, setPrintNotice] = React.useState<string | null>(null);
+  const receiptPopupRef = React.useRef<ReceiptPrintWindow | null>(null);
+  const submissionInFlight = React.useRef(false);
 
   const merchants = useQuery({
     ...orpc.merchants.options.queryOptions(),
     staleTime: 5 * 60 * 1000,
   });
   const bookableMerchants = filterBookableMerchants(merchants.data ?? [], "");
+  const branch = useQuery({
+    ...orpc.identity.myBranch.queryOptions(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const receiptContact = useQuery(orpc.settings.receiptContact.queryOptions());
   const bookingLimits = useQuery({
     ...orpc.settings.bookingLimits.queryOptions(),
     staleTime: 0,
@@ -118,9 +156,35 @@ export default function OpsBook() {
         destZoneId: serviceability.data?.zone?.id ?? null,
       }),
     onSuccess: (result) => {
-      setBooked({ awb: result.parcel.awb, status: result.parcel.status });
+      submissionInFlight.current = false;
+      setBooked(result);
       setForm({ ...EMPTY, merchantId: form.merchantId });
       void queryClient.invalidateQueries();
+      const popup = receiptPopupRef.current;
+      receiptPopupRef.current = null;
+      if (popup) {
+        const printed = printCounterReceiptWindow(
+          popup,
+          renderCounterBookingReceipt(receiptDataForBooking(result, branch.data ?? {
+            name: result.parcel.branchId,
+            address: result.parcel.originAddress,
+          }, receiptContact.data)),
+          () => setPrintNotice("The receipt logo or printer could not be loaded. Your booking is saved; use Print / open receipt to retry."),
+        );
+        if (!printed) {
+          closeCounterReceiptWindow(popup);
+          setPrintNotice("The receipt window could not be printed. Use Print / open receipt below to try again.");
+        } else {
+          setPrintNotice("Receipt opened for printing. If your browser blocked printing, use Print / open receipt below.");
+        }
+      } else {
+        setPrintNotice("The receipt popup was blocked. Use Print / open receipt below to print this booking.");
+      }
+    },
+    onError: () => {
+      submissionInFlight.current = false;
+      closeCounterReceiptWindow(receiptPopupRef.current);
+      receiptPopupRef.current = null;
     },
   });
 
@@ -137,11 +201,47 @@ export default function OpsBook() {
     form.consigneePhone.trim().length >= 9 &&
     isCompleteAddress(form.destAddress);
 
+  const printBooking = (booking: Booking) => {
+    const popup = openCounterReceiptWindow((url, target, features) =>
+      window.open(url, target, features) as ReceiptPrintWindow | null,
+    );
+    const printed = printCounterReceiptWindow(
+      popup,
+      renderCounterBookingReceipt(receiptDataForBooking(booking, branch.data ?? {
+        name: booking.parcel.branchId,
+        address: booking.parcel.originAddress,
+      }, receiptContact.data)),
+      () => setPrintNotice("The receipt logo or printer could not be loaded. Retry printing; do not book this parcel again."),
+    );
+    if (!printed) {
+      closeCounterReceiptWindow(popup);
+      setPrintNotice("Your browser blocked the receipt popup or the printer was unavailable. Allow popups, then try again.");
+      return;
+    }
+    setPrintNotice("Receipt opened for printing.");
+  };
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!valid || create.isPending || submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    receiptPopupRef.current = openCounterReceiptWindow((url, target, features) =>
+      window.open(url, target, features) as ReceiptPrintWindow | null,
+    );
+    if (!receiptPopupRef.current) {
+      setPrintNotice("Automatic receipt popup was blocked. The booking will still be saved; use the manual print action after success.");
+    } else {
+      setPrintNotice(null);
+    }
+    create.mutate();
+  };
+
   return (
     <Page
       title="Book a parcel"
       description="Creates the parcel at Booked and writes the first custody event. A supplied tracking number must be an unused sticker allocated to the selected merchant."
     >
+      {receiptContact.error ? <ErrorNote>{apiMessage(receiptContact.error, "Receipt contact details could not be loaded.")}</ErrorNote> : null}
       {booked ? (
         <Card className="max-w-3xl border-status-good/40 bg-status-good/8">
           <div className="flex items-start gap-3">
@@ -149,21 +249,29 @@ export default function OpsBook() {
             <div>
               <p className="text-[14px] font-semibold">Parcel booked</p>
               <p className="mt-1 flex items-center gap-2 text-[13px]">
-                <span className="font-mono text-[16px] font-medium">{booked.awb}</span>
-                <StatusPill status={booked.status} />
+                <span className="font-mono text-[16px] font-medium">{booked.parcel.awb}</span>
+                <StatusPill status={booked.parcel.status} />
               </p>
               <p className="mt-2 text-[13px] text-muted-foreground">
                 It is now awaiting pickup. Add it to a pickup manifest to hand it to a
                 rider.
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                onClick={() => setBooked(null)}
-              >
-                Book another
-              </Button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => printBooking(booked)}>
+                  <Printer aria-hidden /> Print / open receipt
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setBooked(null);
+                    setPrintNotice(null);
+                  }}
+                >
+                  Book another
+                </Button>
+              </div>
+              {printNotice ? <output className="mt-3 block text-[12px] text-muted-foreground">{printNotice}</output> : null}
             </div>
           </div>
         </Card>
@@ -171,10 +279,7 @@ export default function OpsBook() {
 
       <form
         className="grid max-w-5xl gap-5 lg:grid-cols-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) create.mutate();
-        }}
+        onSubmit={submit}
       >
         <Card title="Merchant &amp; consignment">
           <div className="space-y-4">

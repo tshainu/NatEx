@@ -16,6 +16,33 @@ import { toE6 } from "../shared/geo";
 
 const role = z.enum(ROLES as unknown as [Role, ...Role[]]);
 
+/** Active HR employees without a login; salary and other confidential fields are excluded. */
+export const employeeLoginOptions = adminProc
+  .handler(() => adminService.listEmployeeLoginOptions());
+
+export const createEmployeeLogin = adminProc
+  .input(
+    z.object({
+      employeeId: z.string().min(1),
+      roles: z.array(role).min(1),
+      username: z.string().trim().min(2).max(60).nullish(),
+      password: z.string().min(6).max(200).nullish(),
+    }),
+  )
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "identity.createEmployeeLogin",
+        entity: "identity_user",
+        entityId: (result) => (result as { user: { id: string } }).user.id,
+        action: "user.created_for_employee",
+      },
+      () => adminService.createEmployeeLogin(context.principal, input),
+    ),
+  );
+
 export const listMerchantUsers = adminProc
   .input(
     z.object({
@@ -128,6 +155,7 @@ export const updateBranch = adminProc
       id: z.string().min(1),
       name: z.string().trim().min(2).max(120).optional(),
       address: z.string().trim().min(4).optional(),
+      phone: z.string().trim().max(40).nullish(),
       lat: z.number().min(-90).max(90).nullable().optional(),
       lng: z.number().min(-180).max(180).nullable().optional(),
       type: z.enum(["hub", "branch"]).optional(),
@@ -144,6 +172,7 @@ export const updateBranch = adminProc
         adminService.updateBranch(input.id, {
           name: input.name,
           address: input.address,
+          phone: input.phone === undefined ? undefined : input.phone,
           latE6: input.lat === undefined ? undefined : input.lat === null ? null : toE6(input.lat),
           lngE6: input.lng === undefined ? undefined : input.lng === null ? null : toE6(input.lng),
           type: input.type,
@@ -209,6 +238,8 @@ export const revokeMySession = authedProc
   );
 
 export const identityAdmin = {
+  employeeLoginOptions,
+  createEmployeeLogin,
   listMerchantUsers,
   createMerchantUser,
   updateMerchantUser,

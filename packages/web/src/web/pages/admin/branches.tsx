@@ -25,6 +25,7 @@ interface BranchRow {
   code: string;
   name: string;
   address: string;
+  phone: string | null;
   lat: number | null;
   lng: number | null;
   type: string;
@@ -70,6 +71,13 @@ export default function AdminBranches() {
       key: "address",
       header: "Address",
       cell: (r) => <span className="truncate text-muted-foreground">{r.address}</span>,
+    },
+    {
+      key: "phone",
+      header: "Telephone",
+      width: "w-[150px]",
+      className: "font-mono text-[11px] text-muted-foreground",
+      cell: (r) => r.phone ?? "Not configured",
     },
     {
       key: "geo",
@@ -145,6 +153,7 @@ function CreateBranchDialog({
     code: "",
     name: "",
     address: { ...EMPTY_ADDRESS },
+    phone: "",
     lat: "",
     lng: "",
     type: "branch" as "hub" | "branch",
@@ -159,7 +168,7 @@ function CreateBranchDialog({
     ...orpc.identity.createBranch.mutationOptions(),
     onSuccess: () => {
       void queryClient.invalidateQueries();
-      setForm((f) => ({ ...f, code: "", name: "", address: { ...EMPTY_ADDRESS }, lat: "", lng: "" }));
+      setForm((f) => ({ ...f, code: "", name: "", address: { ...EMPTY_ADDRESS }, phone: "", lat: "", lng: "" }));
       onOpenChange(false);
     },
     onError: (error) => setProblem(apiMessage(error, "This branch could not be created.")),
@@ -172,11 +181,15 @@ function CreateBranchDialog({
   const lng = Number(form.lng);
   const coordsValid = (form.lat === "" || (Number.isFinite(lat) && lat >= -90 && lat <= 90)) &&
     (form.lng === "" || (Number.isFinite(lng) && lng >= -180 && lng <= 180));
+  const phoneDigits = form.phone.replace(/\D/g, "");
+  const phoneValid = form.phone.trim() === "" ||
+    (/^[+()\d .-]+$/.test(form.phone.trim()) && phoneDigits.length >= 7 && phoneDigits.length <= 15);
   const ready =
     form.code.trim().length >= 2 &&
     form.name.trim().length >= 2 &&
     isCompleteAddress(form.address) &&
-    coordsValid;
+    coordsValid &&
+    phoneValid;
 
   return (
     <Dialog
@@ -231,6 +244,9 @@ function CreateBranchDialog({
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
         <AddressFields title="Branch address" value={form.address} onChange={(address) => set("address", address)} />
+        <Field label="Branch / hub telephone" hint="Optional; leave blank until the verified business number is available.">
+          <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" className="font-mono" />
+        </Field>
         <div className="grid grid-cols-2 gap-4">
           <Field label="Latitude" hint="Optional; decimal degrees.">
             <Input
@@ -267,6 +283,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   const rateCards = useQuery(orpc.rateCards.list.queryOptions());
   const [name, setName] = React.useState(branch.name);
   const [address, setAddress] = React.useState<AddressParts>(() => addressPartsFromLegacy(branch.address));
+  const [phone, setPhone] = React.useState(branch.phone ?? "");
   const [lat, setLat] = React.useState(() => String(fromE6(branch.lat) ?? ""));
   const [lng, setLng] = React.useState(() => String(fromE6(branch.lng) ?? ""));
   const [type, setType] = React.useState(branch.type as "hub" | "branch");
@@ -292,12 +309,13 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
 
   const latN = Number(lat);
   const lngN = Number(lng);
-  const patch: { id: string; name?: string; address?: string; lat?: number | null; lng?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
+  const patch: { id: string; name?: string; address?: string; phone?: string | null; lat?: number | null; lng?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
     id: branch.id,
   };
   if (name.trim() !== branch.name) patch.name = name.trim();
   const formattedAddress = formatAddress(address);
   if (formattedAddress !== branch.address) patch.address = formattedAddress;
+  if (phone.trim() !== (branch.phone ?? "")) patch.phone = phone.trim() || null;
   if (lat === "" && branch.lat !== null) patch.lat = null;
   else if (lat !== "" && Number.isFinite(latN) && toE6(latN) !== branch.lat) patch.lat = latN;
   if (lng === "" && branch.lng !== null) patch.lng = null;
@@ -306,10 +324,14 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   if (counterRateCardId !== (branch.counterRateCardId ?? "")) patch.counterRateCardId = counterRateCardId || null;
   const coordsValid = (lat === "" || (Number.isFinite(latN) && latN >= -90 && latN <= 90)) &&
     (lng === "" || (Number.isFinite(lngN) && lngN >= -180 && lngN <= 180));
+  const phoneDigits = phone.replace(/\D/g, "");
+  const phoneValid = phone.trim() === "" ||
+    (/^[+()\d .-]+$/.test(phone.trim()) && phoneDigits.length >= 7 && phoneDigits.length <= 15);
   const valid =
     name.trim().length >= 2 &&
     isCompleteAddress(address) &&
-    coordsValid;
+    coordsValid &&
+    phoneValid;
   const changed = Object.keys(patch).length > 1;
 
   return (
@@ -361,6 +383,9 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
           </Field>
         </div>
         <AddressFields title="Branch address" value={address} onChange={setAddress} />
+        <Field label="Branch / hub telephone" hint="Optional; clear it when the verified number is no longer current.">
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className="font-mono" />
+        </Field>
         <Field
           label="Counter booking rate card"
           hint="This approved, published tariff prices walk-in parcels. Same origin district uses the local band; other districts use outstation."

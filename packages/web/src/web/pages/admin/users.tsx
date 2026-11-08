@@ -265,8 +265,6 @@ export default function AdminUsers() {
         <CreateUserDialog
           open={creating}
           onOpenChange={setCreating}
-          branches={branches.data ?? []}
-          defaultBranchId={session!.user.branchId}
         />
       ) : null}
 
@@ -309,35 +307,38 @@ export default function AdminUsers() {
 function CreateUserDialog({
   open,
   onOpenChange,
-  branches,
-  defaultBranchId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  branches: { id: string; name: string }[];
-  defaultBranchId: string;
 }) {
   const queryClient = useQueryClient();
-  const [name, setName] = React.useState("");
-  const [phone, setPhone] = React.useState("");
+  const [employeeId, setEmployeeId] = React.useState("");
   const [roles, setRoles] = React.useState<Role[]>(["rider"]);
-  const [branchId, setBranchId] = React.useState(defaultBranchId);
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
+  const employeeOptions = useQuery({
+    ...orpc.identity.employeeLoginOptions.queryOptions(),
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const employee = employeeOptions.data?.find((entry) => entry.id === employeeId);
 
   React.useEffect(() => {
-    if (open) setProblem(null);
-  }, [open]);
-
-  const create = useMutation({
-    ...orpc.identity.createUser.mutationOptions(),
-    onSuccess: () => {
-      void queryClient.invalidateQueries();
-      setName("");
-      setPhone("");
+    if (open) {
+      setProblem(null);
+    } else {
+      setEmployeeId("");
+      setRoles(["rider"]);
       setUsername("");
       setPassword("");
+    }
+  }, [open]);
+
+  const createEmployeeLogin = useMutation({
+    ...orpc.identity.createEmployeeLogin.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
       onOpenChange(false);
     },
     onError: (error) => setProblem(apiMessage(error, "This user could not be created.")),
@@ -345,10 +346,8 @@ function CreateUserDialog({
 
   const wantsPassword = username.trim().length > 0 || password.length > 0;
   const ready =
-    name.trim().length >= 2 &&
-    phone.trim().length >= 9 &&
+    Boolean(employeeId && employee?.phone && employee.phone.trim().length >= 9) &&
     roles.length >= 1 &&
-    branchId &&
     (!wantsPassword || (username.trim().length >= 2 && password.length >= 6));
 
   return (
@@ -356,7 +355,7 @@ function CreateUserDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Add a user"
-      description="The phone number is one way in — Sri Lankan numbers are normalised to +94 on the server. Add a username and password and the user can also sign in without an SMS code."
+      description="Start with an active employee from the register. Their name, phone and branch are copied to the login; choose roles and optional username/password afterward."
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -364,13 +363,11 @@ function CreateUserDialog({
           </Button>
           <Button
             disabled={!ready}
-            pending={create.isPending}
+            pending={createEmployeeLogin.isPending}
             onClick={() =>
-              create.mutate({
-                name: name.trim(),
-                phone: phone.trim(),
+              createEmployeeLogin.mutate({
+                employeeId,
                 roles,
-                branchId,
                 username: username.trim() || null,
                 password: password || null,
               })
@@ -382,29 +379,24 @@ function CreateUserDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Full name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        <Field label="Registered employee" hint="Only active employees without an existing login are shown.">
+          <Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} disabled={employeeOptions.isLoading}>
+            <option value="">{employeeOptions.isLoading ? "Loading employees…" : "Select an employee"}</option>
+            {(employeeOptions.data ?? []).map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.employeeCode} · {entry.fullName} · {entry.branchName}
+              </option>
+            ))}
+          </Select>
         </Field>
-        <Field label="Phone number">
-          <Input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="0771234567"
-            className="font-mono"
-          />
-        </Field>
+        {employee ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Field label="Full name"><Input value={employee.fullName} readOnly /></Field>
+            <Field label="Phone number"><Input value={employee.phone ?? ""} readOnly className="font-mono" /></Field>
+            <Field label="Branch / hub"><Input value={employee.branchName} readOnly /></Field>
+          </div>
+        ) : null}
         <RoleCheckboxGroup value={roles} onChange={setRoles} roles={OFFICIAL_ROLES} />
-        <div className="grid grid-cols-1 gap-4">
-          <Field label="Branch">
-            <Select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
         <CredentialsFields
           username={username}
           password={password}
@@ -416,6 +408,10 @@ function CreateUserDialog({
             A rider's device is bound on their first sign-in from the mobile app, not here.
           </p>
         ) : null}
+        {employee && !employee.phone ? (
+          <ErrorNote>The selected employee has no phone number. Update the employee record before creating a login.</ErrorNote>
+        ) : null}
+        {employeeOptions.error ? <ErrorNote>{apiMessage(employeeOptions.error, "Employees are unavailable.")}</ErrorNote> : null}
         {problem ? <ErrorNote>{problem}</ErrorNote> : null}
       </div>
     </Dialog>

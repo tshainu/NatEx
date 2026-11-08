@@ -101,8 +101,9 @@ export const verify = mfaProc.input(z.object({ code })).handler(({ input, contex
 });
 
 /** New recovery codes (the old set stops working). Needs a full session and a live code. */
-export const regenerateRecoveryCodes = authedProc.input(z.object({ code })).handler(({ input, context }) =>
-  mutate(
+export const regenerateRecoveryCodes = authedProc.input(z.object({ code })).handler(({ input, context }) => {
+  requireMfaRole(context.principal.roles);
+  return mutate(
     context,
     {},
     {
@@ -113,8 +114,8 @@ export const regenerateRecoveryCodes = authedProc.input(z.object({ code })).hand
       bucket: CODE_BUCKET,
     },
     () => mfaService.regenerateRecoveryCodes(context.principal.userId, input.code),
-  ),
-);
+  );
+});
 
 /** Enrolment state of every user, for the admin users table. */
 export const factors = adminProc.handler(() => mfaService.factorStates());

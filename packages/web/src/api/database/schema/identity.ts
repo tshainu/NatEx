@@ -14,6 +14,8 @@ export const branch = sqliteTable("identity_branch", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  /** Optional customer-facing branch/hub telephone for printed receipts. */
+  phone: text("phone"),
   /** Optional geocode in microdegrees. Unknown coordinates remain NULL, not (0, 0). */
   lat: integer("lat_e6"),
   lng: integer("lng_e6"),

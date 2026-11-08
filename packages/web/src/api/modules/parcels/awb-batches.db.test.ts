@@ -231,4 +231,24 @@ describe("tracking number batch planning and assignment", () => {
     expect(first?.awbStart).toBe("NX9999999000");
     expect(first?.awbEnd).toBe("NX9999999999");
   });
+
+  test("allocates explicit sequential ranges and rejects overlap atomically", async () => {
+    const generated = await createAwbBatches(2, 3, "NX9999997000", ACTOR);
+    CREATED_BATCH_IDS.push(...generated.map((batch) => batch.id));
+    expect(generated.map(({ awbStart, awbEnd, labelCount }) => [awbStart, awbEnd, labelCount])).toEqual([
+      ["NX9999997000", "NX9999997002", 3],
+      ["NX9999997003", "NX9999997005", 3],
+    ]);
+    const labels: string[] = [];
+    for (const batch of generated) {
+      labels.push(...(await labelsForAwbBatch(batch.id)).labels.map((label) => label.awb));
+    }
+    expect(new Set(labels).size).toBe(6);
+
+    const before = (await listAwbBatches()).length;
+    await expect(createAwbBatches(2, 3, "NX9999997002", ACTOR)).rejects.toThrow("already reserved");
+    expect((await listAwbBatches()).length).toBe(before);
+    await expect(createAwbBatches(2, 3, "NX9999999999", ACTOR)).rejects.toThrow();
+    expect((await listAwbBatches()).length).toBe(before);
+  });
 });

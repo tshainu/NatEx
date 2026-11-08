@@ -13,6 +13,16 @@
         "buildType": "apk"
       }
     },
-    "production": {}
+    "production": {},
+    "merchant-production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "merchant"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
   }
 }

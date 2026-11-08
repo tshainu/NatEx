@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { deskProc, financeProc, mutate, readProc, staffProc } from "../middleware/pipeline";
+import { authedProc, deskProc, financeProc, mutate } from "../middleware/pipeline";
+import { requireRole } from "../middleware/auth";
 import * as service from "../modules/cod/service";
 import * as alerts from "../modules/cod/alerts";
 import { COD_ENTRY_TYPES } from "../modules/cod/accounts";
@@ -38,6 +39,17 @@ const alertKind = z.enum(alerts.ALERT_KINDS);
 const alertStatus = z.enum(["open", "acknowledged", "resolved"]);
 const money = z.number().int().positive();
 
+/** COD field reads: riders may read only their own position; desks may read any. */
+const riderCashReadProc = authedProc.use(requireRole("ops", "admin", "finance", "rider"));
+/** The ledger is available to desks, merchants, and a rider's own field session. */
+const ledgerReadProc = authedProc.use(requireRole("ops", "admin", "finance", "rider", "merchant"));
+/** A deposit declaration is a rider/ops/admin action, never a finance or field-transport action. */
+const depositDeclareProc = authedProc.use(requireRole("rider", "ops", "admin"));
+
+function assertRiderSelf(principal: { role: string; userId: string }, riderId: string, message: string): void {
+  if (principal.role === "rider" && principal.userId !== riderId) errors.forbidden(message);
+}
+
 // ────────────────────────────────────────────────────────────── the ledger
 
 /**
@@ -46,7 +58,7 @@ const money = z.number().int().positive();
  * silently re-scoped, because silently returning different data than was asked
  * for is how a caller ends up trusting a filter that does not hold.
  */
-export const entries = readProc
+export const entries = ledgerReadProc
   .input(
     z.object({
       type: z.array(entryType).optional(),
@@ -66,6 +78,10 @@ export const entries = readProc
         errors.forbidden("A merchant can only read its own ledger entries.");
       }
       return service.listEntries({ ...input, merchantId: principal.merchantId ?? undefined });
+    }
+    if (principal.role === "rider") {
+      assertRiderSelf(principal, input.riderId ?? principal.userId, "A rider can only read their own ledger entries.");
+      return service.listEntries({ ...input, riderId: principal.userId });
     }
     return service.listEntries(input);
   });
@@ -94,9 +110,12 @@ export const dailyFlow = deskProc
   .handler(({ input }) => service.dailyFlow(input.days));
 
 /** One rider's cash-in-hand — the §8 invariant, per rider, to the cent. */
-export const riderCash = staffProc
+export const riderCash = riderCashReadProc
   .input(z.object({ riderId: z.string().min(1) }))
-  .handler(({ input }) => service.riderCashLiability(input.riderId));
+  .handler(({ input, context }) => {
+    assertRiderSelf(context.principal, input.riderId, "A rider can only read their own cash liability.");
+    return service.riderCashLiability(input.riderId);
+  });
 
 /**
  * What a rider is still carrying. The rider app's own screen, so a rider may
@@ -107,7 +126,7 @@ export const riderCashBoard = deskProc
   .input(z.object({}))
   .handler(() => service.riderCashBoard());
 
-export const myUndeposited = staffProc
+export const myUndeposited = riderCashReadProc
   .input(z.object({ riderId: z.string().optional() }))
   .handler(({ input, context }) => {
     const { principal } = context;
@@ -119,7 +138,7 @@ export const myUndeposited = staffProc
   });
 
 /** Collected and not deposited past the §8 window — the escalation list. */
-export const stale = staffProc
+export const stale = deskProc
   .input(z.object({}))
   .handler(() => service.staleCollections());
 
@@ -127,13 +146,16 @@ export const stale = staffProc
  * Whether this rider may take more parcels. Called by dispatch before assigning
  * work (§8's cash ceiling control) — a read, not a write, so it can be polled.
  */
-export const cashCeiling = staffProc
+export const cashCeiling = riderCashReadProc
   .input(z.object({ riderId: z.string().min(1) }))
-  .handler(({ input }) => service.checkCashCeiling(input.riderId));
+  .handler(({ input, context }) => {
+    assertRiderSelf(context.principal, input.riderId, "A rider can only check their own cash ceiling.");
+    return service.checkCashCeiling(input.riderId);
+  });
 
 // ───────────────────────────────────────────────────────────── deposits
 
-export const deposits = staffProc
+export const deposits = deskProc
   .input(
     z.object({
       branchId: z.string().optional(),
@@ -145,7 +167,7 @@ export const deposits = staffProc
   .handler(({ input }) => service.listDeposits(input));
 
 /** The deposit register, paged server-side (§11). */
-export const depositPage = staffProc
+export const depositPage = deskProc
   .input(
     z.object({
       branchId: z.string().optional(),
@@ -176,7 +198,7 @@ export const depositPage = staffProc
  * may record a declaration on a rider's behalf (dead device) and must then name
  * the rider explicitly.
  */
-export const declareDeposit = staffProc
+export const declareDeposit = depositDeclareProc
   .input(
     z.object({
       riderId: z.string().optional(),
@@ -195,6 +217,9 @@ export const declareDeposit = staffProc
     }
     if (!onOwnBehalf && !input.riderId) {
       errors.badRequest("Naming the rider is required when recording a deposit on their behalf.");
+    }
+    if ((principal.role === "rider" || principal.role === "ops") && input.branchId !== principal.branchId) {
+      errors.forbidden("A rider or operations user can only declare a deposit at their assigned branch.");
     }
     const riderId = onOwnBehalf ? principal.userId : input.riderId!;
     const riderName = onOwnBehalf ? principal.name : (input.riderName ?? riderId);

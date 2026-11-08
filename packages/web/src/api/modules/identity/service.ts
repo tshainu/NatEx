@@ -3,6 +3,8 @@ import { db } from "../../database";
 import { branch, user, otpChallenge, refreshToken } from "../../database/schema/identity";
 import {
   REFRESH_TTL_SECONDS,
+  decodeRefreshSessionState,
+  encodeRefreshSessionState,
   fingerprint,
   hashSecret,
   mintRefreshToken,
@@ -10,13 +12,16 @@ import {
   verifySecret,
   PENDING_MFA,
   ROLES,
+  resolveMobileRole,
   type MfaLevel,
   type Principal,
   type Role,
+  type SessionScope,
 } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
+import { cleanOptionalReceiptPhone, receiptPhoneProblem } from "../../shared/receipt-contact";
 import { writeAudit } from "../../shared/audit";
 import { distanceMetres } from "../../shared/geo";
 import { SETTING_KEYS, settingValue } from "../settings/service";
@@ -215,6 +220,8 @@ export interface Session {
    * outside production, for a development-seeded factor (see mfa.ts).
    */
   mfa: { state: MfaLevel; devCode?: string };
+  /** Server-authorized scope; mobile sessions expose only this role. */
+  scope: SessionScope | null;
 }
 
 /** A pending (pre-MFA) session lives ten minutes and is never refreshed. */
@@ -223,23 +230,52 @@ export const PENDING_SESSION_SECONDS = 10 * 60;
 /** Roles exempt from the idle timeout: offline-first field apps (§7). */
 const IDLE_EXEMPT: ReadonlySet<Role> = new Set<Role>(["rider", "transport"]);
 
+export interface MobileSessionRequest {
+  client: "mobile";
+  role?: Role;
+}
+
+/** Resolve a requested mobile workspace from the account's live assigned roles. */
+export function resolveMobileSessionScope(
+  assignedRoles: readonly Role[],
+  requestedRole?: Role,
+): SessionScope {
+  const role = resolveMobileRole(assignedRoles, requestedRole);
+  if (!role) {
+    errors.forbidden("This account has no authorized mobile field workspace.");
+  }
+  const selectedRole = role as Role;
+  return {
+    kind: "mobile",
+    role: selectedRole,
+    mfaExempt: selectedRole === "rider" || selectedRole === "transport",
+  };
+}
+
+function projectedRoles(account: IdentityUser, scope: SessionScope | null): Role[] {
+  return scope ? [scope.role] : account.roles;
+}
+
 async function issueSession(
   account: IdentityUser,
   deviceId: string | null,
-  opts: { mfaLevel: MfaLevel; familyStartedAt?: Date; devCode?: string | null } = { mfaLevel: "none" },
+  opts: { mfaLevel: MfaLevel; familyStartedAt?: Date; devCode?: string | null; scope?: SessionScope | null } = { mfaLevel: "none" },
 ): Promise<Session> {
   const [homeBranch] = await db.select().from(branch).where(eq(branch.id, account.branchId));
   const pending = PENDING_MFA.has(opts.mfaLevel);
+  const roles = projectedRoles(account, opts.scope ?? null);
+  const role = roles[0]!;
 
   const { token: accessToken, expiresIn } = await signAccessToken({
     sub: account.id,
-    role: account.role,
-    roles: account.roles,
+    role,
+    roles,
     branchId: account.branchId,
     merchantId: account.merchantId,
     deviceId,
     name: account.name,
     mfa: opts.mfaLevel,
+    scope: opts.scope ?? null,
   });
 
   const refresh = mintRefreshToken();
@@ -250,7 +286,7 @@ async function issueSession(
     tokenHash: await fingerprint(refresh),
     deviceId,
     expiresAt: new Date(Date.now() + ttl * 1000),
-    mfaLevel: opts.mfaLevel,
+    mfaLevel: encodeRefreshSessionState(opts.mfaLevel, opts.scope),
     familyStartedAt: opts.familyStartedAt ?? new Date(),
   });
 
@@ -261,8 +297,8 @@ async function issueSession(
     user: {
       id: account.id,
       name: account.name,
-      role: account.role,
-      roles: account.roles,
+      role,
+      roles,
       username: account.username,
       branchId: account.branchId,
       branchName: homeBranch?.name ?? "—",
@@ -270,6 +306,7 @@ async function issueSession(
       deviceId,
     },
     mfa: { state: opts.mfaLevel, ...(opts.devCode ? { devCode: opts.devCode } : {}) },
+    scope: opts.scope ?? null,
   };
 }
 
@@ -316,6 +353,7 @@ export async function verifyOtp(params: {
   challengeId: string;
   code: string;
   deviceId?: string | null;
+  context?: MobileSessionRequest | null;
 }): Promise<Session> {
   const [challenge] = await db
     .select()
@@ -353,9 +391,16 @@ export async function verifyOtp(params: {
   const deviceId = params.deviceId ?? null;
   await bindDevice(account!, deviceId);
 
-  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "verified" });
+  const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
+  if (account!.phone === DEMO_PHONE) {
+    return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
+  }
   const { level, devCode } = await signInLevel(account!);
-  return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
+  return issueSession(account!, deviceId ?? account!.deviceId, {
+    mfaLevel: scope?.mfaExempt ? "none" : level,
+    devCode: scope?.mfaExempt ? null : devCode,
+    scope,
+  });
 }
 
 /**
@@ -404,6 +449,7 @@ export async function loginWithPassword(params: {
   username: string;
   password: string;
   deviceId?: string | null;
+  context?: MobileSessionRequest | null;
 }): Promise<Session> {
   if (normaliseUsername(params.username) === DEMO_USERNAME) await ensureDemoAccount();
   const account = await getUserByUsername(params.username);
@@ -416,9 +462,16 @@ export async function loginWithPassword(params: {
 
   const deviceId = params.deviceId ?? null;
   await bindDevice(account!, deviceId);
-  if (account!.phone === DEMO_PHONE) return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "verified" });
+  const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
+  if (account!.phone === DEMO_PHONE) {
+    return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
+  }
   const { level, devCode } = await signInLevel(account!);
-  return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: level, devCode });
+  return issueSession(account!, deviceId ?? account!.deviceId, {
+    mfaLevel: scope?.mfaExempt ? "none" : level,
+    devCode: scope?.mfaExempt ? null : devCode,
+    scope,
+  });
 }
 
 async function revokeFamily(userId: string, rowId: string): Promise<void> {
@@ -449,14 +502,21 @@ export async function rotateRefresh(presented: string): Promise<Session> {
 
   const account = await getUserById(row!.userId);
   if (!account || account.status !== "active") errors.unauthenticated("Account unavailable.");
+  const liveAccount = account as IdentityUser;
 
-  const level = (row!.mfaLevel ?? "none") as MfaLevel;
+  const decoded = decodeRefreshSessionState(row!.mfaLevel);
+  const level = decoded.mfa;
+  const scope = decoded.scope;
+  if (scope && !liveAccount.roles.includes(scope.role)) {
+    await revokeFamily(liveAccount.id, row!.id);
+    errors.unauthenticated("This mobile workspace is no longer assigned. Sign in again.");
+  }
   if (PENDING_MFA.has(level)) {
-    await revokeFamily(account!.id, row!.id);
+    await revokeFamily(liveAccount.id, row!.id);
     errors.unauthenticated("Finish signing in: this session has not passed the authenticator step.");
   }
-  if (level !== "verified" && (await mfaRequiredForAny(account!.roles))) {
-    await revokeFamily(account!.id, row!.id);
+  if (!scope && level !== "verified" && (await mfaRequiredForAny(liveAccount.roles))) {
+    await revokeFamily(liveAccount.id, row!.id);
     errors.unauthenticated("Sign in again: your role now requires an authenticator code.");
   }
 
@@ -464,22 +524,22 @@ export async function rotateRefresh(presented: string): Promise<Session> {
   const familyStartedAt = row!.familyStartedAt ?? row!.createdAt;
   const maxDays = await settingValue(SETTING_KEYS.SESSION_MAX_DAYS);
   if (now - familyStartedAt.getTime() > maxDays * 86_400_000) {
-    await revokeFamily(account!.id, row!.id);
+    await revokeFamily(liveAccount.id, row!.id);
     errors.unauthenticated(`Session ended: sessions last at most ${maxDays} days. Sign in again.`);
   }
-  if (!account!.roles.every((r) => IDLE_EXEMPT.has(r))) {
+  if (!projectedRoles(liveAccount, scope).every((r) => IDLE_EXEMPT.has(r))) {
     const idleMinutes = await settingValue(SETTING_KEYS.SESSION_IDLE_MINUTES);
     if (now - row!.createdAt.getTime() > idleMinutes * 60_000) {
-      await revokeFamily(account!.id, row!.id);
+      await revokeFamily(liveAccount.id, row!.id);
       errors.unauthenticated(`Session ended after ${idleMinutes} minutes without activity. Sign in again.`);
     }
   }
 
-  const session = await issueSession(account!, row!.deviceId, { mfaLevel: level, familyStartedAt });
+  const session = await issueSession(liveAccount, row!.deviceId, { mfaLevel: level, familyStartedAt, scope });
   const [successor] = await db
     .select({ id: refreshToken.id })
     .from(refreshToken)
-    .where(eq(refreshToken.userId, account!.id))
+    .where(eq(refreshToken.userId, liveAccount.id))
     .orderBy(desc(refreshToken.createdAt))
     .limit(1);
 
@@ -660,10 +720,13 @@ export async function createBranch(input: {
   code: string;
   name: string;
   address: string;
+  phone?: string | null;
   latE6?: number | null;
   lngE6?: number | null;
   type: "hub" | "branch";
 }) {
+  const phoneProblem = receiptPhoneProblem(input.phone);
+  if (phoneProblem) errors.badRequest(`Branch telephone: ${phoneProblem}`, { field: "phone" });
   const [row] = await db
     .insert(branch)
     .values({
@@ -671,6 +734,7 @@ export async function createBranch(input: {
       code: input.code.toUpperCase(),
       name: input.name,
       address: input.address,
+      phone: cleanOptionalReceiptPhone(input.phone),
       lat: input.latE6 ?? null,
       lng: input.lngE6 ?? null,
       type: input.type,

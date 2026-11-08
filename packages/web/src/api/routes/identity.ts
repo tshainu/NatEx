@@ -53,6 +53,7 @@ export const loginPassword = publicProc
       username: z.string().min(2).max(60),
       password: z.string().min(1).max(200),
       deviceId: z.string().nullish(),
+      context: z.object({ client: z.literal("mobile"), role: z.enum(["rider", "transport", "merchant"]).optional() }).nullish(),
     }),
   )
   .handler(({ input, context }) =>
@@ -70,6 +71,7 @@ export const loginPassword = publicProc
           username: input.username,
           password: input.password,
           deviceId: input.deviceId ?? null,
+          context: input.context ?? null,
         }),
     ),
   );
@@ -80,6 +82,7 @@ export const verifyOtp = publicProc
       challengeId: z.string().min(1),
       code: z.string().length(6),
       deviceId: z.string().max(128).nullish(),
+      context: z.object({ client: z.literal("mobile"), role: z.enum(["rider", "transport", "merchant"]).optional() }).nullish(),
     }),
   )
   .handler(({ input, context }) =>
@@ -226,6 +229,7 @@ export const createBranch = adminProc
       code: z.string().min(2).max(12),
       name: z.string().min(2).max(120),
       address: z.string().min(4),
+      phone: z.string().trim().max(40).nullish(),
       lat: z.number().min(-90).max(90).nullable().optional(),
       lng: z.number().min(-180).max(180).nullable().optional(),
       type: z.enum(["hub", "branch"]),
@@ -246,6 +250,7 @@ export const createBranch = adminProc
           code: input.code,
           name: input.name,
           address: input.address,
+          phone: input.phone ?? null,
           // Coordinates are stored as microdegrees (integer) — see shared/geo.ts.
           latE6: input.lat == null ? null : toE6(input.lat),
           lngE6: input.lng == null ? null : toE6(input.lng),

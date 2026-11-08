@@ -27,6 +27,49 @@ export const ROLES: readonly Role[] = [
   "hr",
 ] as const;
 
+/** Roles that may be projected into a least-privilege mobile field session. */
+export const MOBILE_FIELD_ROLES = ["rider", "transport"] as const;
+export type MobileFieldRole = (typeof MOBILE_FIELD_ROLES)[number];
+
+/** Select only a role explicitly assigned to the account and supported by mobile. */
+export function resolveMobileRole(assignedRoles: readonly Role[], requestedRole?: Role): Role | null {
+  const allowed: readonly Role[] = [...MOBILE_FIELD_ROLES, "merchant"];
+  const role = requestedRole ?? allowed.find((candidate) => assignedRoles.includes(candidate));
+  return role && allowed.includes(role) && assignedRoles.includes(role) ? role : null;
+}
+
+/** A server-issued mobile scope. It is signed in the access token and carried by refresh rotation. */
+export interface SessionScope {
+  kind: "mobile";
+  role: Role;
+  /** True only for the rider/transport MFA exemption; merchant has no MFA policy. */
+  mfaExempt: boolean;
+}
+
+const MOBILE_REFRESH_PREFIX = "mobile:";
+
+/** Encodes mobile scope in the existing refresh-row state without weakening web MFA values. */
+export function encodeRefreshSessionState(mfa: MfaLevel, scope?: SessionScope | null): string {
+  return scope ? `${MOBILE_REFRESH_PREFIX}${scope.role}` : mfa;
+}
+
+/** Decodes refresh state, treating unknown values as an invalid/legacy MFA state. */
+export function decodeRefreshSessionState(value: string | null | undefined): { mfa: MfaLevel; scope: SessionScope | null } {
+  if (value?.startsWith(MOBILE_REFRESH_PREFIX)) {
+    const role = value.slice(MOBILE_REFRESH_PREFIX.length);
+    if (role === "rider" || role === "transport" || role === "merchant") {
+      return {
+        mfa: "none",
+        scope: { kind: "mobile", role, mfaExempt: role === "rider" || role === "transport" },
+      };
+    }
+  }
+  if (value === "enrol" || value === "challenge" || value === "verified" || value === "none") {
+    return { mfa: value, scope: null };
+  }
+  return { mfa: "none", scope: null };
+}
+
 /** Returns a request-selected role only when it is in the authenticated user's live role set. */
 export function resolveRequestedRole(
   requested: string | null,
@@ -61,6 +104,8 @@ export interface AccessClaims {
   branchId: string;
   merchantId?: string | null;
   deviceId?: string | null;
+  /** Present only on server-authorized mobile sessions; never inferred from a header. */
+  scope?: SessionScope | null;
   name: string;
   iat: number;
   exp: number;
@@ -79,6 +124,8 @@ export interface Principal {
   deviceId?: string | null;
   /** The token's MFA level (see MfaLevel). */
   mfa?: MfaLevel;
+  /** A mobile principal has only the projected field role in `roles`. */
+  scope?: SessionScope | null;
 }
 
 function secret(name: "JWT_ACCESS_SECRET" | "JWT_REFRESH_SECRET"): string {

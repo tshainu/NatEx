@@ -17,3 +17,16 @@ export const settingValue = sqliteTable("settings_value", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   updatedByName: text("updated_by_name"),
 });
+
+/**
+ * One optional company contact record used by customer-facing receipts.
+ * Kept separate from settings_value because that table intentionally stores
+ * bounded integers only. A missing row/field is a valid, blank-safe state.
+ */
+export const receiptContact = sqliteTable("settings_receipt_contact", {
+  id: integer("id").primaryKey().default(1),
+  website: text("website"),
+  companyPhone: text("company_phone"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }),
+  updatedByName: text("updated_by_name"),
+});

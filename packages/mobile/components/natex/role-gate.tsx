@@ -18,7 +18,7 @@ export function RoleGate({
   allow: readonly Role[];
   children: React.ReactNode;
 }) {
-  const { ready, role } = useAuth();
+  const { ready, role, session } = useAuth();
   const colors = useColors();
 
   if (!ready) {
@@ -29,7 +29,8 @@ export function RoleGate({
     );
   }
 
-  if (!role) return <Redirect href="/login" />;
+  if (!role || session?.scope?.kind !== "mobile") return <Redirect href="/login" />;
+  if (session.scope.role !== role) return <Redirect href={homeRouteFor(session.scope.role)} />;
   if (!allow.includes(role)) return <Redirect href={homeRouteFor(role)} />;
 
   return <>{children}</>;

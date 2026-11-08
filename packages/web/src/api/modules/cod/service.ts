@@ -348,8 +348,17 @@ export async function declareDeposit(input: {
   /** Ledger ids of the COLLECT entries being handed over. */
   entryIds: string[];
   note?: string | null;
-  actor?: Principal | null;
+  actor: Principal;
 }): Promise<CodDepositRow> {
+  if (!["rider", "ops", "admin"].includes(input.actor.role)) {
+    errors.forbidden("This role may not declare a deposit.");
+  }
+  if (input.actor.role === "rider" && input.riderId !== input.actor.userId) {
+    errors.forbidden("A rider can only declare their own deposit.");
+  }
+  if ((input.actor.role === "rider" || input.actor.role === "ops") && input.branchId !== input.actor.branchId) {
+    errors.forbidden("A rider or operations user can only declare a deposit at their assigned branch.");
+  }
   if (!input.entryIds.length) {
     fail(
       "BAD_REQUEST",

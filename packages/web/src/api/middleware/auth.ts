@@ -1,5 +1,5 @@
 import { base } from "../__core/app";
-import { bearerFrom, PENDING_MFA, resolveRequestedRole, verifyAccessToken, type MfaLevel, type Principal, type Role } from "../shared/auth";
+import { bearerFrom, MOBILE_FIELD_ROLES, PENDING_MFA, resolveRequestedRole, verifyAccessToken, type MfaLevel, type Principal, type Role, type SessionScope } from "../shared/auth";
 import { errors, fail, problem } from "../shared/errors";
 import { getUserById, rolesOf } from "../modules/identity/service";
 import { mfaRequiredForAny } from "../modules/identity/mfa";
@@ -37,10 +37,19 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
     if (user!.status !== "active") errors.forbidden("This account is suspended.");
 
     const roles = rolesOf(user!);
+    const scope = claims!.scope ?? null;
+    let effectiveRoles = roles;
+    if (scope) {
+      const validRole = scope.kind === "mobile" &&
+        (scope.role === "merchant" || (MOBILE_FIELD_ROLES as readonly string[]).includes(scope.role)) &&
+        roles.includes(scope.role);
+      if (!validRole) errors.unauthenticated("This mobile session is no longer valid. Sign in again.");
+      effectiveRoles = [scope.role];
+    }
     const activeRole = resolveRequestedRole(
       context.headers.get("x-natex-active-role"),
-      roles,
-      user!.role as Role,
+      effectiveRoles,
+      scope?.role ?? user!.role as Role,
     );
     if (!activeRole) {
       errors.forbidden("The selected workspace role is not assigned to this account.", {
@@ -70,7 +79,7 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
             { mfa }),
         );
       }
-    } else if (mfa !== "verified" && (await mfaRequiredForAny(roles))) {
+    } else if (!scope && mfa !== "verified" && (await mfaRequiredForAny(roles))) {
       // A session that began before enforcement (or before a role change) and
       // never passed MFA. 401, so the client's refresh runs — and refresh
       // refuses it too (identity/service.ts rotateRefresh): sign in again.
@@ -81,11 +90,12 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
       userId: user!.id,
       name: user!.name,
       role: activeRole as Role,
-      roles,
+      roles: effectiveRoles,
       branchId: user!.branchId,
       merchantId: user!.merchantId,
       deviceId: claims!.deviceId ?? user!.deviceId,
       mfa,
+      scope: scope as SessionScope | null,
     };
 
     return next({ context: { principal } });

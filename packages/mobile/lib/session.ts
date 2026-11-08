@@ -17,6 +17,12 @@ import { getItem, removeItem, setItem } from "./storage";
 
 export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
 
+export interface SessionScope {
+  kind: "mobile";
+  role: Role;
+  mfaExempt: boolean;
+}
+
 export interface SessionUser {
   id: string;
   name: string;
@@ -35,8 +41,10 @@ export interface StoredSession {
   /** Epoch ms at which the access token stops being usable. */
   expiresAt: number;
   user: SessionUser;
-  /** Locally selected workspace. The API token still carries the full role set. */
+  /** Locally selected workspace; the server scope limits the token to this role. */
   activeRole?: Role;
+  /** Signed server scope; mobile must not infer an MFA exemption from role alone. */
+  scope?: SessionScope | null;
 }
 
 const SESSION_KEY = "natex.session";
@@ -135,6 +143,8 @@ export interface ApiSession {
   expiresIn: number;
   refreshToken: string;
   user: SessionUser;
+  scope?: SessionScope | null;
+  mfa: { state: "none" | "enrol" | "challenge" | "verified"; devCode?: string };
 }
 
 export async function storeApiSession(
@@ -147,6 +157,7 @@ export async function storeApiSession(
     refreshToken: session.refreshToken,
     expiresAt: Date.now() + session.expiresIn * 1000,
     user: session.user,
+    scope: session.scope ?? null,
     activeRole: preferredRole && roles.includes(preferredRole) ? preferredRole : session.user.role,
   };
   await setSession(stored);

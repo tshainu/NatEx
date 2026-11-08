@@ -421,7 +421,11 @@ export async function createRunsheet(
 ): Promise<RunsheetRow> {
   const rider = await getUserById(input.riderId);
   if (!rider) errors.notFound(`Rider ${input.riderId}`);
-  if (rider!.role !== "rider") {
+  // A staff account may use Operations as its primary workspace while also
+  // holding the rider privilege. The selector is built from the full role set;
+  // creation must apply the same actual-rider predicate rather than inspecting
+  // only roles[0] (`rider.role`).
+  if (!rider!.roles.includes("rider")) {
     errors.badRequest(`${rider!.name} is a ${rider!.role}, not a rider.`);
   }
   if (rider!.status !== "active") {

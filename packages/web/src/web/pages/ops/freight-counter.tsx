@@ -13,6 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { AddressFields } from "@/components/natex/address-fields";
 import { useAuth } from "@/components/auth-provider";
 import { Dialog } from "@/components/ui/dialog";
+import { FreightReceipt } from "@/components/natex/freight-receipt";
+import { renderFreightReceiptDocument } from "./freight-receipt-print";
+import { openCounterReceiptWindow, closeCounterReceiptWindow, printCounterReceiptWindow, type ReceiptPrintWindow } from "./counter-print";
 
 interface FormState {
   branchId: string;
@@ -55,12 +58,7 @@ const empty = (branchId: string): FormState => ({
 });
 
 type Booking = Awaited<ReturnType<typeof client.freight.counterBooking>>;
-type ReceiptRecord = {
-  freightCharge: Booking["freightCharge"];
-  paidReceipt: Booking["paidReceipt"];
-  parcel?: { description: string | null; declaredValueCents: number | null } | null;
-};
-type BranchOption = { id: string; name: string; type?: string; address?: string; counterRateCardId?: string | null };
+type BranchOption = { id: string; name: string; type?: string; address?: string; phone?: string | null; counterRateCardId?: string | null };
 
 type CounterTab = "booking" | "history";
 
@@ -78,12 +76,16 @@ export default function RetailFreightCounter() {
     enabled: !canChooseBranch && Boolean(session?.user.branchId),
     staleTime: 60_000,
   });
+  const receiptContact = useQuery(orpc.settings.receiptContact.queryOptions());
   const [form, setForm] = React.useState<FormState>(() => empty(session?.user.branchId ?? ""));
   const [booking, setBooking] = React.useState<Booking | null>(null);
   const [activeTab, setActiveTab] = React.useState<CounterTab>("booking");
   const [historyTerm, setHistoryTerm] = React.useState("");
   const [historySearch, setHistorySearch] = React.useState("");
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
+  const [printNotice, setPrintNotice] = React.useState<string | null>(null);
+  const receiptPopupRef = React.useRef<ReceiptPrintWindow | null>(null);
+  const submissionInFlight = React.useRef(false);
   const bookingLimits = useQuery({
     ...orpc.settings.bookingLimits.queryOptions(),
     staleTime: 0,
@@ -226,10 +228,25 @@ export default function RetailFreightCounter() {
       destZoneId: null,
     }),
     onSuccess: (result) => {
+      submissionInFlight.current = false;
       setBooking(result);
       void queryClient.invalidateQueries();
+      const popup = receiptPopupRef.current;
+      receiptPopupRef.current = null;
+      const printed = printCounterReceiptWindow(
+        popup,
+        renderFreightReceiptDocument({ booking: result, branch: selectedBranch, receiptContact: receiptContact.data }),
+        () => setPrintNotice("Your booking is saved, but the receipt logo or printer failed to load. Use Print original document; do not accept the parcel again."),
+      );
+      if (!printed) closeCounterReceiptWindow(popup);
+      setPrintNotice(printed
+        ? "Receipt opened for printing. Choose the 80 mm receipt printer; manual reprint remains available."
+        : "Your booking is saved, but the receipt popup or printer was blocked. Use Print original document to reprint without booking again.");
     },
     onError: (error) => {
+      submissionInFlight.current = false;
+      closeCounterReceiptWindow(receiptPopupRef.current);
+      receiptPopupRef.current = null;
       if (/rate card changed/i.test(apiMessage(error, ""))) void priceQuote.refetch();
     },
   });
@@ -248,6 +265,7 @@ export default function RetailFreightCounter() {
 
   const reset = () => {
     setBooking(null);
+    setPrintNotice(null);
     setForm(empty(session?.user.branchId ?? form.branchId));
     create.reset();
   };
@@ -259,6 +277,7 @@ export default function RetailFreightCounter() {
       description="Book walk-in customer parcels without a dummy merchant. Courier payment is separate from COD; the tracking number is printed on the receipt. No booking SMS is sent."
       actions={canPrint ? <Button size="sm" variant="outline" onClick={() => window.print()}><Printer aria-hidden />Print original document</Button> : null}
     >
+      {receiptContact.error ? <ErrorNote>{apiMessage(receiptContact.error, "Receipt contact details could not be loaded.")}</ErrorNote> : null}
       <div role="tablist" aria-label="Customer counter booking sections" className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3">
         <button
           type="button"
@@ -293,16 +312,24 @@ export default function RetailFreightCounter() {
                     <KeyValue label="COD">Rs. 0.00 — not a COD parcel</KeyValue>
                   </KeyValueGrid>
                   <p className="mt-3 text-sm text-muted-foreground">The tracking number is on the receipt. No booking or tracking SMS is sent; POD messaging is limited to delivery confirmation.</p>
+                  {printNotice ? <output className="mt-2 block text-sm text-muted-foreground">{printNotice}</output> : null}
                 </div>
               </div>
               <Button className="mt-4" size="sm" variant="outline" onClick={reset}><RotateCcw aria-hidden />Book another parcel</Button>
             </Card>
-            <FreightReceipt booking={booking} />
+            <FreightReceipt booking={booking} branch={selectedBranch} receiptContact={receiptContact.data} />
           </>
         ) : (
           <form
             className="grid max-w-6xl gap-5 xl:grid-cols-2"
-            onSubmit={(event) => { event.preventDefault(); if (valid) create.mutate(); }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!valid || create.isPending || submissionInFlight.current) return;
+              submissionInFlight.current = true;
+              receiptPopupRef.current = openCounterReceiptWindow((url, target, features) => window.open(url, target, features));
+              setPrintNotice(null);
+              create.mutate();
+            }}
           >
             <div className="space-y-5">
               <Card title="Branch & parcel">
@@ -462,69 +489,8 @@ export default function RetailFreightCounter() {
           </div>
         ) : null}
       >
-        {selectedHistory ? <FreightReceipt booking={selectedHistory} duplicate /> : null}
+        {selectedHistory ? <FreightReceipt booking={selectedHistory} branch={branches.find((branch) => branch.id === selectedHistory.freightCharge.branchId)} receiptContact={receiptContact.data} duplicate /> : null}
       </Dialog>
     </Page>
-  );
-}
-
-type ReceiptPricingSnapshot = {
-  rateCard?: { code?: string; name?: string };
-  version?: { version?: number };
-  originDistrict?: string;
-  destinationDistrict?: string;
-  bandLabel?: string;
-  actualGrams?: number;
-  roundedGrams?: number;
-  lines?: Array<{ code: string; label: string; amountCents: number; detail?: string }>;
-};
-
-function FreightReceipt({ booking, duplicate = false }: { booking: ReceiptRecord; duplicate?: boolean }) {
-  const charge = booking.freightCharge;
-  const receipt = booking.paidReceipt;
-  let pricing: ReceiptPricingSnapshot | null = null;
-  try {
-    pricing = charge.pricingSnapshotJson ? JSON.parse(charge.pricingSnapshotJson) as ReceiptPricingSnapshot : null;
-  } catch {
-    pricing = null;
-  }
-  return (
-    <>
-      <style>{`@page{size:A6 portrait;margin:4mm}@media print{body *{visibility:hidden!important}.retail-freight-slip,.retail-freight-slip *{visibility:visible!important}.retail-freight-slip{display:block!important;position:fixed!important;left:0!important;top:0!important;width:97mm!important;height:140mm!important;max-width:none!important;box-sizing:border-box!important;overflow:hidden!important;background:#fff!important;color:#111!important;padding:5mm!important;font:7pt/1.25 Arial,sans-serif!important;border:0!important;border-radius:0!important;box-shadow:none!important}.retail-freight-slip table{width:100%;border-collapse:collapse}.retail-freight-slip td{padding:1.4mm 0;border-bottom:0.2mm solid #ddd;vertical-align:top}.retail-freight-slip .right{text-align:right;font-family:monospace;overflow-wrap:anywhere}.retail-freight-slip img{max-width:32mm;max-height:13mm;object-fit:contain}.retail-freight-slip .receipt-title{font-size:10pt}.retail-freight-slip .receipt-subtitle{font-size:6pt}.retail-freight-slip .receipt-content{position:relative;z-index:2}.retail-freight-slip .receipt-watermark{position:absolute;z-index:1;top:47%;left:7%;transform:rotate(-27deg);font-size:27pt;font-weight:800;letter-spacing:2mm;color:rgba(160,0,0,.12);white-space:nowrap}}`}</style>
-      <style>{`@media print{[role="dialog"]{position:static!important;inset:auto!important;left:auto!important;top:auto!important;transform:none!important;translate:none!important;width:auto!important;max-width:none!important;max-height:none!important;overflow:visible!important;margin:0!important;padding:0!important;border:0!important;box-shadow:none!important}.retail-freight-slip .receipt-logo{max-width:28mm!important;max-height:9mm!important;margin:0 0 1mm!important}.retail-freight-slip .receipt-title{font-size:8pt!important;line-height:1.05!important;margin:0!important}}`}</style>
-      <section className="retail-freight-slip relative max-w-3xl rounded-lg border border-border bg-card p-6" aria-label={`${duplicate ? "Duplicate " : ""}customer courier payment receipt or charge notice`}>
-        {duplicate ? <div className="receipt-watermark pointer-events-none absolute left-1/4 top-1/2 -rotate-12 text-4xl font-black tracking-[0.3em] text-red-700/15">DUPLICATE</div> : null}
-        <div className="receipt-content">
-          <header className="flex items-start justify-between gap-3 border-b border-border pb-3">
-            <div className="min-w-0">
-              <img src="/natex-logo.png" alt="NatEx" className="receipt-logo mb-0.5 h-7 max-w-28 object-contain object-left brightness-0" />
-              <h2 className="receipt-title text-xs font-bold">Courier Payment & {receipt ? "Receipt" : "Charge Notice"}</h2>
-              <p className="receipt-subtitle mt-0.5 text-[10px] text-muted-foreground">Customer counter booking</p>
-            </div>
-            <div className="text-right"><p className="font-mono text-xs font-semibold">{receipt?.code ?? charge.code}</p><p className="text-[10px]">{receipt ? "Payment received" : "Courier charges due at delivery"}</p></div>
-          </header>
-          <div className="grid grid-cols-2 gap-3 py-3 text-[11px]">
-            <div className="min-w-0"><p className="font-semibold">Sender</p><p>{charge.senderName}</p><p>{charge.senderPhone}</p><p className="break-words">{charge.senderAddress ?? ""}</p></div>
-            <div className="min-w-0"><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p><p className="break-words">{charge.destinationAddress}</p></div>
-          </div>
-          <table className="w-full text-[11px]"><tbody>
-            <tr><td>tracking number / Tracking number</td><td className="right">{charge.awb}</td></tr>
-            <tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr>
-            {booking.parcel?.description ? <tr><td>Parcel contents</td><td className="right">{booking.parcel.description}</td></tr> : null}
-            <tr><td>Declared value</td><td className="right">{booking.parcel?.declaredValueCents == null ? "Not declared" : money(booking.parcel.declaredValueCents)}</td></tr>
-            {pricing ? <tr><td>Rate card</td><td className="right">{pricing.rateCard?.code} · v{pricing.version?.version}</td></tr> : null}
-            {pricing ? <tr><td>Price band / weight</td><td className="right">{pricing.bandLabel} · {pricing.roundedGrams} g</td></tr> : null}
-            {pricing?.lines?.map((line) => <tr key={line.code}><td>{line.label}</td><td className="right">{money(line.amountCents)}</td></tr>)}
-            {pricing?.originDistrict && pricing.destinationDistrict ? <tr><td>Districts</td><td className="right">{pricing.originDistrict} → {pricing.destinationDistrict}</td></tr> : null}
-            <tr><th scope="row" className="text-left font-semibold">Courier charge</th><td className="right"><strong>{money(charge.amountCents)}</strong></td></tr>
-            <tr><td>Courier payer</td><td className="right">{charge.payer === "sender" ? "Sender — paid at counter" : receipt ? "Recipient — paid at delivery" : "Recipient — due at delivery"}</td></tr>
-            <tr><td>Payment method</td><td className="right">{receipt ? receipt.paymentMethod.replaceAll("_", " ") : "Pay Rider at delivery"}</td></tr>
-            {receipt?.externalReference ? <tr><td>Payment reference</td><td className="right">{receipt.externalReference}</td></tr> : null}
-            <tr><td>COD</td><td className="right">Rs. 0.00</td></tr>
-          </tbody></table>
-          <p className="mt-3 border-t border-border pt-2 text-[10px] text-muted-foreground">{duplicate ? "DUPLICATE COPY · " : ""}{receipt ? "Keep this payment receipt for your records." : "Charge notice only; recipient-paid courier charges are due to NatEx at delivery."} Courier payment is separate from COD. This document is not a VAT tax invoice.</p>
-        </div>
-      </section>
-    </>
   );
 }

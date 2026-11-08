@@ -19,6 +19,9 @@ export const list = deskProc.handler(() => settingsService.listSettings());
 /** Only this non-sensitive cap is exposed to app clients; edits remain Admin-only. */
 export const bookingLimits = authedProc.handler(() => settingsService.bookingLimits());
 
+/** Contact metadata is needed by desk-side receipt printing; the phone is blank until configured. */
+export const receiptContact = deskProc.handler(() => settingsService.getReceiptContact());
+
 export const set = adminProc
   .input(z.object({ key, value: z.number(), reason: z.string().trim().min(5).max(500) }))
   .handler(({ input, context }) => {
@@ -41,4 +44,30 @@ export const set = adminProc
     );
   });
 
-export const settings = { list, set, bookingLimits };
+export const setReceiptContact = adminProc
+  .input(
+    z.object({
+      website: z.string().trim().max(200).nullish(),
+      companyPhone: z.string().trim().max(40).nullish(),
+      reason: z.string().trim().min(5).max(500),
+    }),
+  )
+  .handler(({ input, context }) => {
+    const website = input.website ?? null;
+    const companyPhone = input.companyPhone ?? null;
+    const websiteProblem = settingsService.receiptWebsiteProblem(website);
+    if (websiteProblem) errors.badRequest(`receipt website: ${websiteProblem}`, { field: "website" });
+    const phoneProblem = settingsService.receiptPhoneProblem(companyPhone);
+    if (phoneProblem) errors.badRequest(`receipt company telephone: ${phoneProblem}`, { field: "companyPhone" });
+    return mutate(
+      context,
+      input,
+      { route: "settings.setReceiptContact", entity: "settings_receipt_contact", entityId: () => "1", action: "receipt_contact.changed" },
+      async () => ({
+        ...(await settingsService.setReceiptContact({ website, companyPhone, actorName: context.principal.name })),
+        reason: input.reason,
+      }),
+    );
+  });
+
+export const settings = { list, set, bookingLimits, receiptContact, setReceiptContact };

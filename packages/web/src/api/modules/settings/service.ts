@@ -12,9 +12,17 @@
  */
 
 import { db } from "../../database";
-import { settingValue as settingTable } from "../../database/schema/settings";
+import { receiptContact as receiptContactTable, settingValue as settingTable } from "../../database/schema/settings";
 import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../merchants/pricing";
 import { MAX_DELIVERY_ATTEMPTS } from "../parcels/state-machine";
+import {
+  cleanOptionalReceiptPhone,
+  cleanOptionalReceiptWebsite,
+  receiptPhoneProblem,
+  receiptWebsiteProblem,
+} from "../../shared/receipt-contact";
+
+export { receiptPhoneProblem, receiptWebsiteProblem } from "../../shared/receipt-contact";
 
 export const SETTING_KEYS = {
   NDR_SLA_HOURS: "ndr_sla_hours",
@@ -26,6 +34,9 @@ export const SETTING_KEYS = {
   SESSION_MAX_DAYS: "session_max_days",
   MFA_ENFORCED: "mfa_enforced",
 } as const;
+
+/** Existing NatEx website identity; unlike the company phone, this is known and may be shown by default. */
+export const DEFAULT_RECEIPT_WEBSITE = "natex.lk";
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
 
@@ -273,4 +284,54 @@ export async function setSetting(input: {
     });
   clearSettingsCache();
   return { before, after: input.value };
+}
+
+export interface ReceiptContactView {
+  website: string;
+  companyPhone: string | null;
+  updatedAt: Date | null;
+  updatedByName: string | null;
+}
+
+/** Receipt contact metadata is optional; never fall back to a made-up phone number. */
+export async function getReceiptContact(): Promise<ReceiptContactView> {
+  const [row] = await db.select().from(receiptContactTable).limit(1);
+  return {
+    website: row?.website ?? DEFAULT_RECEIPT_WEBSITE,
+    companyPhone: row?.companyPhone ?? null,
+    updatedAt: row?.updatedAt ?? null,
+    updatedByName: row?.updatedByName ?? null,
+  };
+}
+
+export async function setReceiptContact(input: {
+  website?: string | null;
+  companyPhone?: string | null;
+  actorName: string;
+}): Promise<{ before: ReceiptContactView; after: ReceiptContactView }> {
+  const websiteProblem = receiptWebsiteProblem(input.website);
+  if (websiteProblem) throw new Error(`Receipt website: ${websiteProblem}`);
+  const phoneProblem = receiptPhoneProblem(input.companyPhone);
+  if (phoneProblem) throw new Error(`Receipt company telephone: ${phoneProblem}`);
+  const before = await getReceiptContact();
+  const now = new Date();
+  await db
+    .insert(receiptContactTable)
+    .values({
+      id: 1,
+      website: cleanOptionalReceiptWebsite(input.website),
+      companyPhone: cleanOptionalReceiptPhone(input.companyPhone),
+      updatedAt: now,
+      updatedByName: input.actorName,
+    })
+    .onConflictDoUpdate({
+      target: receiptContactTable.id,
+      set: {
+        website: cleanOptionalReceiptWebsite(input.website),
+        companyPhone: cleanOptionalReceiptPhone(input.companyPhone),
+        updatedAt: now,
+        updatedByName: input.actorName,
+      },
+    });
+  return { before, after: await getReceiptContact() };
 }

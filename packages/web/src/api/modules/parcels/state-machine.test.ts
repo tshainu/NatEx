@@ -341,9 +341,9 @@ const ROLE_CASES: [Role, ParcelStatus, boolean][] = ROLES.flatMap((role) =>
 );
 
 describe(`roles (${ROLE_CASES.length} role × status cases)`, () => {
-  test("the role list is the six roles of §5", () => {
+  test("the role list includes the six operational roles and the dedicated HR role", () => {
     expect([...ROLES].sort()).toEqual(
-      (["admin", "finance", "merchant", "ops", "rider", "transport"] as Role[]).sort(),
+      (["admin", "finance", "hr", "merchant", "ops", "rider", "transport"] as Role[]).sort(),
     );
   });
 

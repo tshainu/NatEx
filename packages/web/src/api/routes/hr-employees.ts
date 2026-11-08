@@ -50,6 +50,31 @@ const packageFields = z.object({
   baseApitTaxable: z.boolean().default(true),
   items: z.array(packageItem).max(100).default([]),
 });
+const salaryAssignment = z.object({
+  packageId: z.string().min(1),
+  effectiveFrom: isoDay,
+});
+const employeeUpdateFields = {
+  fullName: z.string().trim().min(2).max(160).optional(),
+  identityUserId: z.string().trim().min(1).max(100).nullish(),
+  nationalId: z.string().trim().max(40).nullish(),
+  phone: z.string().trim().max(30).nullish(),
+  email: z.string().trim().email().max(200).nullish(),
+  address: z.string().trim().max(500).nullish(),
+  branchId: z.string().min(1).optional(),
+  department: z.string().trim().min(2).max(100).optional(),
+  jobTitle: z.string().trim().min(2).max(120).optional(),
+  employmentType: employmentType.optional(),
+  joinedOn: isoDay.optional(),
+  endedOn: isoDay.nullish(),
+  status: z.enum(["active", "inactive"]).optional(),
+  epfNumber: z.string().trim().max(50).nullish(),
+  tin: z.string().trim().max(50).nullish(),
+  primaryEmployment: z.boolean().optional(),
+  overtimePolicy: overtimePolicy.optional(),
+  overtimeMultiplierBps: z.number().int().min(0).max(50_000).optional(),
+  overtimeDivisorMinutes: z.number().int().min(1).max(144_000).optional(),
+};
 
 async function assertBranch(branchId: string, requireActive = false): Promise<void> {
   const branch = await identity.getBranch(branchId);
@@ -83,28 +108,7 @@ export const createEmployee = hrProc.input(employeeFields).handler(async ({ inpu
   });
 });
 
-export const updateEmployee = hrProc.input(z.object({
-  employeeId: z.string().min(1),
-  fullName: z.string().trim().min(2).max(160).optional(),
-  identityUserId: z.string().trim().min(1).max(100).nullish(),
-  nationalId: z.string().trim().max(40).nullish(),
-  phone: z.string().trim().max(30).nullish(),
-  email: z.string().trim().email().max(200).nullish(),
-  address: z.string().trim().max(500).nullish(),
-  branchId: z.string().min(1).optional(),
-  department: z.string().trim().min(2).max(100).optional(),
-  jobTitle: z.string().trim().min(2).max(120).optional(),
-  employmentType: employmentType.optional(),
-  joinedOn: isoDay.optional(),
-  endedOn: isoDay.nullish(),
-  status: z.enum(["active", "inactive"]).optional(),
-  epfNumber: z.string().trim().max(50).nullish(),
-  tin: z.string().trim().max(50).nullish(),
-  primaryEmployment: z.boolean().optional(),
-  overtimePolicy: overtimePolicy.optional(),
-  overtimeMultiplierBps: z.number().int().min(0).max(50_000).optional(),
-  overtimeDivisorMinutes: z.number().int().min(1).max(144_000).optional(),
-})).handler(async ({ input, context }) => {
+export const updateEmployee = hrProc.input(z.object({ employeeId: z.string().min(1), ...employeeUpdateFields })).handler(async ({ input, context }) => {
   const { employeeId, ...patch } = input;
   return mutate(context, input, {
     route: "hr.updateEmployee",
@@ -118,6 +122,28 @@ export const updateEmployee = hrProc.input(z.object({
     }
     if (input.identityUserId !== undefined) await assertStaffAccount(input.identityUserId);
     return hr.updateEmployee(employeeId, patch, context.principal);
+  });
+});
+
+export const updateEmployeeWithSalary = hrProc.input(z.object({
+  employeeId: z.string().min(1),
+  ...employeeUpdateFields,
+  salaryAssignment: salaryAssignment.nullish(),
+})).handler(async ({ input, context }) => {
+  const { employeeId, salaryAssignment: requestedSalary, ...patch } = input;
+  return mutate(context, input, {
+    route: "hr.updateEmployeeWithSalary",
+    entity: "hr_employee",
+    entityId: (row) => (row as { id: string }).id,
+    action: "hr.employee_updated",
+    auditWrittenByHandler: true,
+  }, async () => {
+    if (input.branchId) {
+      const existing = await hr.getEmployee(employeeId);
+      await assertBranch(input.branchId, input.branchId !== existing.branchId);
+    }
+    if (input.identityUserId !== undefined) await assertStaffAccount(input.identityUserId);
+    return hr.updateEmployeeWithSalary(employeeId, patch, requestedSalary, context.principal, context.requestId);
   });
 });
 
@@ -157,6 +183,7 @@ export const hrEmployees = {
   employees,
   createEmployee,
   updateEmployee,
+  updateEmployeeWithSalary,
   salaryPackages,
   createSalaryPackage,
   updateSalaryPackage,

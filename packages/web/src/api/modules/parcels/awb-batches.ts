@@ -6,7 +6,7 @@ import { getBranch } from "../identity/service";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
-import { AWB_LABELS_PER_BATCH, createAwbSeries, randomAwbSeriesStart } from "./awb-series";
+import { AWB_LABELS_PER_BATCH, MAX_LABELS_PER_GENERATION, MAX_NUMBERS_PER_BATCH, createAwbSeries, planAwbBatchRanges, randomAwbSeriesStart } from "./awb-series";
 
 const LABEL_INSERT_CHUNK = 200;
 export const MAX_BATCHES_PER_GENERATION = 50;
@@ -51,12 +51,15 @@ function stateFor(assignmentStatus: AwbAssignmentStatus, unusedCount: number): A
 
 type PlannedBatchInsert = Omit<typeof awbBatch.$inferInsert, "createdById" | "createdByName">;
 
-function generateDrafts(batchCount: number) {
+function generateDrafts(batchCount: number, numbersPerBatch: number, startingTrackingNumber?: string) {
   const drafts: { row: PlannedBatchInsert; labels: string[] }[] = [];
   const seen = new Set<string>();
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const plannedRanges = startingTrackingNumber === undefined
+    ? null
+    : planAwbBatchRanges(batchCount, numbersPerBatch, startingTrackingNumber);
   for (let index = 0; index < batchCount; index += 1) {
-    const labels = createAwbSeries(randomAwbSeriesStart(), AWB_LABELS_PER_BATCH);
+    const labels = plannedRanges?.[index]?.labels ?? createAwbSeries(randomAwbSeriesStart(numbersPerBatch), numbersPerBatch);
     if (labels.some((awb) => seen.has(awb))) return null;
     for (const awb of labels) seen.add(awb);
 
@@ -80,7 +83,7 @@ function generateDrafts(batchCount: number) {
         assignedByName: null,
         awbStart,
         awbEnd,
-        labelCount: AWB_LABELS_PER_BATCH,
+        labelCount: numbersPerBatch,
       },
       labels,
     });
@@ -145,15 +148,43 @@ export async function listAwbBatches() {
   });
 }
 
-/** Generate an atomic set of planned batches; each contains exactly 1,000 labels. */
-export async function createAwbBatches(batchCount: number, actor: Principal): Promise<AwbBatchWithSeries[]> {
+/** Generate an atomic set of planned batches. The two-argument form remains a legacy 1,000-label random allocation. */
+export function createAwbBatches(batchCount: number, actor: Principal): Promise<AwbBatchWithSeries[]>;
+export function createAwbBatches(batchCount: number, numbersPerBatch: number, startingTrackingNumber: string, actor: Principal): Promise<AwbBatchWithSeries[]>;
+export async function createAwbBatches(
+  batchCount: number,
+  numbersPerBatchOrActor: number | Principal,
+  startingTrackingNumberOrActor?: string | Principal,
+  suppliedActor?: Principal,
+): Promise<AwbBatchWithSeries[]> {
+  const legacy = typeof numbersPerBatchOrActor !== "number";
+  const numbersPerBatch = legacy ? AWB_LABELS_PER_BATCH : numbersPerBatchOrActor;
+  const startingTrackingNumber = legacy ? undefined : startingTrackingNumberOrActor as string | undefined;
+  const actor = legacy ? numbersPerBatchOrActor : suppliedActor;
+  if (!actor || typeof actor === "number") throw new Error("An allocation actor is required.");
   if (!Number.isInteger(batchCount) || batchCount < 1 || batchCount > MAX_BATCHES_PER_GENERATION) {
     errors.badRequest(`Generate between 1 and ${MAX_BATCHES_PER_GENERATION} batches at a time.`);
   }
+  if (!Number.isInteger(numbersPerBatch) || numbersPerBatch < 1 || numbersPerBatch > MAX_NUMBERS_PER_BATCH) {
+    errors.badRequest(`Numbers per batch must be between 1 and ${MAX_NUMBERS_PER_BATCH.toLocaleString()}.`);
+  }
+  if (batchCount * numbersPerBatch > MAX_LABELS_PER_GENERATION) {
+    errors.badRequest(`A generation may reserve at most ${MAX_LABELS_PER_GENERATION.toLocaleString()} tracking numbers.`);
+  }
 
   await ensureSeriesNumbers();
+  let initialDrafts: ReturnType<typeof generateDrafts>;
+  try {
+    initialDrafts = generateDrafts(batchCount, numbersPerBatch, startingTrackingNumber);
+  } catch (error) {
+    if (error instanceof RangeError) errors.badRequest(error.message);
+    throw error;
+  }
+  if (!initialDrafts) return errors.conflict("Could not reserve unique tracking number ranges. Retry batch generation.");
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const drafts = generateDrafts(batchCount);
+    const drafts = startingTrackingNumber === undefined
+      ? attempt === 0 ? initialDrafts : generateDrafts(batchCount, numbersPerBatch)
+      : initialDrafts;
     if (!drafts) continue;
     try {
       return await db.transaction(async (tx) => {
@@ -204,6 +235,9 @@ export async function createAwbBatches(batchCount: number, actor: Principal): Pr
         return created;
       });
     } catch (error) {
+      if (startingTrackingNumber !== undefined && (error instanceof AwbRangeOccupied || isReservationConflict(error))) {
+        return errors.conflict("One or more requested tracking number ranges are already reserved; no batch was created.");
+      }
       if (error instanceof AwbRangeOccupied || isReservationConflict(error)) continue;
       throw error;
     }

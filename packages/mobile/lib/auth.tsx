@@ -31,7 +31,7 @@ interface AuthValue {
   user: SessionUser | null;
   role: Role | null;
   roles: Role[];
-  signIn: (session: ApiSession) => Promise<void>;
+  signIn: (session: ApiSession, preferredRole?: Role) => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -55,8 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = React.useCallback(
-    async (next: ApiSession) => {
-      await storeApiSession(next);
+    async (next: ApiSession, preferredRole?: Role) => {
+      await storeApiSession(next, preferredRole);
       // A different user may have been signed in on this device; nothing from
       // their shift should survive into this one.
       queryClient.clear();

@@ -6,7 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { apiMessage, client } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { deviceId, homeRouteFor, type ApiSession } from "../lib/session";
+import { deviceId, homeRouteFor, type ApiSession, type Role } from "../lib/session";
 import { Screen } from "../components/natex/screen";
 import { Button } from "../components/natex/button";
 import { Card, Panel } from "../components/natex/card";
@@ -14,6 +14,7 @@ import { Input } from "../components/natex/input";
 import { Body, Label, Mono, Small } from "../components/natex/text";
 import { Space } from "../constants/theme";
 import { ThemeOverrideProvider, useColors } from "../hooks/use-colors";
+import { appDisplayName, isMerchantApp } from "../lib/app-variant";
 
 /**
  * Username + password sign-in — phone + OTP stays available behind a toggle
@@ -33,14 +34,31 @@ const FIELD_LOGINS = [
   { role: "Transport · Kandy", phone: "+94777890123", name: "Vignesh Balasubramaniam" },
 ];
 
-function gateSession<T extends { mfa: { state: string } }>(session: T): T {
-  // §2 TOTP MFA (M5): ops, admin and finance finish sign-in with an
-  // authenticator code. That step lives in the web portal; the field app
-  // is for merchants, riders and transport, so a pending session is not stored here.
+function gateSession<T extends { mfa: { state: string }; scope?: { kind: string; role: string; mfaExempt: boolean } | null; user: { role: string; roles?: string[] } }>(session: T): T {
+  const scope = session.scope;
+  if (!scope || scope.kind !== "mobile") {
+    throw new Error("The server did not authorize this account for the mobile field app.");
+  }
+  if (isMerchantApp) {
+    if (scope.role !== "merchant") {
+      throw new Error("This NatEx Merchant app is for merchant accounts only.");
+    }
+  } else if (scope.role !== "rider" && scope.role !== "transport") {
+    throw new Error("This app accepts only rider or transport field workspaces.");
+  }
+  // The exemption is server-confirmed in the signed scope, never inferred from
+  // a client role flag. A pending MFA response is always rejected fail-closed.
+  if ((scope.role === "rider" || scope.role === "transport") && !scope.mfaExempt) {
+    throw new Error("The server did not confirm the mobile MFA exemption.");
+  }
   if (session.mfa.state === "enrol" || session.mfa.state === "challenge") {
     throw new Error("This account signs in with an authenticator code. Use the NatEx web portal.");
   }
   return session;
+}
+
+function mobileContext(role?: Role) {
+  return { client: "mobile" as const, ...(role ? { role: role as "rider" | "transport" | "merchant" } : {}) };
 }
 
 export default function LoginScreen() {
@@ -80,21 +98,23 @@ function LoginForm() {
 
   const verify = useMutation({
     mutationFn: async (input: { challengeId: string; code: string }) =>
-      gateSession(await client.identity.verifyOtp({ ...input, deviceId: deviceId() })),
+      gateSession(await client.identity.verifyOtp({ ...input, deviceId: deviceId(), context: mobileContext(isMerchantApp ? "merchant" : undefined) })),
     onSuccess: async (session) => {
       const api = session as ApiSession;
-      await signIn(api);
-      router.replace(homeRouteFor(api.user.role));
+      const preferredRole = isMerchantApp ? "merchant" : undefined;
+      await signIn(api, preferredRole);
+      router.replace(homeRouteFor(preferredRole ?? api.user.role));
     },
   });
 
   const passwordLogin = useMutation({
     mutationFn: async (input: { username: string; password: string }) =>
-      gateSession(await client.identity.loginPassword({ ...input, deviceId: deviceId() })),
+      gateSession(await client.identity.loginPassword({ ...input, deviceId: deviceId(), context: mobileContext(isMerchantApp ? "merchant" : undefined) })),
     onSuccess: async (session) => {
       const api = session as ApiSession;
-      await signIn(api);
-      router.replace(homeRouteFor(api.user.role));
+      const preferredRole = isMerchantApp ? "merchant" : undefined;
+      await signIn(api, preferredRole);
+      router.replace(homeRouteFor(preferredRole ?? api.user.role));
     },
   });
 
@@ -177,14 +197,16 @@ function LoginForm() {
       <View style={styles.brand}>
         <View style={[styles.logoBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Image
-            source={require("../assets/nx-official-icon.png")}
+            source={isMerchantApp ? require("../assets/merchant/launcher-1024.png") : require("../assets/nx-official-icon.png")}
             style={styles.logo}
             resizeMode="contain"
-            accessibilityLabel="NX Official"
+            accessibilityLabel={appDisplayName}
           />
         </View>
         <Small color={colors.mutedForeground} style={styles.tagline}>
-          Sign in to NX Official. Your assigned workspace opens after sign-in.
+          {isMerchantApp
+            ? "Sign in with your NatEx merchant account to manage bookings and shipments."
+            : "Sign in to NX Official. Your assigned workspace opens after sign-in."}
         </Small>
       </View>
 
@@ -266,7 +288,7 @@ function LoginForm() {
         </Panel>
       ) : null}
 
-      {method === "phone" ? (
+      {method === "phone" && !isMerchantApp ? (
       <Panel>
         <Label>Seeded field accounts</Label>
         {FIELD_LOGINS.map((account) => (

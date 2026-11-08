@@ -1,11 +1,14 @@
-import { and, desc, eq, gt, isNull, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, like, ne, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import { branch, refreshToken, user } from "../../database/schema/identity";
+import { hrEmployee } from "../../database/schema/hr";
 import type { Principal, Role } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { normaliseLkPhone } from "../../shared/sms";
+import { cleanOptionalReceiptPhone, receiptPhoneProblem } from "../../shared/receipt-contact";
 import {
   dedupeRoles,
+  createUser,
   getUserById,
   getUserByPhone,
   getUserByUsername,
@@ -28,6 +31,85 @@ import { hashSecret } from "../../shared/auth";
 
 /** Anyone HOLDING the admin role, on either the legacy or the multi-role column. */
 const IS_ADMIN = or(like(user.roles, '%"admin"%'), and(eq(user.roles, ""), eq(user.role, "admin")));
+
+export interface EmployeeLoginInput {
+  employeeId: string;
+  roles: Role[];
+  username?: string | null;
+  password?: string | null;
+}
+
+/** Minimal, non-payroll fields used to start an official login from HR. */
+export async function listEmployeeLoginOptions() {
+  return db
+    .select({
+      id: hrEmployee.id,
+      employeeCode: hrEmployee.employeeCode,
+      fullName: hrEmployee.fullName,
+      phone: hrEmployee.phone,
+      branchId: hrEmployee.branchId,
+      branchName: branch.name,
+    })
+    .from(hrEmployee)
+    .innerJoin(branch, eq(branch.id, hrEmployee.branchId))
+    .where(and(eq(hrEmployee.status, "active"), isNull(hrEmployee.identityUserId), eq(branch.status, "active")))
+    .orderBy(asc(hrEmployee.employeeCode));
+}
+
+/**
+ * Create an official identity for one active, currently unlinked employee.
+ * The conditional employee update is inside the same transaction as account
+ * creation, so a concurrent claim cannot leave an orphan login behind.
+ */
+export async function createEmployeeLogin(actor: Principal, input: EmployeeLoginInput) {
+  const roles = dedupeRoles(input.roles);
+  if (roles.length === 0) errors.badRequest("A login needs at least one recognized role.");
+  if (roles.includes("merchant")) errors.badRequest("Merchant portal accounts cannot be linked to employees.");
+
+  return db.transaction(async (tx) => {
+    const [employee] = await tx
+      .select({
+        id: hrEmployee.id,
+        fullName: hrEmployee.fullName,
+        phone: hrEmployee.phone,
+        branchId: hrEmployee.branchId,
+        status: hrEmployee.status,
+        identityUserId: hrEmployee.identityUserId,
+      })
+      .from(hrEmployee)
+      .where(eq(hrEmployee.id, input.employeeId));
+    if (!employee) errors.notFound("Employee");
+    if (employee!.status !== "active") errors.badRequest("Only active employees may receive a login.");
+    if (employee!.identityUserId) errors.conflict("This employee is already linked to a login.");
+    if (!employee!.phone?.trim() || employee!.phone.trim().length < 9) {
+      errors.badRequest("The employee must have a valid phone number before a login can be created.");
+    }
+    if (employee!.fullName.trim().length < 2) errors.badRequest("The employee needs a valid name before a login can be created.");
+    const employeePhone = employee!.phone!.trim();
+
+    const account = await createUser(
+      {
+        name: employee!.fullName,
+        phone: employeePhone,
+        role: roles[0]!,
+        roles,
+        branchId: employee!.branchId,
+        username: input.username ?? null,
+        password: input.password ?? null,
+      },
+      tx,
+    );
+
+    const [linked] = await tx
+      .update(hrEmployee)
+      .set({ identityUserId: account.id, updatedBy: actor.userId, updatedAt: new Date() })
+      .where(and(eq(hrEmployee.id, employee!.id), isNull(hrEmployee.identityUserId), eq(hrEmployee.status, "active")))
+      .returning({ id: hrEmployee.id });
+    if (!linked) errors.conflict("This employee was linked to a login by another administrator. Please refresh and try again.");
+
+    return { user: account, employeeId: linked.id };
+  });
+}
 
 async function activeAdminCount(excludingUserId?: string): Promise<number> {
   const where = excludingUserId
@@ -162,13 +244,18 @@ export async function changeUserStatus(
  */
 export async function updateBranch(
   id: string,
-  patch: { name?: string; address?: string; latE6?: number | null; lngE6?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null },
+  patch: { name?: string; address?: string; phone?: string | null; latE6?: number | null; lngE6?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null },
 ) {
   const [before] = await db.select().from(branch).where(eq(branch.id, id));
   if (!before) errors.notFound("Branch");
   const next: Partial<typeof branch.$inferInsert> = {};
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.address !== undefined) next.address = patch.address.trim();
+  if (patch.phone !== undefined) {
+    const phoneProblem = receiptPhoneProblem(patch.phone);
+    if (phoneProblem) errors.badRequest(`Branch telephone: ${phoneProblem}`, { field: "phone" });
+    next.phone = cleanOptionalReceiptPhone(patch.phone);
+  }
   if (patch.latE6 !== undefined) next.lat = patch.latE6;
   if (patch.lngE6 !== undefined) next.lng = patch.lngE6;
   if (patch.type !== undefined) next.type = patch.type;

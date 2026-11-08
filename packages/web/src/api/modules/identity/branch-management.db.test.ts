@@ -12,7 +12,7 @@ delete process.env.SMS_EXECUTION_URL;
 const { createClient } = await import("@libsql/client");
 const setup = createClient({ url: process.env.DATABASE_URL });
 await setup.execute(`CREATE TABLE identity_branch (
- id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL,
+ id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL, phone TEXT,
  lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
  counter_rate_card_id TEXT, created_at INTEGER NOT NULL
 )`);
@@ -38,6 +38,17 @@ describe("branch status and optional coordinates (isolated SQLite)", () => {
     branchId = row!.id;
     expect(row!.lat).toBeNull(); expect(row!.lng).toBeNull(); expect(row!.status).toBe("active");
   });
+  test("stores an optional branch telephone and validates edits without inventing one", async () => {
+    const withPhone = await identity.createBranch({ code: "P01", name: "Receipt phone branch", address: "Phone Street, Colombo", phone: "011 234 5678", type: "branch" });
+    expect(withPhone!.phone).toBe("011 234 5678");
+    await expect(identity.createBranch({ code: "P02", name: "Bad phone branch", address: "Phone Street, Colombo", phone: "not-a-phone", type: "branch" })).rejects.toThrow("Branch telephone");
+    const edited = await admin.updateBranch(withPhone!.id, { phone: "+94 11 234 5678" });
+    expect(edited.after.phone).toBe("+94 11 234 5678");
+    expect((await identity.getBranch(withPhone!.id))?.phone).toBe("+94 11 234 5678");
+    expect((await identity.listBranches()).find((row) => row.id === withPhone!.id)?.phone).toBe("+94 11 234 5678");
+    const cleared = await admin.updateBranch(withPhone!.id, { phone: null });
+    expect(cleared.after.phone).toBeNull();
+  });
   test("editing unrelated fields preserves GPS; explicit clearing stores null", async () => {
     await admin.updateBranch(branchId, { latE6: 6_927_100, lngE6: 79_861_200 });
     const edited = await admin.updateBranch(branchId, { name: "Renamed branch" });
@@ -61,7 +72,7 @@ describe("branch status and optional coordinates (isolated SQLite)", () => {
   test("new bags and trips reject inactive branches without deleting historical branch data", async () => {
     await expect(transport.createBag({ originHubId: branchId, destHubId: geocodedId }, actor)).rejects.toThrow("inactive");
     await expect(transport.createTrip({ originHubId: branchId, destHubId: geocodedId, vehicleRegistration: "TEST-001" }, actor)).rejects.toThrow("inactive");
-    expect(Number((await setup.execute("SELECT count(*) AS n FROM identity_branch")).rows[0].n)).toBe(2);
+    expect(Number((await setup.execute("SELECT count(*) AS n FROM identity_branch")).rows[0].n)).toBe(3);
   });
   test("pickup, direct merchant creation and new runsheets cannot bypass inactive branch restrictions", async () => {
     await setup.execute({ sql: "INSERT INTO merchants_merchant(id,branch_id,name,status) VALUES(?,?,?,?)", args: ["inactive-merchant", branchId, "Inactive branch merchant", "active"] });

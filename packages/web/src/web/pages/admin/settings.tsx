@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { orpc, apiMessage } from "@/lib/api";
 import { dateTime } from "@/lib/format";
@@ -105,6 +105,7 @@ export default function AdminSettings() {
           </Card>
         );
       })}
+      <ReceiptContactCard isAdmin={isAdmin} />
       <Card title="Money rules" description="COD float limit, payout fee and tax switches.">
         <p className="text-[13px] text-muted-foreground">
           These are finance configuration and live in{" "}
@@ -126,6 +127,72 @@ export default function AdminSettings() {
         />
       ) : null}
     </Page>
+  );
+}
+
+function ReceiptContactCard({ isAdmin }: { isAdmin: boolean }) {
+  const queryClient = useQueryClient();
+  const contact = useQuery(orpc.settings.receiptContact.queryOptions());
+  const [website, setWebsite] = React.useState("");
+  const [companyPhone, setCompanyPhone] = React.useState("");
+  const [reason, setReason] = React.useState("");
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+  const receiptData = contact.data;
+
+  React.useEffect(() => {
+    if (!receiptData) return;
+    setWebsite(receiptData.website ?? "");
+    setCompanyPhone(receiptData.companyPhone ?? "");
+  }, [receiptData]);
+
+  const save = useMutation({
+    ...orpc.settings.setReceiptContact.mutationOptions(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: orpc.settings.receiptContact.key() });
+      setReason("");
+      setSaved(true);
+      setProblem(null);
+    },
+    onError: (error) => {
+      setSaved(false);
+      setProblem(apiMessage(error, "Receipt contact settings could not be saved."));
+    },
+  });
+  const changed = website.trim() !== (contact.data?.website ?? "") ||
+    companyPhone.trim() !== (contact.data?.companyPhone ?? "");
+
+  return (
+    <Card title="Receipt contact" description="Optional business contact printed on customer receipts. Never enter a number until it has been verified.">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Website" hint="Defaults to the existing NatEx website natex.lk.">
+          <Input value={website} onChange={(event) => setWebsite(event.target.value)} disabled={!isAdmin} placeholder="natex.lk" />
+        </Field>
+        <Field label="Company telephone" hint="Leave blank when no verified company number is available.">
+          <Input value={companyPhone} onChange={(event) => setCompanyPhone(event.target.value)} disabled={!isAdmin} inputMode="tel" className="font-mono" placeholder="Not configured" />
+        </Field>
+      </div>
+      {isAdmin ? (
+        <div className="mt-4 flex flex-col gap-3">
+          <Field label="Reason" hint="Recorded on the setting and in the audit log. At least 5 characters.">
+            <Textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+          </Field>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              {saved ? <SuccessNote>Receipt contact saved.</SuccessNote> : null}
+              {problem ? <ErrorNote>{problem}</ErrorNote> : null}
+            </div>
+            <Button
+              disabled={!changed || reason.trim().length < 5}
+              pending={save.isPending}
+              onClick={() => save.mutate({ website: website.trim() || null, companyPhone: companyPhone.trim() || null, reason: reason.trim() })}
+            >
+              Save receipt contact
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 

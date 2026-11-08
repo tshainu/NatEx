@@ -113,6 +113,8 @@ ${unused.length ? `<ol>${items}</ol>` : '<p class="empty">All labels in this bat
 export default function AdminAwbBatches() {
   const queryClient = useQueryClient();
   const [batchCount, setBatchCount] = React.useState("1");
+  const [numbersPerBatch, setNumbersPerBatch] = React.useState("1000");
+  const [startingTrackingNumber, setStartingTrackingNumber] = React.useState("NX4820000000");
   const [assignmentBatchId, setAssignmentBatchId] = React.useState("");
   const [assigneeType, setAssigneeType] = React.useState<AssigneeType>("merchant");
   const [assigneeId, setAssigneeId] = React.useState("");
@@ -143,7 +145,11 @@ export default function AdminAwbBatches() {
   const merchants = batchesQuery.data?.merchants ?? EMPTY_MERCHANTS;
   const locations = batchesQuery.data?.locations ?? EMPTY_LOCATIONS;
   const batchCountValue = Number(batchCount);
+  const numbersPerBatchValue = Number(numbersPerBatch);
   const validBatchCount = Number.isInteger(batchCountValue) && batchCountValue >= 1 && batchCountValue <= 50;
+  const validNumbersPerBatch = Number.isInteger(numbersPerBatchValue) && numbersPerBatchValue >= 1 && numbersPerBatchValue <= 50_000;
+  const validStartingTrackingNumber = /^NX\d{10}$/i.test(startingTrackingNumber.trim());
+  const validGeneration = validBatchCount && validNumbersPerBatch && batchCountValue * numbersPerBatchValue <= 50_000 && validStartingTrackingNumber;
   const plannedBatches = React.useMemo(() => batches.filter((batch) => batch.status === "planned"), [batches]);
   const availableTargets = React.useMemo(() => {
     if (assigneeType === "merchant") {
@@ -165,9 +171,9 @@ export default function AdminAwbBatches() {
   }, [assigneeId, availableTargets]);
 
   const generateBatches = useMutation({
-    mutationFn: (count: number) => client.awbBatches.generate({ count }),
+    mutationFn: (input: { count: number; numbersPerBatch: number; startingTrackingNumber: string }) => client.awbBatches.generate(input),
     onSuccess: async (created) => {
-      const labels = created.length * 1_000;
+      const labels = created.reduce((total, batch) => total + batch.labelCount, 0);
       const firstSeries = created[0]?.seriesNumber;
       const lastSeries = created.at(-1)?.seriesNumber;
       const ids = firstSeries && lastSeries ? ` Series IDs ${formatSeriesId(firstSeries)}–${formatSeriesId(lastSeries)}.` : "";
@@ -353,9 +359,9 @@ export default function AdminAwbBatches() {
   return (
     <Page
       title="tracking number label batches"
-      description="Generate planned 1,000-label batches, assign them to merchants or locations, and track the unused stock as bookings consume tracking numbers."
+      description="Generate planned tracking-number batches, assign them to merchants or locations, and track the unused stock as bookings consume tracking numbers."
     >
-      <Card title="Generate new batches" description="Each batch contains exactly 1,000 sequential, globally reserved NX tracking numbers. Generated batches start as planned and unassigned.">
+      <Card title="Generate new batches" description="Enter the exact starting tracking number and batch sizes. Every requested number is reserved sequentially, and any overlap rejects the whole generation.">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Number of batches" hint="Generate 1–50 batches at a time.">
             <Input
@@ -368,26 +374,48 @@ export default function AdminAwbBatches() {
               className="w-40"
             />
           </Field>
+          <Field label="Numbers per batch" hint="Each batch may contain 1–50,000 numbers; the request total is capped at 50,000.">
+            <Input
+              type="number"
+              min={1}
+              max={50_000}
+              step={1}
+              value={numbersPerBatch}
+              onChange={(event) => setNumbersPerBatch(event.target.value)}
+              className="w-44"
+            />
+          </Field>
+          <Field label="Starting tracking number" hint="NX plus exactly 10 digits; later batches continue without gaps.">
+            <Input
+              type="text"
+              inputMode="numeric"
+              maxLength={12}
+              value={startingTrackingNumber}
+              onChange={(event) => setStartingTrackingNumber(event.target.value.toUpperCase())}
+              className="w-48 font-mono"
+              placeholder="NX4820000000"
+            />
+          </Field>
           <Button
             type="button"
             pending={generateBatches.isPending}
-            disabled={!validBatchCount || generateBatches.isPending}
+            disabled={!validGeneration || generateBatches.isPending}
             onClick={() => {
               setSuccess(null);
-              generateBatches.mutate(batchCountValue);
+              generateBatches.mutate({ count: batchCountValue, numbersPerBatch: numbersPerBatchValue, startingTrackingNumber: startingTrackingNumber.trim().toUpperCase() });
             }}
           >
             <Layers aria-hidden />
-            Generate {validBatchCount ? `${batchCountValue} batch${batchCountValue === 1 ? "" : "es"}` : "batches"}
+            Generate {validGeneration ? `${batchCountValue} batch${batchCountValue === 1 ? "" : "es"}` : "batches"}
           </Button>
         </div>
         {generateBatches.error ? <p role="alert" className="mt-3 text-[13px] text-status-bad">{apiMessage(generateBatches.error, "The batches could not be generated.")}</p> : null}
         <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
-          For example, generating 10 batches reserves 10,000 unique tracking number numbers. Assign each planned batch to a merchant, branch, or hub when it is ready to issue.
+          For example, two batches of 500 starting at NX4820000000 reserve NX4820000000–NX4820000999 as two adjacent, unique ranges. Existing or retired numbers are never skipped; the whole request is rejected instead.
         </p>
       </Card>
 
-      <Card title="Assign batch" description="Select a planned batch and assign its full 1,000-label range to one merchant, branch, or hub.">
+      <Card title="Assign batch" description="Select a planned batch and assign its full reserved range to one merchant, branch, or hub.">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Planned batch" className="w-full max-w-sm">
             <Select value={assignmentBatchId} onChange={(event) => setAssignmentBatchId(event.target.value)} disabled={!plannedBatches.length}>
@@ -472,7 +500,7 @@ export default function AdminAwbBatches() {
           loading={batchesQuery.isLoading}
           error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
           emptyTitle={seriesSearch.trim() ? "No matching tracking number series" : "No tracking number batch has been generated"}
-          emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more 1,000-label batches above. They will appear as planned until assigned."}
+          emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more batches above. They will appear as planned until assigned."}
         />
       </Card>
     </Page>

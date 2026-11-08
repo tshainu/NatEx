@@ -8,6 +8,7 @@ import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, todayInColombo, HR_CONTROL_CLASS } from "./shared";
 import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
+import { shouldAssignSalaryPackage } from "./salary-edit";
 
 type EmployeeForm = {
   fullName: string;
@@ -29,6 +30,8 @@ type EmployeeForm = {
   overtimeMultiplier: string;
   overtimeDivisorHours: string;
   status: "active" | "inactive";
+  salaryPackageId: string;
+  salaryEffectiveFrom: string;
 };
 
 const emptyForm = (): EmployeeForm => ({
@@ -51,6 +54,8 @@ const emptyForm = (): EmployeeForm => ({
   overtimeMultiplier: "1.5",
   overtimeDivisorHours: "240",
   status: "active",
+  salaryPackageId: "",
+  salaryEffectiveFrom: todayInColombo(),
 });
 
 export default function HrEmployees() {
@@ -68,6 +73,10 @@ export default function HrEmployees() {
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
   const staffAccounts = useQuery({ ...orpc.hr.staffOptions.queryOptions() });
   const packages = useQuery({ ...orpc.hr.salaryPackages.queryOptions() });
+  const editingSalary = useQuery({
+    ...orpc.hr.employeePackages.queryOptions({ input: { employeeId: editingId ?? "" } }),
+    enabled: Boolean(editingId),
+  });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: orpc.hr.employees.key() });
     void queryClient.invalidateQueries({ queryKey: orpc.hr.employeePackages.key() });
@@ -75,15 +84,9 @@ export default function HrEmployees() {
   const create = useMutation({
     ...orpc.hr.createEmployee.mutationOptions(),
   });
-  const update = useMutation({
-    ...orpc.hr.updateEmployee.mutationOptions(),
-    onSuccess: (employee) => {
-      setNote(`${employee.employeeCode} was updated. Historical payroll snapshots remain unchanged.`);
-      setEditingId(null);
-      setForm(emptyForm());
-      setInitialPackageId("");
-      refresh();
-    },
+  const save = useMutation({
+    ...orpc.hr.updateEmployeeWithSalary.mutationOptions(),
+    onSuccess: refresh,
   });
   const assign = useMutation({
     ...orpc.hr.assignSalaryPackage.mutationOptions(),
@@ -116,6 +119,8 @@ export default function HrEmployees() {
       overtimeMultiplier: String(employee.overtimeMultiplierBps / 10_000),
       overtimeDivisorHours: String(employee.overtimeDivisorMinutes / 60),
       status: employee.status as EmployeeForm["status"],
+      salaryPackageId: "",
+      salaryEffectiveFrom: todayInColombo(),
     });
     setSelectedEmployeeId(employee.id);
     setNote(null);
@@ -150,7 +155,29 @@ export default function HrEmployees() {
       overtimeDivisorMinutes: Math.round(divisorHours * 60),
     };
     if (editingId) {
-      update.mutate({ employeeId: editingId, ...common, endedOn: form.endedOn || null, status: form.status });
+      const changedSalary = Boolean(form.salaryPackageId && shouldAssignSalaryPackage(editingSalary.data ?? [], form.salaryPackageId, form.salaryEffectiveFrom));
+      let employee: Awaited<ReturnType<typeof save.mutateAsync>>;
+      try {
+        employee = await save.mutateAsync({
+          employeeId: editingId,
+          ...common,
+          endedOn: form.endedOn || null,
+          status: form.status,
+          salaryAssignment: changedSalary
+            ? { packageId: form.salaryPackageId, effectiveFrom: form.salaryEffectiveFrom }
+            : undefined,
+        });
+      } catch {
+        return;
+      }
+      const selectedPackage = packages.data?.find((item) => item.id === form.salaryPackageId);
+      setNote(changedSalary && selectedPackage
+        ? `${employee.employeeCode} was updated and ${selectedPackage.code} was assigned from ${form.salaryEffectiveFrom}. Historical payroll snapshots remain unchanged.`
+        : `${employee.employeeCode} was updated. Historical payroll snapshots remain unchanged.`);
+      setEditingId(null);
+      setForm(emptyForm());
+      setInitialPackageId("");
+      refresh();
     } else {
       let employee: Awaited<ReturnType<typeof create.mutateAsync>>;
       try {
@@ -182,8 +209,8 @@ export default function HrEmployees() {
     }
   }
 
-  const error = employees.error ?? branches.error ?? staffAccounts.error ?? packages.error ?? create.error ?? update.error ?? assign.error;
-  const busy = create.isPending || update.isPending || assign.isPending;
+  const error = employees.error ?? branches.error ?? staffAccounts.error ?? packages.error ?? editingSalary.error ?? create.error ?? save.error ?? assign.error;
+  const busy = create.isPending || save.isPending || assign.isPending;
   const initialPackage = packages.data?.find((pkg) => pkg.id === initialPackageId);
 
   return (
@@ -233,6 +260,16 @@ export default function HrEmployees() {
           {form.overtimePolicy === "custom" ? <>
             <Field label="Custom overtime multiplier"><Input type="number" min="0.1" max="5" step="0.01" value={form.overtimeMultiplier} onChange={(e) => setField("overtimeMultiplier", e.target.value)} /></Field>
             <Field label="Monthly hourly divisor"><Input type="number" min="1" max="2400" step="1" value={form.overtimeDivisorHours} onChange={(e) => setField("overtimeDivisorHours", e.target.value)} /></Field>
+          </> : null}
+          {editingId ? <>
+            <Field label="New salary package" hint="Optional. Select a package to change pay; the existing effective-dated salary history is preserved. Amounts use whole cents on the API and display as LKR here.">
+              <select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}>
+                <option value="">Keep current salary history</option>
+                {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}
+              </select>
+            </Field>
+            <Field label="Salary effective from" hint="The existing package closes the day before this date; payroll snapshots are never recalculated."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field>
+            {editingSalary.isPending ? <p className="self-end text-[12px] text-muted-foreground">Loading salary history…</p> : null}
           </> : null}
           {editingId ? <Field label="Employment status">
             <select className={HR_CONTROL_CLASS} value={form.status} onChange={(e) => setField("status", e.target.value as EmployeeForm["status"])}>
