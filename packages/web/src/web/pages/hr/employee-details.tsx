@@ -7,6 +7,7 @@ import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, KeyValue, KeyValueGrid, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, currentMonthRange, HR_CONTROL_CLASS, todayInColombo } from "./shared";
 import { EmployeeDocuments } from "./employee-documents";
+import { salaryPackageNetOptionSuffix } from "./salary-net-estimate";
 
 type Employee = {
   id: string; employeeCode: string; fullName: string; nationalId: string | null; phone: string | null;
@@ -14,7 +15,11 @@ type Employee = {
   employmentType: string; joinedOn: string; endedOn: string | null; status: string; epfNumber: string | null;
   tin: string | null; primaryEmployment: boolean; overtimePolicy: string;
 };
-type Package = { id: string; code: string; name: string; payBasis: string; basePayCents: number; active: boolean };
+type Package = {
+  id: string; code: string; name: string; payBasis: string; basePayCents: number; active: boolean;
+  baseEpfEligible: boolean; baseEtfEligible: boolean; baseApitTaxable: boolean;
+  items: { label: string; kind: string; amountCents: number; epfEligible: boolean; etfEligible: boolean; apitTaxable: boolean; overtimeEligible?: boolean; proration: string }[];
+};
 type Section = "profile" | "documents" | "attendance" | "leave" | "salary";
 const SECTIONS: { id: Section; label: string }[] = [
   { id: "profile", label: "Details" },
@@ -40,6 +45,7 @@ export function EmployeeDetails({ employee, branchName, packages, initialSection
     return [`${month}-01`, `${month}-${String(last).padStart(2, "0")}`];
   }, [month]);
   const assignments = useQuery({ ...orpc.hr.employeePackages.queryOptions({ input: { employeeId: employee.id } }) });
+  const apitSchedule = useQuery({ ...orpc.hr.apitSchedule.queryOptions() });
   const attendance = useQuery({ ...orpc.hr.timesheets.queryOptions({ input: { from, to, employeeId: employee.id } }), enabled: section === "attendance" });
   const leave = useQuery({ ...orpc.hr.leaveRequests.queryOptions({ input: { employeeId: employee.id, year: Number(todayInColombo().slice(0, 4)) } }), enabled: section === "leave" });
   const assign = useMutation({
@@ -89,7 +95,7 @@ export function EmployeeDetails({ employee, branchName, packages, initialSection
       </div> : null}
       {section === "salary" ? <div role="tabpanel">
         <form className="grid gap-3 md:grid-cols-[1fr_220px_auto]" onSubmit={(event) => { event.preventDefault(); if (packageId) assign.mutate({ employeeId: employee.id, packageId, effectiveFrom }); }}>
-          <Field label="Salary package"><select required className={HR_CONTROL_CLASS} value={packageId} onChange={(event) => setPackageId(event.target.value)}><option value="">Select active package</option>{packages.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name} · LKR {centsToLkr(item.basePayCents)} ({item.payBasis})</option>)}</select></Field>
+          <Field label="Salary package" hint={`Monthly net is an estimate using package earnings/deductions, employee EPF and the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}. Secondary-employment estimates exclude manual APIT. Daily/hourly net varies with actual days/hours.`}><select required className={HR_CONTROL_CLASS} value={packageId} onChange={(event) => setPackageId(event.target.value)}><option value="">Select active package</option>{packages.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name} · LKR {centsToLkr(item.basePayCents)} ({item.payBasis}) {salaryPackageNetOptionSuffix(item, employee.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}</select></Field>
           <Field label="Effective from"><Input type="date" required value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} /></Field>
           <div className="self-end"><Button type="submit" pending={assign.isPending} disabled={!packageId || employee.status !== "active"}>Assign package</Button></div>
         </form>

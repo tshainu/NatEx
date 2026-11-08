@@ -9,6 +9,7 @@ import { centsToLkr, todayInColombo, HR_CONTROL_CLASS } from "./shared";
 import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
 import { shouldAssignSalaryPackage } from "./salary-edit";
+import { salaryPackageNetOptionSuffix } from "./salary-net-estimate";
 
 type EmployeeForm = {
   fullName: string;
@@ -73,6 +74,7 @@ export default function HrEmployees() {
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
   const staffAccounts = useQuery({ ...orpc.hr.staffOptions.queryOptions() });
   const packages = useQuery({ ...orpc.hr.salaryPackages.queryOptions() });
+  const apitSchedule = useQuery({ ...orpc.hr.apitSchedule.queryOptions() });
   const editingSalary = useQuery({
     ...orpc.hr.employeePackages.queryOptions({ input: { employeeId: editingId ?? "" } }),
     enabled: Boolean(editingId),
@@ -262,10 +264,10 @@ export default function HrEmployees() {
             <Field label="Monthly hourly divisor"><Input type="number" min="1" max="2400" step="1" value={form.overtimeDivisorHours} onChange={(e) => setField("overtimeDivisorHours", e.target.value)} /></Field>
           </> : null}
           {editingId ? <>
-            <Field label="New salary package" hint="Optional. Select a package to change pay; the existing effective-dated salary history is preserved. Amounts use whole cents on the API and display as LKR here.">
+            <Field label="New salary package" hint={`Monthly net is an estimate using package earnings/deductions, employee EPF and the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}. Secondary-employment estimates exclude manual APIT. Daily/hourly net varies with actual days/hours. Changing packages preserves effective-dated salary history.`}>
               <select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}>
                 <option value="">Keep current salary history</option>
-                {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}
+                {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}
               </select>
             </Field>
             <Field label="Salary effective from" hint="The existing package closes the day before this date; payroll snapshots are never recalculated."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field>
@@ -276,10 +278,10 @@ export default function HrEmployees() {
               <option value="active">Active</option><option value="inactive">Inactive</option>
             </select>
           </Field> : null}
-          {!editingId ? <Field label="Starting salary package" hint="Optional. If selected, the package will be assigned from the employee's joined date.">
+          {!editingId ? <Field label="Starting salary package" hint={`Optional; assignment starts on the joined date. Monthly net is estimated using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}; secondary-employment estimates exclude manual APIT. Daily/hourly net varies with actual days/hours.`}>
             <select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}>
               <option value="">Create employee without a package</option>
-              {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}
+              {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}
             </select>
           </Field> : null}
           <label className="flex items-center gap-2 self-center text-[13px]">
