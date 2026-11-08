@@ -252,7 +252,7 @@ export const runsheetClose = opsProc
  * supersedes the live challenge rather than minting a parallel one.
  */
 export const otpRequest = doorstepProc
-  .input(z.object({ awb }))
+  .input(z.object({ awb, receiverPhone: z.string().trim().min(8).max(24) }))
   .handler(({ input, context }) =>
     mutate(
       context,
@@ -276,7 +276,12 @@ export const otpRequest = doorstepProc
  * self-attest that they saw the right code.
  */
 export const otpVerify = doorstepProc
-  .input(z.object({ awb, code: z.string().min(4).max(8) }))
+  .input(z.object({
+    awb,
+    receiverPhone: z.string().trim().min(8).max(24),
+    challengeId: z.string().min(1).max(64),
+    code: z.string().min(4).max(8),
+  }))
   .handler(({ input, context }) =>
     mutate(
       context,
@@ -305,6 +310,9 @@ export const recordDelivery = doorstepProc
     z.object({
       awb,
       receivedByName: z.string().min(2).max(120),
+      receiverPhone: z.string().trim().min(8).max(24),
+      receiverNicLast4: z.string().regex(/^\d{4}$/),
+      otpChallengeId: z.string().min(1).max(64),
       receivedByRelation: z
         .enum(["self", "family", "neighbour", "security", "reception", "other"])
         .nullish(),

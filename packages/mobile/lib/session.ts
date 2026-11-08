@@ -16,6 +16,7 @@ import { getItem, removeItem, setItem } from "./storage";
  */
 
 export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
+export type MobileFieldRole = Extract<Role, "rider" | "transport">;
 
 export interface SessionScope {
   kind: "mobile";
@@ -45,6 +46,8 @@ export interface StoredSession {
   activeRole?: Role;
   /** Signed server scope; mobile must not infer an MFA exemption from role alone. */
   scope?: SessionScope | null;
+  /** Display-only list from the server; API permissions remain scoped by `scope`. */
+  availableMobileRoles?: MobileFieldRole[];
 }
 
 const SESSION_KEY = "natex.session";
@@ -144,6 +147,8 @@ export interface ApiSession {
   refreshToken: string;
   user: SessionUser;
   scope?: SessionScope | null;
+  /** Field roles discoverable in the menu; never copied into user.roles or JWT scope. */
+  availableMobileRoles?: MobileFieldRole[];
   mfa: { state: "none" | "enrol" | "challenge" | "verified"; devCode?: string };
 }
 
@@ -158,6 +163,11 @@ export async function storeApiSession(
     expiresAt: Date.now() + session.expiresIn * 1000,
     user: session.user,
     scope: session.scope ?? null,
+    availableMobileRoles: session.availableMobileRoles ?? (
+      session.scope?.kind === "mobile" && (session.scope.role === "rider" || session.scope.role === "transport")
+        ? [session.scope.role]
+        : []
+    ),
     activeRole: preferredRole && roles.includes(preferredRole) ? preferredRole : session.user.role,
   };
   await setSession(stored);

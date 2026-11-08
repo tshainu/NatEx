@@ -29,6 +29,7 @@ import type { AppRouterClient } from "../src/api";
 import { finishMfa } from "./lib/mfa";
 import { CMB_BRANCH, railToKandyHub } from "./lib/rail";
 import { retireRun } from "./lib/retire";
+import { verifiedDeliveryOtp } from "./lib/verified-delivery-otp";
 
 const API = process.env.UI_RIDER_API ?? "http://localhost:4200";
 const APP = process.env.UI_RIDER_APP ?? "http://localhost:4300";
@@ -173,6 +174,9 @@ check(true, "run dispatched", `${sheet.code}: api ${apiAwb}, other ${otherAwb}, 
 // ── A. API half ─────────────────────────────────────────────────────────────
 console.log("\nA. Upload slot → bucket → POD");
 const riderApi = (l: string) => clientFor(rider.accessToken, key(l), DEVICE);
+const receiverPhone = "+94761112233";
+const receiverNicLast4 = "1234";
+const apiChallengeId = await verifiedDeliveryOtp(riderApi("otp-api"), apiAwb!, receiverPhone);
 const slot = await riderApi("slot").delivery.podPhotoUpload({ awb: apiAwb!, contentType: "image/jpeg" });
 check(
   slot.storageRef.startsWith(`s3:pod/${apiAwb}/`) && slot.storageRef.endsWith(".jpg"),
@@ -200,7 +204,15 @@ const badType = await refusal(
 );
 check(badType.status === 400, "a non-image type is refused (400)", `${badType.status}`);
 
-const base = { awb: apiAwb!, receivedByName: "Sunil Perera", receivedByRelation: "self" as const, method: "photo" as const };
+const base = {
+  awb: apiAwb!,
+  receivedByName: "Sunil Perera",
+  receivedByRelation: "self" as const,
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: apiChallengeId,
+  method: "photo" as const,
+};
 const noPhoto = await refusal(riderApi("no-photo").delivery.recordDelivery({ ...base, photoUrl: null }));
 check(noPhoto.status === 400, "photo POD refused without a photo", noPhoto.detail);
 const pasted = await refusal(
@@ -275,6 +287,14 @@ await page.goto(`${APP}/stop/${uiAwb}`);
 check(await visible("Doorstep photo", 30_000), "stop says the merchant needs a doorstep photo");
 await page.getByRole("button", { name: "Deliver", exact: true }).click();
 await page.getByLabel("Received by").fill("Chamari Bandara");
+await page.getByLabel("Receiver NIC").fill("199001234567");
+await page.getByRole("button", { name: "Send code to receiver" }).click();
+const devCodeText = await page.getByText(/DEV \(no SMS gateway\):/).textContent();
+const uiDevCode = devCodeText?.match(/DEV \(no SMS gateway\):\s*(\d{4,8})/)?.[1];
+if (!uiDevCode) throw new Error("The UI photo probe needs a development/test OTP code.");
+await page.getByLabel("Code from receiver").fill(uiDevCode);
+await page.getByRole("button", { name: "Verify receiver code" }).click();
+check(await visible("Receiver OTP verified by server"), "UI receiver OTP verified through the API");
 const confirm = page.getByRole("button", { name: /Confirm delivery/ });
 check(await confirm.isDisabled(), "cannot confirm before the photo");
 const chooser = page.waitForEvent("filechooser", { timeout: 15_000 });
@@ -282,9 +302,9 @@ await page.getByRole("button", { name: "Take photo" }).click();
 (await chooser).setFiles(JPEG);
 check(await visible("Photo uploaded", 30_000), "photo uploaded from the app");
 check(!(await confirm.isDisabled()), "confirm unlocks with name + photo");
-await page.screenshot({ path: "/tmp/pod-photo-form.png", fullPage: true });
 await confirm.click();
 check(await visible("Today's deliveries"), "back on the run");
+await page.screenshot({ path: "/tmp/pod-photo-form.png", fullPage: true });
 
 let pUi = await clientFor(ops.accessToken).parcels.get({ awbOrId: uiAwb! });
 for (let i = 0; i < 20 && pUi.parcel.status !== "Delivered"; i++) {

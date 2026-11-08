@@ -177,16 +177,31 @@ async function deliver(rider: { accessToken: string }, p: { awb: string; b: Book
     awb: p.awb,
     receivedByName: p.b.name,
     receivedByRelation: "self" as const,
+    receiverPhone: p.b.phone,
+    receiverNicLast4: "1234",
     codCollectedCents: p.b.cod,
     lat,
     lng,
   };
+  const ch = await clientFor(rider.accessToken, key(`otp-${p.awb}`)).delivery.otpRequest({
+    awb: p.awb,
+    receiverPhone: p.b.phone,
+  });
+  if (!ch.devCode) throw new Error(`No development OTP available for ${p.awb}.`);
+  const verified = await clientFor(rider.accessToken, key(`otpv-${p.awb}`)).delivery.otpVerify({
+    awb: p.awb,
+    receiverPhone: p.b.phone,
+    challengeId: ch.challengeId,
+    code: ch.devCode,
+  });
+  if (!verified.verified || verified.challengeId !== ch.challengeId) {
+    throw new Error(`Delivery OTP verification failed for ${p.awb}.`);
+  }
+  const withOtp = { ...common, otpChallengeId: verified.challengeId };
   if (p.b.m.pod === "otp") {
-    const ch = await clientFor(rider.accessToken, key(`otp-${p.awb}`)).delivery.otpRequest({ awb: p.awb });
-    await clientFor(rider.accessToken, key(`otpv-${p.awb}`)).delivery.otpVerify({ awb: p.awb, code: ch.devCode! });
-    await clientFor(rider.accessToken, key(`pod-${p.awb}`)).delivery.recordDelivery({ ...common, method: "otp" });
+    await clientFor(rider.accessToken, key(`pod-${p.awb}`)).delivery.recordDelivery({ ...withOtp, method: "otp" });
   } else {
-    await clientFor(rider.accessToken, key(`pod-${p.awb}`)).delivery.recordDelivery({ ...common, method: "signature", signatureData: SIGNATURE });
+    await clientFor(rider.accessToken, key(`pod-${p.awb}`)).delivery.recordDelivery({ ...withOtp, method: "signature", signatureData: SIGNATURE });
   }
 }
 async function miss(rider: { accessToken: string }, awb: string, reasonCode: string, notes: string, lat: number, lng: number) {

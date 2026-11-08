@@ -392,6 +392,8 @@ await expectFail("another branch's ops desk cannot read this hub's parcel (§5)"
   clientFor(colomboOps.accessToken).parcels.get({ awbOrId: otpParcel.awb }),
 );
 const otpParcelRow = await opsC.parcels.get({ awbOrId: otpParcel.awb });
+const receiverPhone = otpParcelRow.parcel.consigneePhone;
+const receiverNicLast4 = "1234";
 check(
   otpParcelRow?.parcel.status === "OutForDelivery",
   "a dispatched parcel's status is OutForDelivery",
@@ -428,10 +430,17 @@ check(
 
 // ── 8. The doorstep: OTP delivery with COD (§6, §9) ───────────────────────────
 console.log("\n8. Doorstep — OTP proof, COD to the cent");
+const challenge = await riderC.delivery.otpRequest({ awb: otpParcel.awb, receiverPhone });
+const otpFields = {
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: challenge.challengeId,
+};
 await expectFail("transport cannot record a doorstep event", 403, () =>
   clientFor(kandyTransport.accessToken, key("transport-pod")).delivery.recordDelivery({
     awb: otpParcel.awb,
     receivedByName: "Somebody",
+    ...otpFields,
     method: "otp",
   }),
 );
@@ -439,27 +448,38 @@ await expectFail("delivery without a verified OTP is refused", 400, () =>
   clientFor(kandyRider.accessToken, key("pod-no-otp")).delivery.recordDelivery({
     awb: otpParcel.awb,
     receivedByName: "Kamala Wijesinghe",
+    ...otpFields,
     method: "otp",
     codCollectedCents: otpParcel.codAmountCents,
   }),
 );
 
-const challenge = await riderC.delivery.otpRequest({ awb: otpParcel.awb });
 check(
   Boolean(challenge.devCode) && challenge.expiresInMinutes > 0,
   "delivery OTP sent to the consignee (SMS-only, §9)",
   `to ${challenge.sentTo}, smsState=${challenge.smsState}, ttl ${challenge.expiresInMinutes}m`,
 );
 await expectFail("a wrong code is rejected", 400, () =>
-  riderC.delivery.otpVerify({ awb: otpParcel.awb, code: "000000" }),
+  riderC.delivery.otpVerify({
+    awb: otpParcel.awb,
+    receiverPhone,
+    challengeId: challenge.challengeId,
+    code: "000000",
+  }),
 );
-const verified = await riderC.delivery.otpVerify({ awb: otpParcel.awb, code: challenge.devCode! });
+const verified = await riderC.delivery.otpVerify({
+  awb: otpParcel.awb,
+  receiverPhone,
+  challengeId: challenge.challengeId,
+  code: challenge.devCode!,
+});
 check(verified.verified, "the consignee's code verifies", `challenge ${verified.challengeId}`);
 
 await expectFail("a weaker proof than the merchant's policy is refused", 400, () =>
   clientFor(kandyRider.accessToken, key("wrong-method")).delivery.recordDelivery({
     awb: otpParcel.awb,
     receivedByName: "Kamala Wijesinghe",
+    ...otpFields,
     method: "signature",
     signatureData: "data:image/png;base64,AAAA",
     codCollectedCents: otpParcel.codAmountCents,
@@ -469,6 +489,7 @@ await expectFail("COD short by one cent is refused", 400, () =>
   clientFor(kandyRider.accessToken, key("cod-short")).delivery.recordDelivery({
     awb: otpParcel.awb,
     receivedByName: "Kamala Wijesinghe",
+    ...otpFields,
     method: "otp",
     codCollectedCents: otpParcel.codAmountCents - 1,
   }),
@@ -478,6 +499,7 @@ const clientMintedId = `dev-${Date.now()}-otp-pod`;
 const delivered = await clientFor(kandyRider.accessToken, key("pod-otp")).delivery.recordDelivery({
   awb: otpParcel.awb,
   receivedByName: "Kamala Wijesinghe",
+  ...otpFields,
   receivedByRelation: "self",
   method: "otp",
   codCollectedCents: otpParcel.codAmountCents,
@@ -495,6 +517,7 @@ check(
 const replay = await clientFor(kandyRider.accessToken, key("pod-otp-replay")).delivery.recordDelivery({
   awb: otpParcel.awb,
   receivedByName: "Kamala Wijesinghe",
+  ...otpFields,
   method: "otp",
   codCollectedCents: otpParcel.codAmountCents,
   clientId: clientMintedId,
@@ -905,7 +928,7 @@ await expectFail("a merchant cannot see the hub's deliverable stock", 403, () =>
 );
 await expectFail("a merchant cannot list runsheets", 403, () => merchC.delivery.runsheetList({}));
 await expectFail("a merchant cannot request a delivery OTP", 403, () =>
-  merchC.delivery.otpRequest({ awb: otpParcel.awb }),
+  merchC.delivery.otpRequest({ awb: otpParcel.awb, receiverPhone }),
 );
 const adminSees = await adminC.delivery.runsheetList({});
 check(adminSees.length >= 2, "admin sees every branch's runs", `${adminSees.length} run(s)`);

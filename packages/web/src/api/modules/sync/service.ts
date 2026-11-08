@@ -26,6 +26,7 @@ import { scanItem, scanIntoHub } from "../collection/service";
 import { getUserById } from "../identity/service";
 import { listReasonCodes } from "../delivery/reasons";
 import { SETTING_KEYS, settingValue } from "../settings/service";
+import { sanitizeDeliveryOperation } from "./delivery-payload";
 
 /**
  * MODULE: sync — the server half of PROJECT.md §7, "the hardest problem here".
@@ -414,7 +415,9 @@ export async function pushBatch(input: PushInput, actor: Principal): Promise<Pus
     : 0;
 
   // §7: in the device's order, by its own counter. Never by clock.
-  const ordered = [...input.operations].sort((a, b) => a.seq - b.seq);
+  const ordered = input.operations
+    .map((op) => sanitizeDeliveryOperation(op))
+    .sort((a, b) => a.seq - b.seq);
   const verdicts: OperationVerdict[] = [];
 
   for (const op of ordered) {

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
 import {
   deliveryAttempt,
@@ -15,7 +15,7 @@ import { hashSecret, isGlobalScope, verifySecret, type Principal } from "../../s
 import { distanceMetres } from "../../shared/geo";
 import { formatLkr } from "../../shared/money";
 import { codLine as codLineFor } from "../notifications/service";
-import { normaliseLkPhone, sendSms } from "../../shared/sms";
+import { sendSms } from "../../shared/sms";
 import { colomboToday, formatLkDate } from "../../shared/time";
 import {
   getParcelByAwb,
@@ -49,6 +49,7 @@ import {
 } from "./ndr";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { isDevelopment } from "../../shared/env";
+import { deliveryOtpIssue, normaliseReceiverPhone, receiverPodAuditFields } from "./pod-receiver";
 
 /**
  * MODULE: delivery — runsheets, route order, doorstep attempts, proof of
@@ -80,8 +81,6 @@ const RUNSHEET_ELIGIBLE = ["AtDestHub", "DeliveryAttempted", "OnHold"] as const;
 // §10 M5: doorstep OTP validity is settings.delivery_otp_ttl_minutes (default 15).
 /** Wrong-code attempts before the challenge locks. */
 const OTP_MAX_ATTEMPTS = 5;
-/** How long a verified OTP stays usable for the delivery it was verified for. */
-const OTP_GRACE_MINUTES = 30;
 
 // ------------------------------------------------------------------- scoping
 
@@ -893,7 +892,7 @@ export interface OtpRequestResult {
  * not be able to complete a delivery on a rider's behalf.
  */
 export async function requestDeliveryOtp(
-  input: { awb: string },
+  input: { awb: string; receiverPhone: string },
   actor: Principal,
 ): Promise<OtpRequestResult> {
   const p = await getParcelByAwb(input.awb);
@@ -904,7 +903,9 @@ export async function requestDeliveryOtp(
     });
   }
 
-  const phone = normaliseLkPhone(p!.consigneePhone);
+  const phone = normaliseReceiverPhone(input.receiverPhone);
+  if (!phone) errors.badRequest("Enter a valid Sri Lankan receiver mobile number.");
+  const canonicalPhone = phone as string;
   const code = (100000 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 900000)).toString();
 
   // A live challenge is superseded, not duplicated — resend-and-expire (§9).
@@ -916,11 +917,14 @@ export async function requestDeliveryOtp(
     .limit(1);
   const resendCount =
     live && !live.consumedAt && live.expiresAt.getTime() > Date.now() ? live.resendCount + 1 : 0;
+  if (live && !live.consumedAt && live.expiresAt.getTime() > Date.now()) {
+    await db.update(deliveryOtp).set({ expiresAt: new Date() }).where(eq(deliveryOtp.id, live.id));
+  }
 
   const OTP_TTL_MINUTES = await settingValue(SETTING_KEYS.DELIVERY_OTP_TTL_MINUTES);
   const challengeId = prefixedId("dotp");
   const sms = await sendSms({
-    to: phone,
+    to: canonicalPhone,
     purpose: "pod",
     body: `NatEx delivery verification code: ${code}. Share only with the courier at delivery. Valid ${OTP_TTL_MINUTES} minutes.`,
   });
@@ -930,7 +934,7 @@ export async function requestDeliveryOtp(
     parcelId: p!.id,
     awb: p!.awb,
     codeHash: await hashSecret(code),
-    sentToPhone: phone,
+    sentToPhone: canonicalPhone,
     smsLogId: sms.logId,
     resendCount,
     requestedById: actor.userId,
@@ -940,7 +944,7 @@ export async function requestDeliveryOtp(
   const exposeCode = isDevelopment() && sms.state !== "sent";
   return {
     challengeId,
-    sentTo: phone,
+    sentTo: canonicalPhone,
     expiresInMinutes: OTP_TTL_MINUTES,
     smsState: sms.state,
     resendCount,
@@ -949,7 +953,7 @@ export async function requestDeliveryOtp(
 }
 
 export async function verifyDeliveryOtp(
-  input: { awb: string; code: string },
+  input: { awb: string; receiverPhone: string; challengeId: string; code: string },
   _actor: Principal,
 ): Promise<{ verified: boolean; challengeId: string; attemptsLeft: number }> {
   const p = await getParcelByAwb(input.awb);
@@ -962,10 +966,18 @@ export async function verifyDeliveryOtp(
     .orderBy(desc(deliveryOtp.createdAt))
     .limit(1);
   if (!challenge) errors.notFound(`Delivery OTP for ${p!.awb}`);
+  const phone = normaliseReceiverPhone(input.receiverPhone);
+  if (!phone) errors.badRequest("Enter a valid Sri Lankan receiver mobile number.");
+  if (challenge!.id !== input.challengeId || challenge!.awb !== p!.awb) {
+    errors.conflict("That delivery OTP is no longer active. Send a new code.");
+  }
+  if (normaliseReceiverPhone(challenge!.sentToPhone) !== phone) {
+    errors.forbidden("The code was sent to a different receiver mobile number.");
+  }
   if (challenge!.consumedAt) {
     errors.conflict("That code has already been used.", { challengeId: challenge!.id });
   }
-  if (challenge!.expiresAt.getTime() < Date.now()) {
+  if (challenge!.expiresAt.getTime() <= Date.now()) {
     errors.conflict("That code has expired. Send a new one.", { challengeId: challenge!.id });
   }
   if (challenge!.attempts >= OTP_MAX_ATTEMPTS) {
@@ -976,10 +988,11 @@ export async function verifyDeliveryOtp(
 
   const ok = await verifySecret(input.code, challenge!.codeHash);
   const attempts = challenge!.attempts + 1;
+  const verifiedAt = new Date();
   await db
     .update(deliveryOtp)
-    .set({ attempts, consumedAt: ok ? new Date() : null })
-    .where(eq(deliveryOtp.id, challenge!.id));
+    .set({ attempts, verifiedAt: ok ? verifiedAt : null, consumedAt: ok ? verifiedAt : null })
+    .where(and(eq(deliveryOtp.id, challenge!.id), isNull(deliveryOtp.consumedAt)));
 
   if (!ok) {
     errors.badRequest("Wrong code.", {
@@ -1001,6 +1014,10 @@ export interface RecordDeliveryInput {
   /** Who physically took it — may not be the consignee. */
   receivedByName: string;
   receivedByRelation?: "self" | "family" | "neighbour" | "security" | "reception" | "other" | null;
+  /** Receiver identity details; the full NIC is never an API field. */
+  receiverPhone: string;
+  receiverNicLast4: string;
+  otpChallengeId: string;
   /** Defaults to the merchant's configured POD policy (§6). */
   method?: "otp" | "signature" | "photo" | null;
   signatureData?: string | null;
@@ -1043,7 +1060,8 @@ export interface RecordDeliveryResult {
  * §6's rules enforced here, in order:
  *   - the parcel must be OutForDelivery
  *   - the POD method the merchant requires must actually be present
- *   - an `otp` policy needs a *server-verified* challenge, not a rider's word
+ *   - every delivery needs a *server-verified* OTP bound to this AWB and receiver
+ *   - a merchant's signature/photo policy remains an additional required proof
  *   - COD must reconcile to the cent before the parcel changes hands
  */
 export async function recordDelivery(
@@ -1097,6 +1115,15 @@ export async function recordDelivery(
   if (p!.merchantId === null && p!.codAmountCents > 0) {
     errors.conflict("A walk-in retail parcel cannot post COD to a merchant account.");
   }
+  const receiverPhone = normaliseReceiverPhone(input.receiverPhone);
+  if (!receiverPhone) errors.badRequest("Enter a valid Sri Lankan receiver mobile number.");
+  if (!/^\d{4}$/.test(input.receiverNicLast4)) {
+    errors.badRequest("Only the receiver NIC's last four digits may be recorded.");
+  }
+  const receiverAudit = receiverPodAuditFields({
+    receiverPhone: receiverPhone as string,
+    receiverNicLast4: input.receiverNicLast4,
+  });
   const merchant = p!.merchantId ? await getMerchant(p!.merchantId) : null;
   const policy = (merchant?.podPolicy ?? "signature") as "otp" | "signature" | "photo";
   const method = input.method ?? policy;
@@ -1110,30 +1137,34 @@ export async function recordDelivery(
     );
   }
 
-  let otpChallengeId: string | null = null;
-  let otpVerified = false;
-
-  if (method === "otp") {
-    const [challenge] = await db
-      .select()
-      .from(deliveryOtp)
-      .where(eq(deliveryOtp.parcelId, p!.id))
-      .orderBy(desc(deliveryOtp.createdAt))
-      .limit(1);
-    if (!challenge?.consumedAt) {
-      errors.badRequest(
-        `${p!.awb} needs a verified delivery OTP before it can be marked delivered.`,
-        { requiredMethod: "otp" },
-      );
-    }
-    if (challenge!.consumedAt!.getTime() < Date.now() - OTP_GRACE_MINUTES * 60_000) {
-      errors.badRequest(
-        `The verified OTP for ${p!.awb} is older than ${OTP_GRACE_MINUTES} minutes. Verify again.`,
-      );
-    }
-    otpChallengeId = challenge!.id;
-    otpVerified = true;
+  const otpChallengeId = input.otpChallengeId;
+  if (!otpChallengeId) {
+    errors.badRequest(`${p!.awb} needs a verified delivery OTP before it can be marked delivered.`, {
+      requiredMethod: "otp",
+    });
   }
+  const [challenge] = await db
+    .select()
+    .from(deliveryOtp)
+    .where(and(
+      eq(deliveryOtp.id, otpChallengeId),
+      eq(deliveryOtp.parcelId, p!.id),
+      eq(deliveryOtp.awb, p!.awb),
+    ))
+    .limit(1);
+  const otpIssue = deliveryOtpIssue(challenge, {
+    awb: p!.awb,
+    receiverPhone: receiverAudit.receiverPhone,
+  });
+  if (otpIssue) {
+    const detail = otpIssue === "expired"
+      ? `The verified OTP for ${p!.awb} has expired. Send and verify a new code.`
+      : otpIssue === "binding"
+        ? `The verified OTP must belong to ${p!.awb} and this receiver mobile number.`
+        : `${p!.awb} needs a verified delivery OTP before it can be marked delivered.`;
+    errors.badRequest(detail, { requiredMethod: "otp", otpIssue });
+  }
+  const otpVerified = true;
   if (method === "signature" && !input.signatureData?.trim()) {
     errors.badRequest(`${p!.awb} needs a captured signature.`, { requiredMethod: "signature" });
   }
@@ -1238,14 +1269,16 @@ export async function recordDelivery(
       clientId: input.clientId,
     },
     actor,
-    { podId },
-    async (tx) => {
+      { podId },
+      async (tx) => {
       await tx.insert(deliveryPod).values({
         id: podId,
         parcelId: p!.id,
         awb: p!.awb,
         method,
         receivedByName: input.receivedByName.trim(),
+        receiverPhone: receiverAudit.receiverPhone,
+        receiverNicLast4: receiverAudit.receiverNicLast4,
         receivedByRelation: input.receivedByRelation ?? "self",
         otpVerified,
         otpChallengeId,

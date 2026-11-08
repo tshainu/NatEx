@@ -7,7 +7,7 @@ import { base } from "../../__core/app";
 import { withAuth, requireRole } from "../../middleware/auth";
 import { hashSecret, fingerprint, verifyAccessToken } from "../../shared/auth";
 import { seal } from "../../shared/secret-box";
-import { loginWithPassword, rotateRefresh, verifyOtp } from "./service";
+import { listMobileWorkspaces, loginWithPassword, rotateRefresh, switchMobileWorkspace, verifyOtp } from "./service";
 
 if (!process.env.DATABASE_URL?.startsWith("file:/tmp/")) {
   throw new Error("mobile-session.db.test.ts must run on a disposable file:/tmp database, never production");
@@ -46,6 +46,8 @@ describe("mobile MFA exemption is a signed least-privilege field session", () =>
     expect(mobile.mfa.state).toBe("none");
     expect(mobile.scope).toEqual({ kind: "mobile", role: "rider", mfaExempt: true });
     expect(mobile.user.roles).toEqual(["rider"]);
+    expect(mobile.availableMobileRoles).toEqual(["rider", "transport"]);
+    expect(await listMobileWorkspaces(userId)).toEqual(["rider", "transport"]);
     const claims = await verifyAccessToken(mobile.accessToken);
     expect(claims?.roles).toEqual(["rider"]);
     const principal = await clientFor(mobile.accessToken).field();
@@ -67,6 +69,34 @@ describe("mobile MFA exemption is a signed least-privilege field session", () =>
     expect(mobile.user.roles).toEqual(["rider"]);
     expect(mobile.mfa.state).toBe("none");
     await expect(clientFor(mobile.accessToken).ops()).rejects.toThrow();
+  });
+
+  test("switching an assigned workspace reissues a token scoped only to the selected role", async () => {
+    const rider = await loginWithPassword({ username, password, deviceId, context: { client: "mobile", role: "rider" } });
+    const transport = await switchMobileWorkspace({
+      userId,
+      deviceId,
+      currentScope: rider.scope,
+      role: "transport",
+    });
+    expect(transport.scope).toEqual({ kind: "mobile", role: "transport", mfaExempt: true });
+    expect(transport.user.role).toBe("transport");
+    expect(transport.user.roles).toEqual(["transport"]);
+    expect(transport.availableMobileRoles).toEqual(["rider", "transport"]);
+    expect((await verifyAccessToken(transport.accessToken))?.roles).toEqual(["transport"]);
+    await expect(clientFor(transport.accessToken).ops()).rejects.toThrow();
+  });
+
+  test("workspace discovery and switching recheck live role assignments and account status", async () => {
+    const rider = await loginWithPassword({ username, password, deviceId, context: { client: "mobile", role: "rider" } });
+    await db.update(user).set({ roles: JSON.stringify(["ops", "rider"]) }).where(eq(user.id, userId));
+    expect(await listMobileWorkspaces(userId)).toEqual(["rider"]);
+    await expect(switchMobileWorkspace({ userId, deviceId, currentScope: rider.scope, role: "transport" })).rejects.toThrow();
+
+    await db.update(user).set({ roles: JSON.stringify(["ops", "transport", "rider"]), status: "suspended" }).where(eq(user.id, userId));
+    await expect(listMobileWorkspaces(userId)).rejects.toThrow();
+    await expect(switchMobileWorkspace({ userId, deviceId, currentScope: rider.scope, role: "transport" })).rejects.toThrow();
+    await db.update(user).set({ roles: JSON.stringify(["ops", "transport", "rider"]), status: "active" }).where(eq(user.id, userId));
   });
 
   test("mobile context cannot request a back-office role", async () => {

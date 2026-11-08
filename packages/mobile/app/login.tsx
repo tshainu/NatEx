@@ -195,10 +195,10 @@ function LoginForm() {
   return (
     <Screen footer={footer}>
       <View style={styles.brand}>
-        <View style={[styles.logoBadge, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.logoBadge, isMerchantApp ? styles.merchantLogoBadge : styles.natexLogoBadge, { borderColor: colors.border }]}>
           <Image
-            source={isMerchantApp ? require("../assets/merchant/launcher-1024.png") : require("../assets/nx-official-icon.png")}
-            style={styles.logo}
+            source={isMerchantApp ? require("../assets/merchant/launcher-1024.png") : require("../assets/natex-logo.png")}
+            style={isMerchantApp ? styles.logo : styles.natexWordmark}
             resizeMode="contain"
             accessibilityLabel={appDisplayName}
           />
@@ -325,7 +325,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.unit,
     paddingVertical: 4,
   },
+  merchantLogoBadge: {},
+  natexLogoBadge: {
+    backgroundColor: "#14362F",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
   logo: { width: 128, height: 128 },
+  natexWordmark: { width: 240, height: 78 },
   tagline: { marginTop: Space.unit * 2, textAlign: "center", maxWidth: 300 },
   passwordToggle: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   accountRow: {

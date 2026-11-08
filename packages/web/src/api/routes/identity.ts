@@ -12,7 +12,7 @@ import {
 import { changeUserStatus } from "../modules/identity/admin";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
-import { isGlobalScope, ROLES } from "../shared/auth";
+import { isGlobalScope, MOBILE_FIELD_ROLES, ROLES } from "../shared/auth";
 import { toE6 } from "../shared/geo";
 import { isDevelopment } from "../shared/env";
 
@@ -113,6 +113,39 @@ export const me = authedProc.handler(({ context }) => ({
   merchantId: context.principal.merchantId,
   deviceId: context.principal.deviceId,
 }));
+
+/** Live field-role discovery for this caller only; this does not alter JWT scope. */
+export const mobileWorkspaces = authedProc.handler(({ context }) => {
+  const scope = context.principal.scope;
+  if (scope?.kind !== "mobile" || !(MOBILE_FIELD_ROLES as readonly string[]).includes(scope.role)) {
+    errors.forbidden("Workspace discovery is available only in a Rider or Transport mobile session.");
+  }
+  return identityService.listMobileWorkspaces(context.principal.userId).then((roles) => ({ roles }));
+});
+
+/** Reissue an access/refresh pair with exactly the selected assigned field role. */
+export const switchMobileRole = authedProc
+  .input(z.object({ role: z.enum(["rider", "transport"]) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "identity.switchMobileRole",
+        entity: "identity_user",
+        entityId: (result) => (result as identityService.Session).user.id,
+        action: "mobile.workspace_switched",
+      },
+      async () => {
+        return identityService.switchMobileWorkspace({
+          userId: context.principal.userId,
+          deviceId: context.principal.deviceId ?? null,
+          currentScope: context.principal.scope ?? null,
+          role: input.role,
+        });
+      },
+    ),
+  );
 
 export const logout = authedProc.handler(({ context }) =>
   mutate(
@@ -269,6 +302,8 @@ export const identity = {
   verifyOtp,
   refresh,
   me,
+  mobileWorkspaces,
+  switchMobileRole,
   logout,
   listBranches,
   myBranch,

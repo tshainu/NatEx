@@ -4,10 +4,11 @@ import { db } from "../../database";
 import { branch, user } from "../../database/schema/identity";
 import { outbox } from "../../database/schema/shared";
 import { parcel, parcelEvent } from "../../database/schema/parcels";
-import { deliveryAttempt, deliveryPod, runsheet, runsheetItem } from "../../database/schema/delivery";
+import { deliveryAttempt, deliveryOtp, deliveryPod, runsheet, runsheetItem } from "../../database/schema/delivery";
 import { freightCharge, freightEntry, freightReconciliation } from "../../database/schema/freight";
 import { rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "../../database/schema/merchants";
-import type { Principal } from "../../shared/auth";
+import { hashSecret, type Principal } from "../../shared/auth";
+import { prefixedId } from "../../shared/ulid";
 import { createBranch, createUser } from "../identity/service";
 import { createRetailCounterBooking, getParcelById, transitionParcel } from "../parcels/service";
 import {
@@ -16,6 +17,7 @@ import {
   createRunsheet,
   dispatchRunsheet,
   recordDelivery,
+  verifyDeliveryOtp,
 } from "../delivery/service";
 import { collectionForParcel } from "../cod/service";
 import { createRateCard, newDraft, publishDraft, quoteForCounter, saveDraft } from "../merchants/rate-cards";
@@ -77,6 +79,26 @@ async function bookingSmsForAwb(awb: string) {
     .filter((entry) => entry.awb === awb);
 }
 
+/** Test-only: seed a hashed code, then use the real verifier to consume it. */
+async function verifiedOtpForTest(parcelId: string, awb: string, receiverPhone: string) {
+  const challengeId = prefixedId("dotp");
+  const code = "246810";
+  await db.insert(deliveryOtp).values({
+    id: challengeId,
+    parcelId,
+    awb,
+    codeHash: await hashSecret(code),
+    sentToPhone: receiverPhone,
+    requestedById: OPS.userId,
+    expiresAt: new Date(Date.now() + 15 * 60_000),
+  });
+  const result = await verifyDeliveryOtp({ awb, receiverPhone, challengeId, code }, OPS);
+  if (!result.verified || result.challengeId !== challengeId) {
+    throw new Error("Test OTP challenge did not verify.");
+  }
+  return challengeId;
+}
+
 beforeAll(async () => {
   const createdBranch = await createBranch({
     code: BRANCH_CODE,
@@ -126,6 +148,7 @@ afterAll(async () => {
     if (allRuns.length) await db.delete(runsheetItem).where(inArray(runsheetItem.runsheetId, allRuns));
     if (parcelIds.length) {
       await db.delete(outbox).where(or(...parcelIds.map((id) => like(outbox.payloadJson, `%${id}%`))));
+      await db.delete(deliveryOtp).where(inArray(deliveryOtp.parcelId, parcelIds));
       await db.delete(freightReconciliation).where(inArray(freightReconciliation.branchId, [branchId]));
       await db.delete(freightEntry).where(inArray(freightEntry.parcelId, parcelIds));
       await db.delete(freightCharge).where(inArray(freightCharge.parcelId, parcelIds));
@@ -316,8 +339,13 @@ describe("retail customer freight remains separate from COD", () => {
       codCollectedCents: 0,
     };
     const rider: Principal = { ...OPS, role: "rider", roles: ["rider"], userId: riderId!, name: "Freight integration test Rider" };
+    const receiverPhone = "+94770000002";
+    const otpChallengeId = await verifiedOtpForTest(booked.parcel.id, booked.parcel.awb, receiverPhone);
     await expect(recordDelivery({
       ...baseDelivery,
+      receiverPhone,
+      receiverNicLast4: "0002",
+      otpChallengeId,
       freightCollectedCents: 4_249,
       freightPaymentMethod: "cash",
       clientId: `freight-wrong-${RUN}`,
@@ -329,6 +357,9 @@ describe("retail customer freight remains separate from COD", () => {
 
     const delivered = await recordDelivery({
       ...baseDelivery,
+      receiverPhone,
+      receiverNicLast4: "0002",
+      otpChallengeId,
       freightCollectedCents: 4_250,
       freightPaymentMethod: "bank_transfer",
       freightExternalReference: `TRX-${RUN}`,
@@ -338,6 +369,14 @@ describe("retail customer freight remains separate from COD", () => {
     expect(delivered.codCollectedCents).toBe(0);
     expect(delivered.freightCollectedCents).toBe(4_250);
     expect(delivered.freightReceiptCode?.startsWith("RCP")).toBe(true);
+    const [pod] = await db.select().from(deliveryPod).where(eq(deliveryPod.id, delivered.podId)).limit(1);
+    expect(pod).toMatchObject({
+      receiverPhone,
+      receiverNicLast4: "0002",
+      otpVerified: true,
+      otpChallengeId,
+    });
+    expect(pod && "receiverNic" in pod).toBe(false);
     const counterHistory = await pageCounterBookings(OPS, { search: booked.parcel.awb, page: 1, pageSize: 10 });
     expect(counterHistory.rows).toHaveLength(1);
     expect(counterHistory.rows[0]?.paidReceipt?.code).toBe(delivered.freightReceiptCode ?? undefined);
@@ -349,6 +388,9 @@ describe("retail customer freight remains separate from COD", () => {
     expect(entries[0]?.externalReference).toBe(`TRX-${RUN}`);
     const replay = await recordDelivery({
       ...baseDelivery,
+      receiverPhone,
+      receiverNicLast4: "0002",
+      otpChallengeId,
       freightCollectedCents: 4_250,
       freightPaymentMethod: "bank_transfer",
       freightExternalReference: `TRX-${RUN}`,

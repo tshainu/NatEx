@@ -3,36 +3,64 @@ import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../../lib/auth";
-import { homeRouteFor, type Role } from "../../lib/session";
+import { apiMessage, orpc } from "../../lib/api";
+import { homeRouteFor, type MobileFieldRole } from "../../lib/session";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { Body, Small, Title } from "./text";
 
 const WORKSPACES: {
-  role: Role;
+  role: MobileFieldRole;
   title: string;
   description: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { role: "merchant", title: "Merchant", description: "Book and manage shipments", icon: "storefront-outline" },
   { role: "rider", title: "Rider", description: "Pickups, deliveries and hand-in", icon: "bicycle-outline" },
   { role: "transport", title: "Transport", description: "Bags, linehaul trips and inbound", icon: "bus-outline" },
 ];
 
-/** Appears in screen headers only when the signed-in account has multiple mobile roles. */
+/** Appears inline in the shared screen header when a user has multiple field roles. */
 export function WorkspaceSwitcher() {
+  return <WorkspaceMenu />;
+}
+
+function WorkspaceMenu() {
   const colors = useColors();
-  const { user, role, roles, switchRole } = useAuth();
+  const { user, role, session, switchRole } = useAuth();
   const [open, setOpen] = React.useState(false);
-  const available = WORKSPACES.filter((workspace) => roles.includes(workspace.role));
+  const [switching, setSwitching] = React.useState(false);
+  const [switchError, setSwitchError] = React.useState<string | null>(null);
+  const isFieldSession =
+    session?.scope?.kind === "mobile" &&
+    (session.scope.role === "rider" || session.scope.role === "transport");
+  const workspacesQuery = useQuery({
+    ...orpc.identity.mobileWorkspaces.queryOptions(),
+    enabled: isFieldSession,
+    staleTime: 30_000,
+  });
+  const assignedRoles = workspacesQuery.data?.roles ?? session?.availableMobileRoles ?? [];
+  const available = WORKSPACES.filter((workspace) => assignedRoles.includes(workspace.role));
 
-  if (available.length < 2) return null;
+  if (!isFieldSession || available.length < 2) return null;
 
-  async function choose(nextRole: Role) {
-    setOpen(false);
-    await switchRole(nextRole);
-    router.replace(homeRouteFor(nextRole));
+  async function choose(nextRole: MobileFieldRole) {
+    if (nextRole === role || switching) {
+      setOpen(false);
+      return;
+    }
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      await switchRole(nextRole);
+      setOpen(false);
+      router.replace(homeRouteFor(nextRole));
+    } catch (error) {
+      setSwitchError(apiMessage(error, "This workspace could not be opened. Try again."));
+    } finally {
+      setSwitching(false);
+    }
   }
 
   return (
@@ -40,6 +68,7 @@ export function WorkspaceSwitcher() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open workspaces menu"
+        accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.trigger,
@@ -81,14 +110,15 @@ export function WorkspaceSwitcher() {
                   <Pressable
                     key={workspace.role}
                     accessibilityRole="button"
-                    accessibilityState={{ selected }}
+                    accessibilityState={{ selected, disabled: switching }}
+                    disabled={switching}
                     onPress={() => void choose(workspace.role)}
                     style={({ pressed }) => [
                       styles.option,
                       {
                         backgroundColor: selected ? colors.secondary : colors.card,
                         borderColor: selected ? colors.primary : colors.border,
-                        opacity: pressed ? 0.75 : 1,
+                        opacity: pressed || switching ? 0.75 : 1,
                       },
                     ]}
                   >
@@ -105,6 +135,7 @@ export function WorkspaceSwitcher() {
                   </Pressable>
                 );
               })}
+              {switchError ? <Small color={colors.destructive}>{switchError}</Small> : null}
             </View>
           </SafeAreaView>
         </View>

@@ -67,12 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const switchRole = React.useCallback(
     async (nextRole: Role) => {
       if (!session) return;
-      const assigned = session.user.roles?.length ? session.user.roles : [session.user.role];
-      if (!assigned.includes(nextRole)) return;
       if ((session.activeRole ?? session.user.role) === nextRole) return;
+      if (nextRole !== "rider" && nextRole !== "transport") return;
+      // The server checks live assignment/status and returns a token scoped to
+      // exactly this role. Never broaden the old token or trust cached UI roles.
+      const nextSession = await client.identity.switchMobileRole({ role: nextRole });
+      await storeApiSession(nextSession as ApiSession, nextRole);
       // Avoid showing cached results from the previous workspace after switching.
       queryClient.clear();
-      await setSession({ ...session, activeRole: nextRole });
     },
     [queryClient, session],
   );
@@ -99,8 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       user: session?.user ?? null,
       role: session?.activeRole ?? session?.user.role ?? null,
-      roles: session?.user.roles?.length
-        ? session.user.roles
+      roles: session?.availableMobileRoles?.length
+        ? session.availableMobileRoles
         : session?.user
           ? [session.user.role]
           : [],

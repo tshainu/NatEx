@@ -76,8 +76,10 @@ const PENDING_MFA_OK = ["mfa.enrolConfirm", "mfa.enrolStart", "mfa.status", "mfa
 const SERVICE_GATED = [
   "identity.logout",
   "identity.me",
+  "identity.mobileWorkspaces",
   "identity.mySessions",
   "identity.revokeMySession",
+  "identity.switchMobileRole",
   "mfa.regenerateRecoveryCodes",
   "parcels.bulkCreate",
   "parcels.create",
@@ -104,6 +106,16 @@ describe("route guards (static inventory)", () => {
   test("every other authenticated procedure without a role gate is a reviewed one", () => {
     const ungated = guards.filter((g) => g.auth === "auth" && g.roles === null).map((g) => g.path).sort();
     expect(ungated).toEqual(SERVICE_GATED);
+  });
+
+  test("mobile workspace discovery and switching require authentication but add no role permissions", () => {
+    for (const path of ["identity.mobileWorkspaces", "identity.switchMobileRole"]) {
+      expect({ path, auth: byPath.get(path)?.auth, roles: byPath.get(path)?.roles }).toEqual({
+        path,
+        auth: "auth",
+        roles: null,
+      });
+    }
   });
 
   test("no role gate is empty (an empty intersection would lock everyone out silently)", () => {

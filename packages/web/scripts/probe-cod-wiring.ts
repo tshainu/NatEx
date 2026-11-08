@@ -28,6 +28,7 @@ import { finishMfa } from "./lib/mfa";
 import { CMB_BRANCH, KDY_HUB, railToKandyHub } from "./lib/rail";
 import { bankRiderCash } from "./lib/cash";
 import { retireRun } from "./lib/retire";
+import { verifiedDeliveryOtp } from "./lib/verified-delivery-otp";
 
 const API = process.env.PROBE_API ?? "http://localhost:4200";
 const DEVICE = "cod-wiring-probe-device";
@@ -101,6 +102,9 @@ const ops = await login("+94779012345");
 const finance = await login("+94774567890");
 const rider = await login("+94778901234", DEVICE);
 const riderApi = (l: string) => clientFor(rider.accessToken, key(l), DEVICE);
+const receiverPhone = "+94761112233";
+const receiverNicLast4 = "1234";
+const challengeFor = (awb: string) => verifiedDeliveryOtp(riderApi(`otp-${awb}`), awb, receiverPhone);
 
 for (const r of await clientFor(transport.accessToken).delivery.runsheetList({
   riderId: rider.user.id,
@@ -164,9 +168,13 @@ check(out.movedOut.length === 4, "run 1 dispatched under the ceiling", `${sheet.
 console.log("\n1. A COD delivery posts exactly one COLLECT");
 const sig = "data:image/png;base64,iVBORw0KGgo=";
 const clientA = `cw-${RUN}-A-01`;
+const otpA = await challengeFor(parcels.A.awb);
 const delA = await riderApi("deliver-A").delivery.recordDelivery({
   awb: parcels.A.awb,
   receivedByName: "Kamala Wijesinghe",
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: otpA,
   method: "signature",
   signatureData: sig,
   codCollectedCents: COD.A,
@@ -200,6 +208,9 @@ console.log("\n2. Replays never post a second COLLECT");
 const replayA = await riderApi("deliver-A-replay").delivery.recordDelivery({
   awb: parcels.A.awb,
   receivedByName: "Kamala Wijesinghe",
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: otpA,
   method: "signature",
   signatureData: sig,
   codCollectedCents: COD.A,
@@ -211,6 +222,9 @@ const second = await refusal(
   riderApi("deliver-A-again").delivery.recordDelivery({
     awb: parcels.A.awb,
     receivedByName: "Someone Else",
+    receiverPhone,
+    receiverNicLast4,
+    otpChallengeId: otpA,
     method: "signature",
     signatureData: sig,
     codCollectedCents: COD.A,
@@ -225,6 +239,7 @@ check(
 );
 
 const opB = `cw-${RUN}-B-op1`;
+const otpB = await challengeFor(parcels.B.awb);
 const pushB = () =>
   clientFor(rider.accessToken, key("push-B"), DEVICE).sync.push({
     deviceId: DEVICE,
@@ -237,6 +252,9 @@ const pushB = () =>
         payload: {
           awb: parcels.B.awb,
           receivedByName: "Ruwan Perera",
+          receiverPhone,
+          receiverNicLast4,
+          otpChallengeId: otpB,
           method: "signature",
           signatureData: sig,
           codCollectedCents: COD.B,
@@ -257,10 +275,14 @@ check(
 
 // ── 3. prepaid and missing cash ────────────────────────────────────────────
 console.log("\n3. Prepaid posts nothing; missing cash is refused");
+const otpC = await challengeFor(parcels.C.awb);
 const noCash = await refusal(
   riderApi("deliver-C-nocash").delivery.recordDelivery({
     awb: parcels.C.awb,
     receivedByName: "Sivakumar Rajan",
+    receiverPhone,
+    receiverNicLast4,
+    otpChallengeId: otpC,
     method: "signature",
     signatureData: sig,
     codCollectedCents: 0,
@@ -274,6 +296,9 @@ check(
 await riderApi("deliver-C").delivery.recordDelivery({
   awb: parcels.C.awb,
   receivedByName: "Sivakumar Rajan",
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: otpC,
   method: "signature",
   signatureData: sig,
   codCollectedCents: COD.C,
@@ -281,6 +306,9 @@ await riderApi("deliver-C").delivery.recordDelivery({
 const delD = await riderApi("deliver-D").delivery.recordDelivery({
   awb: parcels.D.awb,
   receivedByName: "Prepaid Person",
+  receiverPhone,
+  receiverNicLast4,
+  otpChallengeId: await challengeFor(parcels.D.awb),
   method: "signature",
   signatureData: sig,
 });

@@ -12,8 +12,10 @@ import {
   verifySecret,
   PENDING_MFA,
   ROLES,
+  MOBILE_FIELD_ROLES,
   resolveMobileRole,
   type MfaLevel,
+  type MobileFieldRole,
   type Principal,
   type Role,
   type SessionScope,
@@ -212,6 +214,8 @@ export interface Session {
     merchantId: string | null;
     deviceId: string | null;
   };
+  /** UI discovery only; access-token claims and user.roles remain scoped to one role. */
+  availableMobileRoles: MobileFieldRole[];
   /**
    * M5 (§2). `state` is the session's MFA level. When it is `enrol` or
    * `challenge` the tokens above are PENDING — good only for the `mfa.*`
@@ -307,7 +311,49 @@ async function issueSession(
     },
     mfa: { state: opts.mfaLevel, ...(opts.devCode ? { devCode: opts.devCode } : {}) },
     scope: opts.scope ?? null,
+    availableMobileRoles:
+      opts.scope?.kind === "mobile" && (MOBILE_FIELD_ROLES as readonly string[]).includes(opts.scope.role)
+        ? MOBILE_FIELD_ROLES.filter((fieldRole) => account.roles.includes(fieldRole))
+        : [],
   };
+}
+
+/**
+ * Live role discovery for the authenticated field app. This is display data,
+ * not an authorization grant: every protected route still uses the token's
+ * single-role scope, and switching rechecks the account below.
+ */
+export async function listMobileWorkspaces(userId: string): Promise<MobileFieldRole[]> {
+  const account = await getUserById(userId);
+  if (!account || account.status !== "active") errors.unauthenticated("Account unavailable.");
+  return MOBILE_FIELD_ROLES.filter((role) => account!.roles.includes(role));
+}
+
+/** Issue a new least-privilege field session after checking the live account. */
+export async function switchMobileWorkspace(params: {
+  userId: string;
+  deviceId: string | null;
+  currentScope: SessionScope | null;
+  role: MobileFieldRole;
+}): Promise<Session> {
+  if (
+    params.currentScope?.kind !== "mobile" ||
+    !(MOBILE_FIELD_ROLES as readonly string[]).includes(params.currentScope.role)
+  ) {
+    errors.forbidden("Only an authenticated Rider or Transport workspace can switch field workspaces.");
+  }
+
+  const account = await getUserById(params.userId);
+  if (!account || account.status !== "active") errors.unauthenticated("Account unavailable.");
+  if (!account!.roles.includes(params.role)) {
+    errors.forbidden("This mobile workspace is not assigned to this account.");
+  }
+  if (account!.roles.includes("rider") && params.deviceId && account!.deviceId !== params.deviceId) {
+    errors.forbidden("This device is no longer the active device for this rider.");
+  }
+
+  const scope = resolveMobileSessionScope(account!.roles, params.role);
+  return issueSession(account!, params.deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
 }
 
 /** What a fresh sign-in must still prove, for this account, right now. */

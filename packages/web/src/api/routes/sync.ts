@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { mutate, opsProc, staffProc } from "../middleware/pipeline";
 import * as syncService from "../modules/sync/service";
+import { sanitizeDeliveryOperation } from "../modules/sync/delivery-payload";
 
 /**
  * sync routes — the device-facing half of PROJECT.md §7, plus the ops
@@ -96,22 +97,26 @@ export const push = staffProc
       clientNow: z.number().int().nullish(),
     }),
   )
-  .handler(({ input, context }) =>
-    mutate(
+  .handler(({ input, context }) => {
+    const safeInput = {
+      ...input,
+      operations: input.operations.map((op) => sanitizeDeliveryOperation(op)),
+    };
+    return mutate(
       context,
-      input,
+      safeInput,
       {
         route: "sync.push",
         entity: "sync_device",
-        entityId: () => input.deviceId,
+        entityId: () => safeInput.deviceId,
         action: "sync.pushed",
         // A reconnecting fleet arrives all at once after an outage; the
         // default 120/min would throttle exactly the recovery it should help.
         bucket: { capacity: 600, refillPerMinute: 600 },
       },
-      () => syncService.pushBatch(input, context.principal),
-    ),
-  );
+      () => syncService.pushBatch(safeInput, context.principal),
+    );
+  });
 
 /**
  * Delta pull. A read, so no Idempotency-Key — but it does write the device's

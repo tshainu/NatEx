@@ -182,6 +182,10 @@ export const deliveryPod = sqliteTable(
     method: text("method").notNull(),
     /** Who physically took the parcel — may not be the consignee. */
     receivedByName: text("received_by_name").notNull(),
+    /** Canonical Sri Lankan mobile number whose delivery OTP was verified. */
+    receiverPhone: text("receiver_phone"),
+    /** Only the final four NIC digits are retained; the full NIC stays on-device. */
+    receiverNicLast4: text("receiver_nic_last4"),
     /** self | family | neighbour | security | reception | other */
     receivedByRelation: text("received_by_relation"),
     /** True only when an OTP challenge was verified server-side. */
@@ -235,6 +239,9 @@ export const deliveryOtp = sqliteTable(
     resendCount: integer("resend_count").notNull().default(0),
     requestedById: text("requested_by_id"),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    /** Set with consumedAt only after the correct code is verified before expiry. */
+    verifiedAt: integer("verified_at", { mode: "timestamp" }),
+    /** A code is single-use; this marks the successful verification that authorises one POD. */
     consumedAt: integer("consumed_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
