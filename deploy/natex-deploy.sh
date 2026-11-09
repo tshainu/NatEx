@@ -95,8 +95,32 @@ fi
 
 if [ "$MODE" = "--with-schema" ]; then
   say "backing up before the schema push"
-  with_env /etc/natex/natex.env "$BUN" scripts/backup-drill.ts --discard >> "$STATE/deploy.log" 2>&1 \
-    || { say "BACKUP FAILED; schema not pushed, still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
+  BACKUP_LOG="$STATE/backup-drill.$$.log"
+  BACKUP_OK=false
+  for attempt in 1 2; do
+    : > "$BACKUP_LOG"
+    if with_env /etc/natex/natex.env "$BUN" scripts/backup-drill.ts --discard > "$BACKUP_LOG" 2>&1; then
+      cat "$BACKUP_LOG" >> "$STATE/deploy.log"
+      BACKUP_OK=true
+      break
+    fi
+    cat "$BACKUP_LOG" >> "$STATE/deploy.log"
+    if [ "$attempt" -eq 1 ] && grep -q "interactive transaction was rolled back because the stream was idle for too long" "$BACKUP_LOG"; then
+      say "backup drill hit a transient Turso idle-transaction timeout; retrying once with a fresh transaction"
+      sleep 5
+      continue
+    fi
+    rm -f "$BACKUP_LOG"
+    say "BACKUP FAILED; schema not pushed, still serving ${OLD:0:7}"
+    build "$OLD" || true
+    exit 1
+  done
+  rm -f "$BACKUP_LOG"
+  if [ "$BACKUP_OK" != true ]; then
+    say "BACKUP FAILED; schema not pushed, still serving ${OLD:0:7}"
+    build "$OLD" || true
+    exit 1
+  fi
   with_env /etc/natex/natex.env "$BUN" x drizzle-kit push --force >> "$STATE/deploy.log" 2>&1 \
     || { say "SCHEMA PUSH FAILED; still serving ${OLD:0:7}"; build "$OLD" || true; exit 1; }
   # The demo site (RUNBOOK §1) runs the same checkout on its own dummy DB.
