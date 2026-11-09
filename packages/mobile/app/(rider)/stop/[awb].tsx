@@ -1,9 +1,8 @@
 import React from "react";
-import { Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import * as ImagePicker from "expo-image-picker";
-import { apiMessage, client, orpc } from "../../../lib/api";
+import { orpc } from "../../../lib/api";
 import { dateTime, humanise, money, parseRupeesToCents, since } from "../../../lib/format";
 import { dismiss, enqueue, type OutboxEntry } from "../../../lib/outbox";
 import { Screen, ScreenHeader, Section } from "../../../components/natex/screen";
@@ -141,7 +140,7 @@ export default function StopScreen() {
         </View>
         <View style={styles.row}>
           <View style={styles.flex}>
-            <Field label="Proof needed" value={podLabel(stop.podPolicy)} />
+            <Field label="Proof needed" value={podLabel()} />
           </View>
         </View>
         <Field label="Attempt" value={`${stop.attemptNo + 1} of 3`} />
@@ -194,10 +193,8 @@ function backToRun(): void {
   router.navigate("/(rider)/deliveries");
 }
 
-function podLabel(policy: string | null): string {
-  if (policy === "otp") return "OTP from consignee";
-  if (policy === "photo") return "Doorstep photo";
-  return "Signature";
+function podLabel(): string {
+  return "Receiver signature";
 }
 
 /** The phone's own record for this stop, if it has one worth showing. */
@@ -264,7 +261,6 @@ function EntryNotice({ entry }: { entry: OutboxEntry | null }) {
 
 function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }) {
   const colors = useColors();
-  const policy = (stop.podPolicy ?? "signature") as "otp" | "signature" | "photo";
   const [name, setName] = React.useState("");
   const [relation, setRelation] = React.useState<Relation>("self");
   const [receiverPhone, setReceiverPhone] = React.useState(stop.consigneePhone);
@@ -275,10 +271,6 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
   const [freightReference, setFreightReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [signature, setSignature] = React.useState<string | null>(null);
-  const [photoRef, setPhotoRef] = React.useState<string | null>(null);
-  const [otpCode, setOtpCode] = React.useState("");
-  const [otpChallengeId, setOtpChallengeId] = React.useState<string | null>(null);
-  const [otpVerified, setOtpVerified] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
   const isCod = stop.codAmountCents > 0;
@@ -292,63 +284,12 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
     (freightMethod === "cash" || freightReference.trim().length >= 3)
   );
 
-  const sendOtp = useMutation({
-    mutationFn: () => client.delivery.otpRequest({ awb: stop.awb, receiverPhone }),
-    onSuccess: (result) => {
-      setReceiverPhone(result.sentTo);
-      setOtpChallengeId(result.challengeId);
-      setOtpVerified(false);
-      setOtpCode("");
-    },
-  });
-  const verifyOtp = useMutation({
-    mutationFn: () => {
-      if (!otpChallengeId) throw new Error("Send a code to the receiver first.");
-      return client.delivery.otpVerify({
-        awb: stop.awb,
-        receiverPhone,
-        challengeId: otpChallengeId,
-        code: otpCode.trim(),
-      });
-    },
-    onSuccess: (r) => setOtpVerified(r.verified),
-  });
-  const photo = useMutation({
-    mutationFn: async () => {
-      const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], quality: 0.6 };
-      if (Platform.OS !== "web") {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) throw new Error("Camera permission is needed for a doorstep photo.");
-      }
-      const shot =
-        Platform.OS === "web"
-          ? await ImagePicker.launchImageLibraryAsync(opts)
-          : await ImagePicker.launchCameraAsync(opts);
-      if (shot.canceled || !shot.assets[0]) return null;
-      const asset = shot.assets[0];
-      const contentType = (asset.mimeType ?? "image/jpeg") as "image/jpeg" | "image/png" | "image/webp";
-      const slot = await client.delivery.podPhotoUpload({ awb: stop.awb, contentType });
-      const blob = await (await fetch(asset.uri)).blob();
-      const put = await fetch(slot.uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": contentType } });
-      if (!put.ok) throw new Error(`Photo upload failed (${put.status}). Try again with signal.`);
-      return slot.storageRef;
-    },
-    onSuccess: (ref) => {
-      if (ref) setPhotoRef(ref);
-    },
-  });
-
   const nicLast4 = receiverNicLast4(receiverNic);
   const normalisedPhoneInput = receiverPhone.replace(/[\s()-]/g, "");
   const phoneOk = /^\+?947\d{8}$/.test(normalisedPhoneInput) || /^07\d{8}$/.test(normalisedPhoneInput);
-  const policyProofOk = policy === "otp" ? true : policy === "signature" ? !!signature : !!photoRef;
-  const proofOk = otpVerified && policyProofOk;
+  const nicOk = !receiverNic.trim() || !!nicLast4;
   const nameOk = name.trim().length >= 2;
-  const ready = proofOk && phoneOk && !!nicLast4 && nameOk && cashOk && freightOk;
-  const collectionLabel = [
-    isCod ? `COD ${money(stop.codAmountCents)}` : null,
-    freightDue > 0 ? `freight ${money(freightDue)}` : null,
-  ].filter(Boolean).join(" + ");
+  const ready = !!signature && phoneOk && nicOk && nameOk && cashOk && freightOk;
 
   const save = useMutation({
     // A local write needs no signal. The default ("online") would park this
@@ -359,11 +300,11 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
         receivedByName: name.trim(),
         receivedByRelation: relation,
         receiverPhone: receiverPhone.trim(),
-        receiverNicLast4: nicLast4!,
-        otpChallengeId: otpChallengeId!,
-        method: policy,
-        signatureData: policy === "signature" ? signature : null,
-        photoUrl: policy === "photo" ? photoRef : null,
+        receiverNicLast4: nicLast4,
+        otpChallengeId: null,
+        method: "signature",
+        signatureData: signature,
+        photoUrl: null,
         codCollectedCents: isCod ? cents : 0,
         freightCollectedCents: freightDue > 0 ? freightValue : 0,
         freightPaymentMethod: freightDue > 0 ? freightMethod : null,
@@ -381,78 +322,77 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
     ? "Enter who took the parcel"
     : !phoneOk
       ? "Enter a valid receiver mobile number"
-      : !nicLast4
-        ? "Enter a valid receiver NIC"
-        : !otpVerified
-          ? "Verify the OTP sent to the receiver"
-          : !policyProofOk
-            ? policy === "signature"
-              ? "Capture the merchant-required signature"
-              : "Take the merchant-required doorstep photo"
-            : !cashOk
-        ? `Cash must be exactly ${money(stop.codAmountCents)}`
-        : !freightOk
-          ? freightMethod === "cash"
-            ? `Freight must be exactly ${money(freightDue)}`
-            : "Enter the exact freight amount and payment reference"
-          : undefined;
+      : !nicOk
+        ? "If provided, enter a valid receiver NIC"
+        : !signature
+          ? "Capture the receiver's signature"
+          : !cashOk
+            ? `Cash must be exactly ${money(stop.codAmountCents)}`
+            : !freightOk
+              ? freightMethod === "cash"
+                ? `Freight must be exactly ${money(freightDue)}`
+                : "Enter the exact freight amount and payment reference"
+              : undefined;
 
   return (
     <Screen
       footer={
-        <>
+        <View style={styles.footerActions}>
+          <Button title="Back" variant="secondary" onPress={onCancel} disabled={save.isPending} style={styles.backAction} />
+          <View style={styles.primaryAction}>
           <Button
-            title={collectionLabel ? `Confirm delivery · ${collectionLabel} collected` : "Confirm delivery"}
+            title="Confirm delivery"
             disabled={!ready}
             loading={save.isPending}
             hint={missing}
             onPress={() => save.mutate()}
           />
-          <Button title="Back" variant="ghost" onPress={onCancel} disabled={save.isPending} />
-        </>
+          </View>
+        </View>
       }
     >
-      <ScreenHeader title="Deliver" subtitle={`${stop.awb} · ${stop.consigneeName}`} />
+      <ScreenHeader title="Confirm delivery" subtitle={`${stop.awb} · ${stop.consigneeName}`} />
 
-      <Card>
-        <Input label="Received by" value={name} onChangeText={setName} placeholder="Full name" autoFocus />
-        <Label>Relation to consignee</Label>
-        <View style={styles.chips}>
-          {RELATIONS.map((r) => (
-            <Chip key={r} label={humanise(r)} selected={relation === r} onPress={() => setRelation(r)} />
-          ))}
-        </View>
-      </Card>
+      <Panel style={{ borderColor: colors.primary }}>
+        <Title>Signature is the proof</Title>
+        <Small>No receiver OTP is needed. NIC is optional; if entered, only its last four digits are retained.</Small>
+      </Panel>
 
-      <Card>
-        <Input
-          label="Receiver mobile"
-          value={receiverPhone}
-          onChangeText={(value) => {
-            setReceiverPhone(value);
-            setOtpChallengeId(null);
-            setOtpVerified(false);
-            setOtpCode("");
-            sendOtp.reset();
-            verifyOtp.reset();
-          }}
-          keyboardType="phone-pad"
-          code
-          placeholder="077 123 4567"
-          error={receiverPhone && !phoneOk ? "Enter a Sri Lankan mobile number, e.g. 0771234567." : undefined}
-        />
-        <Input
-          label="Receiver NIC"
-          value={receiverNic}
-          onChangeText={(value) => setReceiverNic(value.toUpperCase())}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={12}
-          placeholder="Full NIC (kept on this screen only)"
-          error={receiverNic && !nicLast4 ? "Enter a valid 9-digit NIC with V/X or a 12-digit NIC." : undefined}
-          hint={nicLast4 ? `Only ${nicLast4} will be saved with the POD.` : "The full NIC is never sent or saved."}
-        />
-      </Card>
+      <Section>
+        <Label>Receiver details</Label>
+        <Card>
+          <Input label="Received by" value={name} onChangeText={setName} placeholder="Full name" autoFocus />
+          <Label>Relation to consignee</Label>
+          <View style={styles.chips}>
+            {RELATIONS.map((r) => (
+              <Chip key={r} label={humanise(r)} selected={relation === r} onPress={() => setRelation(r)} />
+            ))}
+          </View>
+        </Card>
+
+        <Card>
+          <Input
+            label="Receiver mobile"
+            value={receiverPhone}
+            onChangeText={setReceiverPhone}
+            keyboardType="phone-pad"
+            code
+            placeholder="077 123 4567"
+            error={receiverPhone && !phoneOk ? "Enter a Sri Lankan mobile number, e.g. 0771234567." : undefined}
+          />
+          <Input
+            label="Receiver NIC (optional)"
+            value={receiverNic}
+            onChangeText={(value) => setReceiverNic(value.toUpperCase())}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={12}
+            placeholder="Skip if not available"
+            error={receiverNic && !nicLast4 ? "If entered, use a 9-digit NIC with V/X or a 12-digit NIC." : undefined}
+            hint={nicLast4 ? `Only ${nicLast4} will be saved.` : "Optional. Full NIC is never sent or saved."}
+          />
+        </Card>
+      </Section>
 
       {isCod ? (
         <Card>
@@ -501,80 +441,13 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
         </Card>
       ) : null}
 
-      <Card>
-        <Label>Receiver OTP · required for every delivery</Label>
-        <Small>A code goes by SMS to the receiver mobile above. Verification needs signal; the verified delivery can then queue offline.</Small>
-        {otpVerified ? (
-          <Badge tone="good">Receiver OTP verified by server</Badge>
-        ) : (
-          <>
-            <Button
-              title={sendOtp.isSuccess ? "Resend code" : "Send code to receiver"}
-              variant="secondary"
-              disabled={!phoneOk}
-              loading={sendOtp.isPending}
-              onPress={() => sendOtp.mutate()}
-            />
-            {sendOtp.data ? (
-              <Small>
-                Sent to {sendOtp.data.sentTo} · expires in {sendOtp.data.expiresInMinutes} min
-                {sendOtp.data.devCode ? ` · DEV (no SMS gateway): ${sendOtp.data.devCode}` : ""}
-              </Small>
-            ) : null}
-            {sendOtp.isError ? (
-              <Small color={colors.statusWarn}>{apiMessage(sendOtp.error, "No signal — OTP cannot be sent offline.")}</Small>
-            ) : null}
-            {otpChallengeId ? (
-              <>
-                <Input
-                  label="Code from receiver"
-                  value={otpCode}
-                  onChangeText={setOtpCode}
-                  keyboardType="number-pad"
-                  code
-                  maxLength={8}
-                />
-                <Button
-                  title="Verify receiver code"
-                  variant="secondary"
-                  disabled={otpCode.trim().length < 4}
-                  loading={verifyOtp.isPending}
-                  onPress={() => verifyOtp.mutate()}
-                />
-                {verifyOtp.isError ? (
-                  <Small color={colors.statusWarn}>{apiMessage(verifyOtp.error, "Code not accepted.")}</Small>
-                ) : null}
-              </>
-            ) : null}
-          </>
-        )}
-      </Card>
-
-      {policy !== "otp" ? (
+      <Section>
+        <Label>Proof of delivery</Label>
         <Card>
-          {policy === "signature" ? (
-            <>
-              <Label>Merchant-required signature</Label>
-              <SignaturePad onChange={setSignature} />
-            </>
-          ) : (
-            <>
-              <Label>Merchant-required doorstep photo</Label>
-              <Small>The photo uploads straight away (needs signal); the delivery record itself can sync later.</Small>
-              {photoRef ? <Badge tone="good">Photo uploaded</Badge> : null}
-              <Button
-                title={photoRef ? "Retake photo" : "Take photo"}
-                variant="secondary"
-                loading={photo.isPending}
-                onPress={() => photo.mutate()}
-              />
-              {photo.isError ? (
-                <Small color={colors.statusWarn}>{apiMessage(photo.error, "Photo could not be uploaded.")}</Small>
-              ) : null}
-            </>
-          )}
+          <Small>Ask the person receiving the parcel to sign below.</Small>
+          <SignaturePad onChange={setSignature} />
         </Card>
-      ) : null}
+      </Section>
 
       <Card>
         <Input label="Notes (optional)" value={notes} onChangeText={setNotes} multiline maxLength={400} />
@@ -610,17 +483,19 @@ function FailForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }) {
   return (
     <Screen
       footer={
-        <>
-          <Button
-            title="Record failed attempt"
-            variant="danger"
-            disabled={!chosen}
-            loading={save.isPending}
-            hint={chosen ? undefined : "Choose what stopped the delivery"}
-            onPress={() => save.mutate()}
-          />
-          <Button title="Back" variant="ghost" onPress={onCancel} disabled={save.isPending} />
-        </>
+        <View style={styles.footerActions}>
+          <Button title="Back" variant="secondary" onPress={onCancel} disabled={save.isPending} style={styles.backAction} />
+          <View style={styles.primaryAction}>
+            <Button
+              title="Record failed attempt"
+              variant="danger"
+              disabled={!chosen}
+              loading={save.isPending}
+              hint={chosen ? undefined : "Choose a reason"}
+              onPress={() => save.mutate()}
+            />
+          </View>
+        </View>
       }
     >
       <ScreenHeader title="Could not deliver" subtitle={`${stop.awb} · ${stop.consigneeName}`} />
@@ -715,6 +590,9 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  footerActions: { flexDirection: "row", alignItems: "flex-start", gap: Space.unit },
+  backAction: { minWidth: 76 },
+  primaryAction: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit * 1.5 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: Space.unit },
   chip: {

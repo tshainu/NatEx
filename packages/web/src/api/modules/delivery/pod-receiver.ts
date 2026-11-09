@@ -10,6 +10,16 @@ export interface DeliveryOtpBinding {
 
 export type DeliveryOtpIssue = "required" | "binding" | "unverified" | "expired";
 
+export type DeliveryProofMethod = "otp" | "signature" | "photo";
+
+/** Rider field sessions use a captured signature; back-office actions retain the merchant policy. */
+export function requiredDeliveryProof(
+  role: string,
+  merchantPolicy: DeliveryProofMethod,
+): DeliveryProofMethod {
+  return role === "rider" ? "signature" : merchantPolicy;
+}
+
 /** Return only canonical Sri Lankan mobile numbers; never silently accept a landline. */
 export function normaliseReceiverPhone(input: string): string | null {
   if (typeof input !== "string") return null;
@@ -46,12 +56,12 @@ export function deliveryOtpIssue(
 /** Fields deliberately permitted in the POD audit row; no full NIC is accepted here. */
 export function receiverPodAuditFields(input: {
   receiverPhone: string;
-  receiverNicLast4: string;
-}): { receiverPhone: string; receiverNicLast4: string } {
+  receiverNicLast4?: string | null;
+}): { receiverPhone: string; receiverNicLast4: string | null } {
   const receiverPhone = normaliseReceiverPhone(input.receiverPhone);
   if (!receiverPhone) throw new Error("Enter a valid Sri Lankan receiver mobile number.");
-  if (!/^\d{4}$/.test(input.receiverNicLast4)) {
+  if (input.receiverNicLast4 != null && !/^\d{4}$/.test(input.receiverNicLast4)) {
     throw new Error("Only the receiver NIC's last four digits may be recorded.");
   }
-  return { receiverPhone, receiverNicLast4: input.receiverNicLast4 };
+  return { receiverPhone, receiverNicLast4: input.receiverNicLast4 ?? null };
 }

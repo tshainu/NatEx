@@ -49,7 +49,12 @@ import {
 } from "./ndr";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { isDevelopment } from "../../shared/env";
-import { deliveryOtpIssue, normaliseReceiverPhone, receiverPodAuditFields } from "./pod-receiver";
+import {
+  deliveryOtpIssue,
+  normaliseReceiverPhone,
+  receiverPodAuditFields,
+  requiredDeliveryProof,
+} from "./pod-receiver";
 
 /**
  * MODULE: delivery — runsheets, route order, doorstep attempts, proof of
@@ -1016,9 +1021,10 @@ export interface RecordDeliveryInput {
   receivedByRelation?: "self" | "family" | "neighbour" | "security" | "reception" | "other" | null;
   /** Receiver identity details; the full NIC is never an API field. */
   receiverPhone: string;
-  receiverNicLast4: string;
-  otpChallengeId: string;
-  /** Defaults to the merchant's configured POD policy (§6). */
+  receiverNicLast4?: string | null;
+  /** Optional legacy field; delivery OTP is no longer required as POD. */
+  otpChallengeId?: string | null;
+  /** Defaults to signature; signature is sufficient POD for Rider delivery. */
   method?: "otp" | "signature" | "photo" | null;
   signatureData?: string | null;
   photoUrl?: string | null;
@@ -1057,11 +1063,10 @@ export interface RecordDeliveryResult {
  * so a crash between the two leaves an orphan POD (harmless, visible) rather
  * than a Delivered parcel with no proof (a hole in the audit trail).
  *
- * §6's rules enforced here, in order:
+ * Delivery rules enforced here, in order:
  *   - the parcel must be OutForDelivery
- *   - the POD method the merchant requires must actually be present
- *   - every delivery needs a *server-verified* OTP bound to this AWB and receiver
- *   - a merchant's signature/photo policy remains an additional required proof
+ *   - a receiver signature is sufficient POD; delivery OTP is not required
+ *   - receiver NIC is optional and only its final four digits may be retained
  *   - COD must reconcile to the cent before the parcel changes hands
  */
 export async function recordDelivery(
@@ -1117,8 +1122,16 @@ export async function recordDelivery(
   }
   const receiverPhone = normaliseReceiverPhone(input.receiverPhone);
   if (!receiverPhone) errors.badRequest("Enter a valid Sri Lankan receiver mobile number.");
-  if (!/^\d{4}$/.test(input.receiverNicLast4)) {
-    errors.badRequest("Only the receiver NIC's last four digits may be recorded.");
+  const riderSignatureOnly = actor.role === "rider";
+  if (
+    (input.receiverNicLast4 != null && !/^\d{4}$/.test(input.receiverNicLast4)) ||
+    (!riderSignatureOnly && !input.receiverNicLast4)
+  ) {
+    errors.badRequest(
+      input.receiverNicLast4
+        ? "Only the receiver NIC's last four digits may be recorded."
+        : "The receiver NIC's last four digits are required for this desk-recorded delivery.",
+    );
   }
   const receiverAudit = receiverPodAuditFields({
     receiverPhone: receiverPhone as string,
@@ -1126,45 +1139,48 @@ export async function recordDelivery(
   });
   const merchant = p!.merchantId ? await getMerchant(p!.merchantId) : null;
   const policy = (merchant?.podPolicy ?? "signature") as "otp" | "signature" | "photo";
-  const method = input.method ?? policy;
-
-  // §6: "Delivered requires POD: signature or OTP or photo, configurable per
-  // merchant." A rider may capture MORE than the policy asks for, never less.
-  if (method !== policy) {
+  const requiredMethod = requiredDeliveryProof(actor.role, policy);
+  const method = riderSignatureOnly ? "signature" : (input.method ?? requiredMethod);
+  if (!riderSignatureOnly && method !== requiredMethod) {
     errors.badRequest(
-      `${merchant?.name ?? "This merchant"} requires ${policy} proof of delivery, not ${method}.`,
-      { requiredMethod: policy, suppliedMethod: method },
+      `${merchant?.name ?? "This merchant"} requires ${requiredMethod} proof of delivery, not ${method}.`,
+      { requiredMethod, suppliedMethod: method },
     );
   }
-
-  const otpChallengeId = input.otpChallengeId;
-  if (!otpChallengeId) {
-    errors.badRequest(`${p!.awb} needs a verified delivery OTP before it can be marked delivered.`, {
-      requiredMethod: "otp",
+  let otpChallengeId: string | null = null;
+  let otpVerified = false;
+  if (!riderSignatureOnly) {
+    const requestedChallengeId = input.otpChallengeId;
+    if (!requestedChallengeId) {
+      errors.badRequest(`${p!.awb} needs a verified delivery OTP before it can be marked delivered.`, {
+        requiredMethod: "otp",
+      });
+    }
+    const challengeId = requestedChallengeId as string;
+    otpChallengeId = challengeId;
+    const [challenge] = await db
+      .select()
+      .from(deliveryOtp)
+      .where(and(
+        eq(deliveryOtp.id, challengeId),
+        eq(deliveryOtp.parcelId, p!.id),
+        eq(deliveryOtp.awb, p!.awb),
+      ))
+      .limit(1);
+    const otpIssue = deliveryOtpIssue(challenge, {
+      awb: p!.awb,
+      receiverPhone: receiverAudit.receiverPhone,
     });
+    if (otpIssue) {
+      const detail = otpIssue === "expired"
+        ? `The verified OTP for ${p!.awb} has expired. Send and verify a new code.`
+        : otpIssue === "binding"
+          ? `The verified OTP must belong to ${p!.awb} and this receiver mobile number.`
+          : `${p!.awb} needs a verified delivery OTP before it can be marked delivered.`;
+      errors.badRequest(detail, { requiredMethod: "otp", otpIssue });
+    }
+    otpVerified = true;
   }
-  const [challenge] = await db
-    .select()
-    .from(deliveryOtp)
-    .where(and(
-      eq(deliveryOtp.id, otpChallengeId),
-      eq(deliveryOtp.parcelId, p!.id),
-      eq(deliveryOtp.awb, p!.awb),
-    ))
-    .limit(1);
-  const otpIssue = deliveryOtpIssue(challenge, {
-    awb: p!.awb,
-    receiverPhone: receiverAudit.receiverPhone,
-  });
-  if (otpIssue) {
-    const detail = otpIssue === "expired"
-      ? `The verified OTP for ${p!.awb} has expired. Send and verify a new code.`
-      : otpIssue === "binding"
-        ? `The verified OTP must belong to ${p!.awb} and this receiver mobile number.`
-        : `${p!.awb} needs a verified delivery OTP before it can be marked delivered.`;
-    errors.badRequest(detail, { requiredMethod: "otp", otpIssue });
-  }
-  const otpVerified = true;
   if (method === "signature" && !input.signatureData?.trim()) {
     errors.badRequest(`${p!.awb} needs a captured signature.`, { requiredMethod: "signature" });
   }

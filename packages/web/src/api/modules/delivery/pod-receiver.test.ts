@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { deliveryOtpIssue, normaliseReceiverPhone, receiverPodAuditFields } from "./pod-receiver";
+import {
+  deliveryOtpIssue,
+  normaliseReceiverPhone,
+  receiverPodAuditFields,
+  requiredDeliveryProof,
+} from "./pod-receiver";
 
 const now = Date.UTC(2026, 10, 8, 12);
 const challenge = {
@@ -55,10 +60,29 @@ describe("POD receiver audit", () => {
     expect(Object.keys(saved).sort()).toEqual(["receiverNicLast4", "receiverPhone"]);
   });
 
+  test("allows the receiver NIC to be omitted from POD", () => {
+    expect(receiverPodAuditFields({ receiverPhone: "0771234567" })).toEqual({
+      receiverPhone: "+94771234567",
+      receiverNicLast4: null,
+    });
+  });
+
   test("rejects a full NIC value from the server persistence boundary", () => {
     expect(() => receiverPodAuditFields({
       receiverPhone: "+94771234567",
       receiverNicLast4: "200012345678",
     })).toThrow("last four digits");
+  });
+});
+
+describe("delivery proof policy", () => {
+  test("Rider sessions use signature regardless of the merchant's prior OTP/photo policy", () => {
+    expect(requiredDeliveryProof("rider", "otp")).toBe("signature");
+    expect(requiredDeliveryProof("rider", "photo")).toBe("signature");
+  });
+
+  test("back-office delivery keeps the merchant-configured method", () => {
+    expect(requiredDeliveryProof("ops", "otp")).toBe("otp");
+    expect(requiredDeliveryProof("admin", "photo")).toBe("photo");
   });
 });

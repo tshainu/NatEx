@@ -311,8 +311,8 @@ export const recordDelivery = doorstepProc
       awb,
       receivedByName: z.string().min(2).max(120),
       receiverPhone: z.string().trim().min(8).max(24),
-      receiverNicLast4: z.string().regex(/^\d{4}$/),
-      otpChallengeId: z.string().min(1).max(64),
+      receiverNicLast4: z.string().regex(/^\d{4}$/).nullish(),
+      otpChallengeId: z.string().min(1).max(64).nullish(),
       receivedByRelation: z
         .enum(["self", "family", "neighbour", "security", "reception", "other"])
         .nullish(),
