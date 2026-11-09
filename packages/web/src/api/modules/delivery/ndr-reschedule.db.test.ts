@@ -179,7 +179,7 @@ describe("NDR receiver reschedule SMS", () => {
     expect(queuedAfterReplay).toHaveLength(1);
 
     const sent: { to: string; body: string; purpose: string }[] = [];
-    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "merchant_registration" | "reschedule" }) => {
+    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "merchant_registration" | "reschedule" }) => {
       sent.push(message);
       return { logId: "sms-test", state: "sent" as const, gatewayRef: null, raw: "accepted" };
     };

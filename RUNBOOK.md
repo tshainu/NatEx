@@ -16,9 +16,9 @@ build (2026-10-03) unless it says otherwise.
 | `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | yes | Turso. |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
-| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Use the owner-whitelisted sender `NatEx` for OTP, POD, merchant registration, and receiver rescheduling. Other customer booking/status SMS remain disabled. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
-| `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception to the parcel-SMS policy; OTP and identifier-free POD remain unchanged. |
-| Tracking links in SMS | — | Disabled. POD SMS contains no tracking number or link. The receiver reschedule message is the only non-OTP/POD receiver message and includes its tracking number, new date and reason; generic booking/status messages remain disabled. |
+| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Use the owner-whitelisted sender `NatEx` for OTP, POD, merchant registration, receiver rescheduling, and failed-delivery notices. Other customer booking/status SMS remain disabled. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception; failed-delivery notices and reschedules are the only parcel-notification SMS exceptions. |
+| Tracking links in SMS | — | POD SMS contains no tracking number or link. Failed-delivery and receiver-reschedule SMS may include their tracking number/link and short public reason; generic booking/status messages remain disabled. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
 
@@ -199,6 +199,16 @@ New HR employee records receive immutable server-assigned numbers: `N26002`, `N2
 `N26001` is reserved; existing `N26001`, legacy `2055` and historical payroll snapshots are unchanged.
 The fixed `N26` sequence uses the unique employee-code constraint to arbitrate concurrent creates.
 Creation retry through the normal idempotent mutation returns the original created employee.
+
+### Failed-delivery SMS
+
+When a new failed doorstep attempt uses a reason configured to notify the consignee, the
+`parcel.delivery_failed` template follows WhatsApp → SMS → Push. SMS is enabled only for this
+template (and POD confirmation); other generic parcel-status templates remain blocked from SMS.
+The approved failure copy includes the AWB, attempt number, public reason, the NatEx support
+number `0772772708`, and the tracking URL. A failed delivery job is retried by the outbox up to
+five times; inspect `notify_message` and `shared_sms_log` before any manual replay to avoid
+duplicate messages. Gateway acceptance is not proof of handset delivery.
 
 ### Receiver reschedule SMS
 

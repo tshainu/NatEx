@@ -4,6 +4,7 @@ import { smsLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 import {
   assertRescheduleSms,
+  assertDeliveryFailureSms,
   assertMerchantRegistrationSms,
   assertPodSmsHasNoTrackingMaterial,
   isSmsDisabled,
@@ -25,8 +26,8 @@ import {
 export interface SendSmsInput {
   to: string;
   body: string;
-  /** OTP, POD, two fixed registration messages, or the fixed reschedule notice. */
-  purpose: "otp" | "pod" | "merchant_registration" | "reschedule";
+  /** OTP, POD, failed-delivery notices, two fixed registration messages, or the fixed reschedule notice. */
+  purpose: "otp" | "pod" | "delivery_failure" | "merchant_registration" | "reschedule";
 }
 
 export interface SendSmsResult {
@@ -66,10 +67,11 @@ export function normaliseLkPhone(input: string): string {
 }
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
-  if (!["otp", "pod", "merchant_registration", "reschedule"].includes(input.purpose)) {
+  if (!["otp", "pod", "delivery_failure", "merchant_registration", "reschedule"].includes(input.purpose)) {
     throw new Error("Unsupported SMS purpose.");
   }
   if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(input.body);
+  if (input.purpose === "delivery_failure") assertDeliveryFailureSms(input.body);
   if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(input.body);
   if (input.purpose === "reschedule") assertRescheduleSms(input.body);
   const url = process.env.SMS_EXECUTION_URL;

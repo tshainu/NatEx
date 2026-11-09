@@ -26,6 +26,17 @@ export function assertPodSmsHasNoTrackingMaterial(body: string): void {
   }
 }
 
+/** A failed-delivery notice may identify the parcel, but must remain a short, single-line customer message. */
+export function assertDeliveryFailureSms(body: string): void {
+  const hasControlCharacter = [...body].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+  if (!body.trim() || body.length > 320 || hasControlCharacter) {
+    throw new Error("Failed-delivery SMS must be a non-empty, single-line message of at most 320 characters.");
+  }
+}
+
 export interface RescheduleSmsCopy {
   trackingNumber: string;
   newDate: string;

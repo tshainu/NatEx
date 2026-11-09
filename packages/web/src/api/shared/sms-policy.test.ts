@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assertDeliveryFailureSms,
   assertRescheduleSms,
   assertMerchantRegistrationSms,
   assertPodSmsHasNoTrackingMaterial,
@@ -30,6 +31,19 @@ describe("customer SMS tracking-material policy", () => {
     const body = "NatEx: your parcel has been delivered. Thank you.";
     expect(containsTrackingMaterial(body)).toBe(false);
     expect(() => assertPodSmsHasNoTrackingMaterial(body)).not.toThrow();
+  });
+
+  test("allows a short failed-delivery notice to identify the parcel", () => {
+    const body = "NatEx NX4400440040: delivery attempt 1 of 3 failed (Consignee unreachable). Call 0772772708 to rearrange. natex.lk/track/NX4400440040";
+    expect(() => assertDeliveryFailureSms(body)).not.toThrow();
+  });
+
+  test("rejects empty, multiline, or oversized failed-delivery SMS", () => {
+    for (const body of ["", "   ", "NatEx notice\nsecond line", "x".repeat(321)]) {
+      expect(() => assertDeliveryFailureSms(body)).toThrow(
+        "Failed-delivery SMS must be a non-empty, single-line message of at most 320 characters.",
+      );
+    }
   });
 
   test("accepts only the two exact merchant-registration SMS copies", () => {

@@ -5,7 +5,7 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { formatLkr } from "../../shared/money";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
-import { containsTrackingMaterial } from "../../shared/sms-policy";
+import { assertDeliveryFailureSms, containsTrackingMaterial } from "../../shared/sms-policy";
 import { prefixedId } from "../../shared/ulid";
 
 /**
@@ -96,11 +96,11 @@ export const DEFAULT_TEMPLATES: {
     name: "Delivery attempt failed",
     description: "Sent to the consignee after a failed doorstep attempt.",
     audience: "consignee",
-    channelOrder: "whatsapp,push",
+    channelOrder: "whatsapp,sms,push",
     bodyWhatsapp:
       "We could not deliver your NatEx parcel {{awb}} today ({{reason}}). This was attempt {{attemptNo}} of 3. Reply to this message or call us to arrange redelivery. {{trackUrl}}",
     bodySms:
-      "NatEx {{awb}}: delivery attempt {{attemptNo}} of 3 failed ({{reason}}). Call 0112 000 000 to rearrange. {{trackUrl}}",
+      "NatEx {{awb}}: delivery attempt {{attemptNo}} of 3 failed ({{reason}}). Call 0772772708 to rearrange. {{trackUrl}}",
     pushTitle: "Delivery attempt failed",
     bodyPush: "Attempt {{attemptNo}} of 3 on {{awb}} failed: {{reason}}.",
   },
@@ -206,9 +206,11 @@ export async function seedTemplates(): Promise<number> {
 }
 
 const POD_TEMPLATE_KEY = "parcel.delivered";
+const DELIVERY_FAILURE_TEMPLATE_KEY = "parcel.delivery_failed";
 const POD_SMS_BODY = DEFAULT_TEMPLATES.find((template) => template.key === POD_TEMPLATE_KEY)!.bodySms;
 /** Enforce the policy when reading legacy DB-configured templates as well. */
 function applySmsPolicy(row: TemplateRow): TemplateRow {
+  if (row.key === DELIVERY_FAILURE_TEMPLATE_KEY) return row;
   if (row.key !== POD_TEMPLATE_KEY) {
     return {
       ...row,
@@ -321,10 +323,15 @@ export function templateProblems(
     if (parts.length === 0) out.push("At least one channel is required.");
     for (const c of parts) if (!(CHANNELS as readonly string[]).includes(c)) out.push(`Unknown channel "${c}". Use whatsapp, sms, push.`);
     if (new Set(parts).size !== parts.length) out.push("A channel appears twice in the ladder.");
-    if (key !== POD_TEMPLATE_KEY && parts.includes("sms")) out.push("SMS is reserved for Proof of Delivery; remove sms from this notification.");
+    if (key !== POD_TEMPLATE_KEY && key !== DELIVERY_FAILURE_TEMPLATE_KEY && parts.includes("sms")) {
+      out.push("SMS is allowed only for Proof of Delivery and failed-delivery notices.");
+    }
   }
-  if (patch.bodySms && containsTrackingMaterial(patch.bodySms)) {
+  if (patch.bodySms && key !== DELIVERY_FAILURE_TEMPLATE_KEY && containsTrackingMaterial(patch.bodySms)) {
     out.push("SMS messages must not include a tracking number or tracking link.");
+  }
+  if (patch.bodySms && key === DELIVERY_FAILURE_TEMPLATE_KEY && patch.bodySms.length > 320) {
+    out.push("Failed-delivery SMS must be no longer than 320 characters.");
   }
   return out;
 }
@@ -542,7 +549,9 @@ export async function dispatch(input: NotifyInput): Promise<NotifyResult> {
     } else if (channel === "whatsapp") {
       result = await sendWhatsapp(input.toPhone, text);
     } else {
-      const sms = await sendSms({ to: input.toPhone, body: text, purpose: "pod" });
+      const purpose = template!.key === DELIVERY_FAILURE_TEMPLATE_KEY ? "delivery_failure" : "pod";
+      if (purpose === "delivery_failure") assertDeliveryFailureSms(text);
+      const sms = await sendSms({ to: input.toPhone, body: text, purpose });
       result =
         sms.state === "failed"
           ? { state: "failed", reason: sms.raw.slice(0, 300), smsLogId: sms.logId }
