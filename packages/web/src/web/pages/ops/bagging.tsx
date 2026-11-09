@@ -131,7 +131,7 @@ export default function OpsBagging() {
   const seal = useBagSeal({
     onSuccess: () => {
       setSealNumber("");
-      ok("Bag sealed. It can now be loaded onto a linehaul trip.");
+      ok("Bag sealed. It can now be loaded onto a Transit trip.");
     },
     onError: fail,
   });
@@ -249,7 +249,7 @@ export default function OpsBagging() {
         <MetricTile
           label="Sealed, not loaded"
           value={counts.data?.bagsSealed ?? "—"}
-          hint="Waiting for a linehaul trip."
+          hint="Waiting for a Transit trip."
         />
         <MetricTile
           label="In transit"

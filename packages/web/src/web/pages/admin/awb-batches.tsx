@@ -1,7 +1,8 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Layers, Printer, UserPlus } from "lucide-react";
+import { Download, Layers, Printer, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, Page } from "@/components/natex/page";
@@ -24,6 +25,7 @@ type InventoryRow = {
   batchCount: number;
   issued: number;
   used: number;
+  retired: number;
   unused: number;
 };
 
@@ -122,6 +124,7 @@ export default function AdminAwbBatches() {
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const [seriesSearch, setSeriesSearch] = React.useState("");
+  const [retirementBatch, setRetirementBatch] = React.useState<BatchRow | null>(null);
   const batchesQuery = useQuery(orpc.awbBatches.list.queryOptions());
   const batches = batchesQuery.data?.batches ?? EMPTY_BATCHES;
   const visibleBatches = React.useMemo(() => {
@@ -190,6 +193,15 @@ export default function AdminAwbBatches() {
     },
   });
 
+  const retireBatch = useMutation({
+    mutationFn: (batchId: string) => client.awbBatches.retire({ batchId }),
+    onSuccess: async (result) => {
+      setSuccess(`Retired ${result.retiredCount.toLocaleString()} unused tracking number${result.retiredCount === 1 ? "" : "s"} from ${formatSeriesId(result.seriesNumber)} (${result.batchCode}). Booked numbers and batch history were preserved.`);
+      setRetirementBatch(null);
+      await queryClient.invalidateQueries({ queryKey: orpc.awbBatches.list.key() });
+    },
+  });
+
   const inventory = React.useMemo(() => {
     const rows: InventoryRow[] = [];
     const planned = batches.filter((batch) => batch.status === "planned");
@@ -201,6 +213,7 @@ export default function AdminAwbBatches() {
         batchCount: planned.length,
         issued: planned.reduce((sum, batch) => sum + batch.labelCount, 0),
         used: planned.reduce((sum, batch) => sum + batch.usedCount, 0),
+        retired: planned.reduce((sum, batch) => sum + batch.retiredCount, 0),
         unused: planned.reduce((sum, batch) => sum + batch.unusedCount, 0),
       });
     }
@@ -219,6 +232,7 @@ export default function AdminAwbBatches() {
         batchCount: owned.length,
         issued: owned.reduce((sum, batch) => sum + batch.labelCount, 0),
         used: owned.reduce((sum, batch) => sum + batch.usedCount, 0),
+        retired: owned.reduce((sum, batch) => sum + batch.retiredCount, 0),
         unused: owned.reduce((sum, batch) => sum + batch.unusedCount, 0),
       });
     }
@@ -304,11 +318,11 @@ export default function AdminAwbBatches() {
     },
     {
       key: "used",
-      header: "Used / unused",
+      header: "Used / retired / unused",
       align: "right",
-      width: "w-[145px]",
+      width: "w-[190px]",
       className: "font-mono",
-      cell: (row) => `${row.usedCount.toLocaleString()} / ${row.unusedCount.toLocaleString()}`,
+      cell: (row) => `${row.usedCount.toLocaleString()} / ${row.retiredCount.toLocaleString()} / ${row.unusedCount.toLocaleString()}`,
     },
     {
       key: "created",
@@ -352,6 +366,24 @@ export default function AdminAwbBatches() {
             PDF
           </Button>
         </div>
+      ),
+    },
+    {
+      key: "retire",
+      header: "Retire unused",
+      width: "w-[150px]",
+      cell: (row) => (
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          disabled={retireBatch.isPending || row.unusedCount === 0}
+          onClick={() => setRetirementBatch(row)}
+          aria-label={`Retire ${row.unusedCount} unused tracking numbers from ${row.batchCode}`}
+        >
+          <Trash2 aria-hidden />
+          Retire
+        </Button>
       ),
     },
   ];
@@ -471,7 +503,7 @@ export default function AdminAwbBatches() {
                   <span className="font-mono text-[20px] font-bold">{owner.unused.toLocaleString()}</span>
                 </div>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  {owner.used.toLocaleString()} used · {owner.issued.toLocaleString()} issued · {owner.batchCount} batch{owner.batchCount === 1 ? "" : "es"}
+                  {owner.used.toLocaleString()} used · {owner.retired.toLocaleString()} retired · {owner.issued.toLocaleString()} issued · {owner.batchCount} batch{owner.batchCount === 1 ? "" : "es"}
                 </p>
               </div>
             ))}
@@ -503,6 +535,22 @@ export default function AdminAwbBatches() {
           emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more batches above. They will appear as planned until assigned."}
         />
       </Card>
+      {retirementBatch ? (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => !open && !retireBatch.isPending && setRetirementBatch(null)}
+          title="Retire unused tracking numbers?"
+          objectName={`${formatSeriesId(retirementBatch.seriesNumber)} · ${retirementBatch.batchCode}`}
+          body={(
+            <p>
+              This permanently retires up to {retirementBatch.unusedCount.toLocaleString()} unused label{retirementBatch.unusedCount === 1 ? "" : "s"} in range {retirementBatch.awbStart}–{retirementBatch.awbEnd}. Booked tracking numbers are not changed and remain valid; the batch and assignment history are retained.
+            </p>
+          )}
+          confirmLabel={`Retire ${retirementBatch.unusedCount.toLocaleString()} unused number${retirementBatch.unusedCount === 1 ? "" : "s"}`}
+          pending={retireBatch.isPending}
+          onConfirm={() => retireBatch.mutate(retirementBatch.id)}
+        />
+      ) : null}
     </Page>
   );
 }

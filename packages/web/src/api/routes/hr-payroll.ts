@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { financeProc, hrProc, mutate, payrollReadProc } from "../middleware/pipeline";
 import * as payroll from "../modules/hr/payroll";
+import * as payslips from "../modules/hr/payslips";
 import { isValidIsoDate } from "../modules/hr/validation";
 
 const isoDay = z.string().refine(isValidIsoDate, "Use a real calendar date in YYYY-MM-DD format.");
@@ -30,6 +31,10 @@ export const validateApitSchedule = financeProc.input(z.object({
 
 export const payrollRuns = payrollReadProc.handler(({ context }) => payroll.listPayrollRuns(context.principal));
 export const payrollRun = payrollReadProc.input(z.object({ runId: z.string().min(1) })).handler(({ input, context }) => payroll.getPayrollRun(input.runId, context.principal));
+export const exportPayslips = payrollReadProc.input(z.object({
+  runId: z.string().min(1),
+  employeeIds: z.array(z.string().min(1)).min(1).max(5000).optional(),
+})).handler(({ input, context }) => payslips.exportPayslips(input, context.principal));
 export const createPayrollRun = hrProc.input(z.object({ periodStart: isoDay, periodEnd: isoDay })).handler(({ input, context }) => mutate(context, input, {
   route: "hr.createPayrollRun",
   entity: "hr_payroll_run",
@@ -73,4 +78,4 @@ export const cancelDraftPayrollRun = hrProc.input(z.object({ runId: z.string().m
 }, () => payroll.cancelDraftPayrollRun(input, context.principal)));
 export const statutoryReport = payrollReadProc.input(z.object({ runId: z.string().min(1) })).handler(({ input, context }) => payroll.statutoryReport(input.runId, context.principal));
 
-export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, recordPayrollPayment, cancelDraftPayrollRun, statutoryReport };
+export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, exportPayslips, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, recordPayrollPayment, cancelDraftPayrollRun, statutoryReport };

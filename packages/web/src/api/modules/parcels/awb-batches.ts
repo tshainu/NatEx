@@ -6,6 +6,7 @@ import { getBranch } from "../identity/service";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
+import type { DbTransaction } from "../../database/transaction";
 import { AWB_LABELS_PER_BATCH, MAX_LABELS_PER_GENERATION, MAX_NUMBERS_PER_BATCH, createAwbSeries, planAwbBatchRanges, randomAwbSeriesStart } from "./awb-series";
 
 const LABEL_INSERT_CHUNK = 200;
@@ -131,7 +132,8 @@ export async function listAwbBatches() {
       labelCount: awbBatch.labelCount,
       createdByName: awbBatch.createdByName,
       createdAt: awbBatch.createdAt,
-      usedCount: sql<number>`sum(case when ${parcel.id} is not null or ${retiredTrackingNumber.trackingNumber} is not null then 1 else 0 end)`,
+      usedCount: sql<number>`sum(case when ${parcel.id} is not null then 1 else 0 end)`,
+      retiredCount: sql<number>`sum(case when ${parcel.id} is null and ${retiredTrackingNumber.trackingNumber} is not null then 1 else 0 end)`,
     })
     .from(awbBatch)
     .innerJoin(awbBatchSeries, eq(awbBatchSeries.batchId, awbBatch.id))
@@ -143,7 +145,7 @@ export async function listAwbBatches() {
 
   return rows.map((row) => {
     const assignment = assignmentFor(row);
-    const unusedCount = Math.max(0, row.labelCount - row.usedCount);
+    const unusedCount = Math.max(0, row.labelCount - row.usedCount - row.retiredCount);
     return { ...row, ...assignment, status: stateFor(assignment.assignmentStatus, unusedCount), unusedCount };
   });
 }
@@ -304,7 +306,82 @@ export async function assignAwbBatch(
       .where(eq(awbBatchSeries.batchId, saved!.id))
       .limit(1);
     if (!series) throw new Error("The tracking number series number is missing.");
-    return { ...saved!, seriesNumber: series.seriesNumber, ...assignmentFor(saved!), usedCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
+    return { ...saved!, seriesNumber: series.seriesNumber, ...assignmentFor(saved!), usedCount: 0, retiredCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
+  });
+}
+
+/** Lock and recheck a reserved tracking number inside its booking transaction. */
+export async function lockAndAssertAwbAvailableForBooking(tx: DbTransaction, awb: string): Promise<void> {
+  const batchIds = tx
+    .select({ batchId: awbBatchLabel.batchId })
+    .from(awbBatchLabel)
+    .where(eq(awbBatchLabel.awb, awb));
+  // Both booking and retirement update the same stable batch row first. SQLite
+  // serializes these writes, so only the operation that commits first can win.
+  await tx
+    .update(awbBatch)
+    .set({ createdAt: sql`${awbBatch.createdAt}` })
+    .where(inArray(awbBatch.id, batchIds));
+
+  const [retired] = await tx
+    .select({ trackingNumber: retiredTrackingNumber.trackingNumber })
+    .from(retiredTrackingNumber)
+    .where(eq(retiredTrackingNumber.trackingNumber, awb))
+    .limit(1);
+  if (retired) errors.conflict("This tracking number has been retired and cannot be used.", { awb });
+
+  const [used] = await tx.select({ id: parcel.id }).from(parcel).where(eq(parcel.awb, awb)).limit(1);
+  if (used) errors.conflict("This tracking number was just used by another booking. Scan or enter a different sticker.", { awb });
+}
+
+/** Retire all unused labels while preserving every booked label and batch record. */
+export async function retireAwbBatch(batchId: string, _actor: Principal) {
+  await ensureSeriesNumbers();
+  return db.transaction(async (tx) => {
+    // Acquire the same write lock as createParcel before reading parcel usage.
+    const [batch] = await tx
+      .update(awbBatch)
+      .set({ createdAt: sql`${awbBatch.createdAt}` })
+      .where(eq(awbBatch.id, batchId))
+      .returning();
+    if (!batch) errors.notFound("tracking number batch");
+    const [series] = await tx
+      .select({ seriesNumber: awbBatchSeries.seriesNumber })
+      .from(awbBatchSeries)
+      .where(eq(awbBatchSeries.batchId, batchId))
+      .limit(1);
+    if (!series) throw new Error("The tracking number series number is missing.");
+    const labels = await tx
+      .select({ awb: awbBatchLabel.awb, parcelId: parcel.id, retiredNumber: retiredTrackingNumber.trackingNumber })
+      .from(awbBatchLabel)
+      .leftJoin(parcel, eq(parcel.awb, awbBatchLabel.awb))
+      .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
+      .where(eq(awbBatchLabel.batchId, batchId))
+      .orderBy(asc(awbBatchLabel.awb));
+    const unused = labels.filter((label) => label.parcelId === null && label.retiredNumber === null);
+    if (!unused.length) errors.conflict("This batch has no unused tracking numbers to retire.");
+    let retiredCount = 0;
+    for (let start = 0; start < unused.length; start += LABEL_INSERT_CHUNK) {
+      const retired = await tx
+        .insert(retiredTrackingNumber)
+        .values(unused.slice(start, start + LABEL_INSERT_CHUNK).map(({ awb }) => ({
+          trackingNumber: awb,
+          reason: `Retired unused label from batch ${batch!.batchCode} (${batch!.id})`,
+        })))
+        .onConflictDoNothing({ target: retiredTrackingNumber.trackingNumber })
+        .returning({ trackingNumber: retiredTrackingNumber.trackingNumber });
+      retiredCount += retired.length;
+    }
+    return {
+      batchId: batch!.id,
+      batchCode: batch!.batchCode,
+      seriesNumber: series.seriesNumber,
+      awbStart: batch!.awbStart,
+      awbEnd: batch!.awbEnd,
+      retiredCount,
+      usedCount: labels.filter((label) => label.parcelId !== null).length,
+      alreadyRetiredCount: labels.filter((label) => label.retiredNumber !== null).length,
+    };
   });
 }
 
@@ -427,11 +504,12 @@ export async function labelsForAwbBatch(batchId: string) {
     .leftJoin(retiredTrackingNumber, eq(retiredTrackingNumber.trackingNumber, awbBatchLabel.awb))
     .where(eq(awbBatchLabel.batchId, batchId))
     .orderBy(asc(awbBatchLabel.awb));
-  const usedCount = labels.reduce((total, label) => total + (label.parcelId === null && label.retiredNumber === null ? 0 : 1), 0);
-  const unusedCount = Math.max(0, batch!.labelCount - usedCount);
+  const usedCount = labels.reduce((total, label) => total + (label.parcelId === null ? 0 : 1), 0);
+  const retiredCount = labels.reduce((total, label) => total + (label.parcelId === null && label.retiredNumber !== null ? 1 : 0), 0);
+  const unusedCount = Math.max(0, batch!.labelCount - usedCount - retiredCount);
   const assignment = assignmentFor(batch!);
   return {
-    batch: { ...batch!, seriesNumber: series.seriesNumber, ...assignment, usedCount, unusedCount, status: stateFor(assignment.assignmentStatus, unusedCount) },
+    batch: { ...batch!, seriesNumber: series.seriesNumber, ...assignment, usedCount, retiredCount, unusedCount, status: stateFor(assignment.assignmentStatus, unusedCount) },
     labels: labels.map(({ awb, parcelId, retiredNumber }) => ({ awb, used: parcelId !== null || retiredNumber !== null, retired: retiredNumber !== null })),
   };
 }

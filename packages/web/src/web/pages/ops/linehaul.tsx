@@ -24,6 +24,7 @@ import {
   useTripDepart,
   useTripLoad,
 } from "@/queries/transport";
+import { isTripOverdue } from "./trip-alert";
 
 /**
  * Linehaul board (§10 M2). Trips between hubs, with their load.
@@ -45,6 +46,18 @@ const TRIP_VARIANT: Record<string, "muted" | "brand" | "warn" | "good"> = {
 
 function TripStatusBadge({ status }: { status: string }) {
   return <Badge variant={TRIP_VARIANT[status] ?? "muted"}>{humanise(status)}</Badge>;
+}
+
+function NotArrivedYetAlert() {
+  return (
+    <Badge
+      variant="warn"
+      role="alert"
+      className="animate-pulse motion-reduce:animate-none"
+    >
+      Not arrived yet
+    </Badge>
+  );
 }
 
 interface TripRow {
@@ -203,7 +216,14 @@ export default function OpsLinehaul() {
       key: "status",
       header: "Status",
       width: "w-[110px]",
-      cell: (r) => <TripStatusBadge status={r.status} />,
+      cell: (r) => (
+        <span className="flex flex-col items-start gap-1">
+          <TripStatusBadge status={r.status} />
+          {isTripOverdue(r.status, r.expectedArrivalAt, Date.now(), r.arrivedAt) ? (
+            <NotArrivedYetAlert />
+          ) : null}
+        </span>
+      ),
     },
     {
       key: "seal",
@@ -227,8 +247,8 @@ export default function OpsLinehaul() {
 
   return (
     <Page
-      title="Linehaul"
-      description="Trips between hubs. A bag must be sealed before it can be loaded, a trip must carry at least one bag before it can depart, and departure is what moves every parcel aboard into In transit."
+      title="Transit"
+      description="Hub-to-hub trips. A bag must be sealed before it can be loaded, a trip must carry at least one bag before it can depart, and departure is what moves every parcel aboard into In transit."
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <MetricTile
@@ -255,8 +275,8 @@ export default function OpsLinehaul() {
             rows={trips}
             rowKey={(r) => r.id}
             loading={board.isLoading}
-            error={board.error ? "The linehaul board is unavailable right now." : null}
-            emptyTitle="No linehaul trips"
+            error={board.error ? "The Transit board is unavailable right now." : null}
+            emptyTitle="No Transit trips"
             emptyDescription="Create a trip on the right, then load this hub's sealed bags onto it."
             onRowClick={(r) => {
               setOpenTripId(r.id);
@@ -504,6 +524,15 @@ export default function OpsLinehaul() {
                   {detail.parcelCount}
                 </KeyValue>
               </KeyValueGrid>
+
+              {isTripOverdue(
+                detail.trip.status,
+                detail.trip.expectedArrivalAt,
+                Date.now(),
+                detail.trip.arrivedAt,
+              ) ? (
+                <NotArrivedYetAlert />
+              ) : null}
 
               <div>
                 <p className="label-xs mb-2 text-muted-foreground">

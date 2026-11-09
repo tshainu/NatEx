@@ -58,6 +58,22 @@ export const assign = adminProc
     ),
   );
 
+export const retire = adminProc
+  .input(z.object({ batchId: z.string().min(1).max(100) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "awbBatches.retire",
+        entity: "parcels_awb_batch",
+        entityId: () => input.batchId,
+        action: "awb.batch.retired",
+      },
+      () => awbBatchService.retireAwbBatch(input.batchId, context.principal),
+    ),
+  );
+
 export const labels = adminProc
   .input(z.object({ batchId: z.string().min(1).max(100) }))
   .handler(({ input }) => awbBatchService.labelsForAwbBatch(input.batchId));
@@ -91,4 +107,4 @@ export const checkBranch = opsProc
     return awbBatchService.checkBranchAwb(input.branchId, input.awb);
   });
 
-export const awbBatches = { list, generate, assign, labels, check, checkMany, checkBranch };
+export const awbBatches = { list, generate, assign, retire, labels, check, checkMany, checkBranch };

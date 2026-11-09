@@ -56,7 +56,7 @@ const OPS: PortalConfig = {
  */
 const TRANSPORT_NAV: NavItem[] = [
   { label: "Bagging", to: "/ops/bagging" },
-  { label: "Linehaul", to: "/ops/linehaul" },
+  { label: "Transit", to: "/ops/linehaul" },
   { label: "Inbound bags", to: "/ops/inbound" },
   { label: "Scan log", to: "/ops/scan-log" },
   { label: "Exceptions", to: "/ops/exceptions" },
@@ -122,6 +122,7 @@ const HR: PortalConfig = {
     { label: "Attendance", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
     { label: "Salary operations", to: "/hr/payroll" },
+    { label: "Payslips", to: "/hr/payslips" },
     { label: "Salary packages", to: "/hr/packages" },
     { label: "Leave", to: "/hr/leave" },
     { label: "Timesheets", to: "/hr/timesheets" },
@@ -228,7 +229,7 @@ export function mayVisit(role: Role, path: string): boolean {
   }
   if (path.startsWith("/finance")) return role === "finance" || role === "admin";
   if (path.startsWith("/hr")) {
-    return role === "hr" || role === "admin" || (role === "finance" && path.startsWith("/hr/payroll"));
+    return role === "hr" || role === "admin" || (role === "finance" && (path.startsWith("/hr/payroll") || path.startsWith("/hr/payslips")));
   }
   if (path.startsWith("/merchant")) return role === "merchant";
   if (path.startsWith("/field")) return role === "rider" || role === "transport";

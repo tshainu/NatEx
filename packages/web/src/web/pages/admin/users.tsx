@@ -16,6 +16,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useMfaFactors } from "@/queries/admin";
 import { UserDrawer } from "./user-drawer";
 import { OFFICIAL_ROLES, CredentialsFields, RoleCheckboxGroup } from "./user-fields";
+import { filterEmployeeLoginOptions } from "./employee-login-search";
 
 /**
  * Staff register (§5 identity). Admin writes; ops reads. A user signs in with
@@ -313,6 +314,7 @@ function CreateUserDialog({
 }) {
   const queryClient = useQueryClient();
   const [employeeId, setEmployeeId] = React.useState("");
+  const [employeeSearch, setEmployeeSearch] = React.useState("");
   const [roles, setRoles] = React.useState<Role[]>(["rider"]);
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -322,6 +324,10 @@ function CreateUserDialog({
     enabled: open,
     staleTime: 30_000,
   });
+  const filteredEmployeeOptions = React.useMemo(
+    () => filterEmployeeLoginOptions(employeeOptions.data ?? [], employeeSearch),
+    [employeeOptions.data, employeeSearch],
+  );
   const employee = employeeOptions.data?.find((entry) => entry.id === employeeId);
 
   React.useEffect(() => {
@@ -329,6 +335,7 @@ function CreateUserDialog({
       setProblem(null);
     } else {
       setEmployeeId("");
+      setEmployeeSearch("");
       setRoles(["rider"]);
       setUsername("");
       setPassword("");
@@ -379,16 +386,56 @@ function CreateUserDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Registered employee" hint="Only active employees without an existing login are shown.">
-          <Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} disabled={employeeOptions.isLoading}>
-            <option value="">{employeeOptions.isLoading ? "Loading employees…" : "Select an employee"}</option>
-            {(employeeOptions.data ?? []).map((entry) => (
+        <Field label="Find employee" hint="Search by name, employee number, phone, or branch.">
+          <Input
+            type="search"
+            value={employeeSearch}
+            onChange={(e) => {
+              const nextSearch = e.currentTarget.value;
+              setEmployeeSearch(nextSearch);
+              if (employee && filterEmployeeLoginOptions([employee], nextSearch).length === 0) {
+                setEmployeeId("");
+              }
+            }}
+            placeholder="Name, number, phone, or branch"
+            autoComplete="off"
+            disabled={employeeOptions.isLoading}
+          />
+        </Field>
+        <Field
+          label="Registered employee"
+          hint="Only active employees without an existing login are shown."
+        >
+          <Select
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            disabled={employeeOptions.isLoading || filteredEmployeeOptions.length === 0}
+          >
+            <option value="">
+              {employeeOptions.isLoading
+                ? "Loading employees…"
+                : employeeOptions.data?.length === 0
+                  ? "No eligible employees"
+                  : filteredEmployeeOptions.length === 0
+                    ? "No matching employees"
+                    : "Select an employee"}
+            </option>
+            {filteredEmployeeOptions.map((entry) => (
               <option key={entry.id} value={entry.id}>
                 {entry.employeeCode} · {entry.fullName} · {entry.branchName}
               </option>
             ))}
           </Select>
         </Field>
+        {employeeOptions.data?.length === 0 ? (
+          <output aria-live="polite" className="text-[12px] text-muted-foreground">
+            No active, unlinked employees are available to add.
+          </output>
+        ) : employeeOptions.data && filteredEmployeeOptions.length === 0 ? (
+          <output aria-live="polite" className="text-[12px] text-muted-foreground">
+            No employees match “{employeeSearch}”. Try a name, employee number, phone, or branch.
+          </output>
+        ) : null}
         {employee ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Field label="Full name"><Input value={employee.fullName} readOnly /></Field>

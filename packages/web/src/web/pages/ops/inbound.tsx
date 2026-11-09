@@ -170,7 +170,7 @@ export default function OpsInbound() {
               loading={inbound.isLoading}
               error={inbound.error ? "The inbound queue is unavailable right now." : null}
               emptyTitle="Nothing inbound"
-              emptyDescription="Bags appear here once the origin hub seals them and despatches the linehaul trip carrying them to you."
+              emptyDescription="Bags appear here once the origin hub seals them and despatches the Transit trip carrying them to you."
               onRowClick={(r) => {
                 setBagId(r.id);
                 setResult(null);

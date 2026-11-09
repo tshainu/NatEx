@@ -1,20 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../database";
 import { branch } from "../../database/schema/identity";
 import { merchant } from "../../database/schema/merchants";
 import { awbBatch, awbBatchLabel, awbBatchSeries, parcel, retiredTrackingNumber } from "../../database/schema/parcels";
 import { prefixedId } from "../../shared/ulid";
 import type { Principal } from "../../shared/auth";
-import { assignAwbBatch, checkBranchAwb, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, nextUnusedAwbForBooking } from "./awb-batches";
+import { assignAwbBatch, checkBranchAwb, checkMerchantAwb, checkMerchantAwbs, createAwbBatches, labelsForAwbBatch, listAwbBatches, lockAndAssertAwbAvailableForBooking, nextUnusedAwbForBooking, retireAwbBatch } from "./awb-batches";
 import { createAwbSeries } from "./awb-series";
 import { createParcel } from "./service";
 
 /**
  * Integration coverage for planned batch generation and assignment.
  * Run against a disposable database after applying the schema:
- * DATABASE_URL=file:/tmp/natex-awb-batches.db NODE_ENV=test bun test src/api/modules/parcels/awb-batches.db.test.ts
+ * DATABASE_URL=file:/tmp/natex-awb-batches-retirement-20261109.sqlite NODE_ENV=test bun test src/api/modules/parcels/awb-batches.db.test.ts
  */
+const TEST_DATABASE_URL = "file:/tmp/natex-awb-batches-retirement-20261109.sqlite";
+if (process.env.DATABASE_URL !== TEST_DATABASE_URL) {
+  throw new Error(`awb-batches.db.test.ts requires the disposable database at ${TEST_DATABASE_URL}`);
+}
 setDefaultTimeout(120_000);
 
 const RUN = Date.now().toString(36).toUpperCase();
@@ -174,6 +178,7 @@ describe("tracking number batch planning and assignment", () => {
     const retiredNumber = createAwbSeries(merchantBatch.awbStart.slice(2), 2)[1]!;
     RETIRED_TRACKING_NUMBERS.push(retiredNumber);
     await db.insert(retiredTrackingNumber).values({ trackingNumber: retiredNumber, reason: "Integration test reservation" });
+    await expect(db.transaction((tx) => lockAndAssertAwbAvailableForBooking(tx, retiredNumber))).rejects.toThrow("retired");
     expect(await checkMerchantAwb(MERCHANT_IDS[0]!, retiredNumber)).toMatchObject({
       valid: false,
       reason: "This tracking number has been retired and cannot be used.",
@@ -193,7 +198,8 @@ describe("tracking number batch planning and assignment", () => {
       expect(row?.seriesNumber).toBe(batch.seriesNumber);
       expect(row?.awbStart).toBe(batch.awbStart);
       expect(row?.awbEnd).toBe(batch.awbEnd);
-      expect(row?.usedCount).toBe(batch.id === merchantBatch.id ? 2 : 1);
+      expect(row?.usedCount).toBe(1);
+      expect(row?.retiredCount).toBe(batch.id === merchantBatch.id ? 1 : 0);
       expect(row?.unusedCount).toBe(batch.id === merchantBatch.id ? 998 : 999);
       expect(row?.status).toBe("assigned");
     }
@@ -230,6 +236,64 @@ describe("tracking number batch planning and assignment", () => {
     expect(second?.seriesNumber).toBe(first?.seriesNumber);
     expect(first?.awbStart).toBe("NX9999999000");
     expect(first?.awbEnd).toBe("NX9999999999");
+  });
+
+  test("retires only unused numbers from a mixed batch and retains used labels and batch history", async () => {
+    const [batch] = await createAwbBatches(1, 4, "NX9999996000", ACTOR);
+    CREATED_BATCH_IDS.push(batch!.id);
+    await assignAwbBatch(batch!.id, "merchant", MERCHANT_IDS[0]!, ACTOR);
+    await reserveOneLabelAsUsed(batch!.awbStart, MERCHANT_IDS[0]!, BRANCH_ID);
+    const labelNumbers = createAwbSeries(batch!.awbStart.slice(2), 4);
+    const unusedNumbers = labelNumbers.slice(1);
+    RETIRED_TRACKING_NUMBERS.push(...unusedNumbers);
+    const beforeBatch = await db.select().from(awbBatch).where(eq(awbBatch.id, batch!.id));
+    const beforeLabels = await db.select().from(awbBatchLabel).where(eq(awbBatchLabel.batchId, batch!.id));
+    const [usedParcelBefore] = await db.select().from(parcel).where(eq(parcel.awb, batch!.awbStart));
+
+    const result = await retireAwbBatch(batch!.id, ACTOR);
+
+    expect(result).toMatchObject({
+      batchId: batch!.id,
+      batchCode: batch!.batchCode,
+      seriesNumber: batch!.seriesNumber,
+      retiredCount: 3,
+      usedCount: 1,
+      alreadyRetiredCount: 0,
+    });
+    expect(await db.select().from(awbBatch).where(eq(awbBatch.id, batch!.id))).toEqual(beforeBatch);
+    expect(await db.select().from(awbBatchLabel).where(eq(awbBatchLabel.batchId, batch!.id))).toEqual(beforeLabels);
+    expect(await db.select().from(parcel).where(eq(parcel.awb, batch!.awbStart))).toEqual([usedParcelBefore]);
+    expect(await db.select().from(retiredTrackingNumber).where(inArray(retiredTrackingNumber.trackingNumber, unusedNumbers))).toHaveLength(3);
+    expect(await db.select().from(retiredTrackingNumber).where(eq(retiredTrackingNumber.trackingNumber, batch!.awbStart))).toHaveLength(0);
+    expect(await checkMerchantAwb(MERCHANT_IDS[0]!, batch!.awbStart)).toMatchObject({ valid: false, reason: "This tracking number has already been used. Scan or enter an unused sticker." });
+    expect(await checkMerchantAwb(MERCHANT_IDS[0]!, unusedNumbers[0]!)).toMatchObject({ valid: false, reason: "This tracking number has been retired and cannot be used." });
+
+    const exported = await labelsForAwbBatch(batch!.id);
+    expect(exported.batch).toMatchObject({ assignmentStatus: "assigned", assigneeId: MERCHANT_IDS[0], usedCount: 1, retiredCount: 3, unusedCount: 0 });
+    expect(exported.labels).toHaveLength(4);
+    expect(exported.labels[0]).toMatchObject({ awb: batch!.awbStart, used: true, retired: false });
+    expect(exported.labels.slice(1).every((label) => label.used && label.retired)).toBe(true);
+    const listed = (await listAwbBatches()).find((row) => row.id === batch!.id);
+    expect(listed).toMatchObject({ batchCode: batch!.batchCode, assignmentStatus: "assigned", assigneeId: MERCHANT_IDS[0], usedCount: 1, retiredCount: 3, unusedCount: 0, status: "depleted" });
+  });
+
+  test("refuses to retire an all-used batch without changing any records", async () => {
+    const [batch] = await createAwbBatches(1, 2, "NX9999996100", ACTOR);
+    CREATED_BATCH_IDS.push(batch!.id);
+    await assignAwbBatch(batch!.id, "merchant", MERCHANT_IDS[1]!, ACTOR);
+    const numbers = createAwbSeries(batch!.awbStart.slice(2), 2);
+    for (const awb of numbers) await reserveOneLabelAsUsed(awb, MERCHANT_IDS[1]!, BRANCH_ID);
+    const beforeBatch = await db.select().from(awbBatch).where(eq(awbBatch.id, batch!.id));
+    const beforeLabels = await db.select().from(awbBatchLabel).where(eq(awbBatchLabel.batchId, batch!.id));
+    const beforeParcels = await db.select().from(parcel).where(inArray(parcel.awb, numbers));
+
+    await expect(retireAwbBatch(batch!.id, ACTOR)).rejects.toThrow("no unused tracking numbers");
+
+    expect(await db.select().from(awbBatch).where(eq(awbBatch.id, batch!.id))).toEqual(beforeBatch);
+    expect(await db.select().from(awbBatchLabel).where(eq(awbBatchLabel.batchId, batch!.id))).toEqual(beforeLabels);
+    expect(await db.select().from(parcel).where(inArray(parcel.awb, numbers))).toEqual(beforeParcels);
+    expect(await db.select().from(retiredTrackingNumber).where(inArray(retiredTrackingNumber.trackingNumber, numbers))).toHaveLength(0);
+    expect((await listAwbBatches()).find((row) => row.id === batch!.id)).toMatchObject({ usedCount: 2, retiredCount: 0, unusedCount: 0, status: "depleted" });
   });
 
   test("allocates explicit sequential ranges and rejects overlap atomically", async () => {

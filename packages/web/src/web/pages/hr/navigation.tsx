@@ -6,6 +6,7 @@ const HR_SECTIONS = [
   { label: "Attendance", href: "/hr/attendance" },
   { label: "Employees", href: "/hr/employees" },
   { label: "Salary operations", href: "/hr/payroll" },
+  { label: "Payslips", href: "/hr/payslips" },
   { label: "Salary packages", href: "/hr/packages" },
   { label: "Leave", href: "/hr/leave" },
   { label: "Timesheets", href: "/hr/timesheets" },
@@ -16,7 +17,7 @@ export function HrNavigation() {
   const session = useAuth().session;
   const roles = session?.user.roles?.length ? session.user.roles : session ? [session.user.role] : [];
   const canManageHr = roles.includes("hr") || roles.includes("admin");
-  const sections = canManageHr ? HR_SECTIONS : HR_SECTIONS.filter((section) => section.href === "/hr/payroll");
+  const sections = canManageHr ? HR_SECTIONS : HR_SECTIONS.filter((section) => section.href === "/hr/payroll" || section.href === "/hr/payslips");
   return (
     <nav aria-label="HR and Payroll sections" className="-mx-1 overflow-x-auto pb-1">
       <div className="flex min-w-max gap-1 border-b border-border px-1">

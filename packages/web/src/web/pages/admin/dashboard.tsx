@@ -190,7 +190,7 @@ export default function AdminDashboard() {
             />
           </ul>
           <div className="mt-4 border-t pt-3">
-            <p className="label-xs text-muted-foreground">Linehaul</p>
+            <p className="label-xs text-muted-foreground">Transit</p>
             <ul className="mt-2 space-y-2.5 text-[13px]">
               <Row label="Trips planned / loading" value={d?.transport.tripsPlanned ?? "—"} />
               <Row label="Trips on the road" value={d?.transport.tripsInFlight ?? "—"} />

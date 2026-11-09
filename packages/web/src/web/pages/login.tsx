@@ -142,7 +142,7 @@ export default function Login() {
             Every parcel, every hand-off, accounted for.
           </h1>
           <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-text-hi/80">
-            Booking, pickup, hub-to-hub linehaul, last-mile delivery with proof, COD
+            Booking, pickup, hub-to-hub Transit, last-mile delivery with proof, COD
             and settlements — one platform for merchants, riders, operations and
             finance across Sri Lanka.
           </p>

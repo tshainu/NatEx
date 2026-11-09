@@ -19,7 +19,7 @@ import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
 import { chargeByRequest, createRetailChargeInTransaction, entriesForCharge } from "../freight/ledger";
 import type { FreightChargeRow, FreightEntryRow } from "../../database/schema/freight";
-import { checkBranchAwb, checkMerchantAwb, nextUnusedAwbForBooking } from "./awb-batches";
+import { checkBranchAwb, checkMerchantAwb, lockAndAssertAwbAvailableForBooking, nextUnusedAwbForBooking } from "./awb-batches";
 import { addDays, colomboToday as colomboDate } from "../../shared/time";
 import {
   isEnabled,
@@ -765,6 +765,7 @@ export async function createParcel(
     const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(input.merchantId, input.branchId)) ?? (await uniqueAwb());
     try {
       row = await db.transaction(async (tx) => {
+        await lockAndAssertAwbAvailableForBooking(tx, awb);
         const [saved] = await tx
           .insert(parcel)
           .values({
