@@ -250,7 +250,8 @@ function SyncRows() {
   const colors = useColors();
   const box = useOutbox();
   const pending = box.entries.filter((e) => e.state === "pending").length;
-  const problems = box.entries.filter((e) => e.state === "rejected" || e.state === "conflict").length;
+  const rejected = box.entries.filter((e) => e.state === "rejected").length;
+  const conflicts = box.entries.filter((e) => e.state === "conflict").length;
 
   return (
     <>
@@ -259,8 +260,12 @@ function SyncRows() {
         value={plural(pending, "record")}
       />
       <Row
+        label="Rejected — review Deliveries"
+        value={plural(rejected, "record")}
+      />
+      <Row
         label="Needs ops"
-        value={plural(problems, "record")}
+        value={plural(conflicts, "record")}
         last
       />
       <Pressable

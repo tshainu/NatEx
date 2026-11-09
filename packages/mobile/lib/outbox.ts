@@ -44,6 +44,8 @@ export interface OutboxEntry {
   /** What the owning service returned when applied (ndrId, rtoId, …). */
   result: unknown;
   tries: number;
+  /** Prevent repeated fresh-ID retries if the old OTP rule still rejects it. */
+  signaturePODRecoveryAttempted?: boolean;
   settledAt: number | null;
 }
 
@@ -360,6 +362,51 @@ export async function dismiss(clientOpId: string): Promise<void> {
     ),
   });
   await persist();
+}
+
+const LEGACY_OTP_REQUIRED_ERROR =
+  /needs a verified delivery OTP before it can be marked delivered\./i;
+
+/** True only for the Rider POD rejection fixed by the signature-only backend release. */
+export function isRetryableSignaturePODRejection(
+  entry: OutboxEntry | null | undefined,
+): entry is OutboxEntry {
+  return Boolean(
+    entry?.state === "rejected" &&
+      entry.kind === "delivery.deliver" &&
+      !entry.signaturePODRecoveryAttempted &&
+      LEGACY_OTP_REQUIRED_ERROR.test(entry.error ?? ""),
+  );
+}
+
+/** Requeue that known pre-release rejection under a fresh idempotency key. */
+export async function retrySignaturePODRejection(clientOpId: string): Promise<boolean> {
+  await loadOutbox();
+  const rejected = snapshot.entries.find((entry) => entry.clientOpId === clientOpId);
+  if (!isRetryableSignaturePODRejection(rejected)) return false;
+  if (snapshot.entries.some((entry) => entry.awb === rejected.awb && entry.state === "pending")) {
+    return false;
+  }
+
+  const retry: OutboxEntry = {
+    ...rejected,
+    clientOpId: ulid(),
+    seq: nextSeq++,
+    clientTs: Date.now(),
+    payload: { ...rejected.payload },
+    state: "pending",
+    error: null,
+    policy: null,
+    conflictId: null,
+    result: null,
+    tries: 0,
+    signaturePODRecoveryAttempted: true,
+    settledAt: null,
+  };
+  emit({ entries: [...snapshot.entries, retry] });
+  await persist();
+  void drain();
+  return true;
 }
 
 /** Forget the in-memory queue on sign-out; the disk copy stays with that user. */

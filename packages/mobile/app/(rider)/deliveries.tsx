@@ -1,9 +1,14 @@
 import { StyleSheet, View } from "react-native";
+import { useMutation } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { apiMessage } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { date, money, since } from "../../lib/format";
-import { dismiss } from "../../lib/outbox";
+import {
+  dismiss,
+  isRetryableSignaturePODRejection,
+  retrySignaturePODRejection,
+} from "../../lib/outbox";
 import { Screen, ScreenHeader, Section } from "../../components/natex/screen";
 import { Button } from "../../components/natex/button";
 import { Card, Empty, Panel, Stat, StatRow } from "../../components/natex/card";
@@ -48,11 +53,28 @@ export default function RiderDeliveriesScreen() {
   const { user } = useAuth();
   const runQuery = useRiderRun();
   const box = useOutbox();
+  const signatureRetry = useMutation({ mutationFn: retrySignaturePODRejection });
   const run = runQuery.data?.run ?? null;
 
   const stops = (run?.items ?? []).map((stop) => ({ stop, ...stopView(stop, box.entries) }));
   const open = stops.filter((s) => s.view === "todo");
   const problems = stops.filter((s) => s.view === "problem");
+  const retryableProblems = problems.flatMap(({ stop, entry }) => {
+    if (
+      !entry ||
+      !isRetryableSignaturePODRejection(entry) ||
+      stop.status !== "OutForDelivery" ||
+      stop.state !== "pending"
+    ) {
+      return [];
+    }
+    return [{ stop, entry }];
+  });
+  const retryableIds = new Set(retryableProblems.map(({ entry }) => entry.clientOpId));
+  const needsOpsProblems = problems.filter(({ entry }) => entry?.state === "conflict");
+  const rejectedProblems = problems.filter(
+    ({ entry }) => entry?.state === "rejected" && !retryableIds.has(entry.clientOpId),
+  );
   const done = stops.filter((s) => s.view !== "todo" && s.view !== "problem");
   const dispatched = run?.runsheet.status === "dispatched";
 
@@ -66,9 +88,8 @@ export default function RiderDeliveriesScreen() {
 
   // Outbox problems for parcels no longer on this run still need to be seen.
   const onRun = new Set(stops.map((s) => s.stop.awb));
-  const orphanProblems = box.entries.filter(
-    (e) => (e.state === "rejected" || e.state === "conflict") && !onRun.has(e.awb),
-  );
+  const orphanConflicts = box.entries.filter((e) => e.state === "conflict" && !onRun.has(e.awb));
+  const orphanRejected = box.entries.filter((e) => e.state === "rejected" && !onRun.has(e.awb));
 
   return (
     <Screen
@@ -140,10 +161,35 @@ export default function RiderDeliveriesScreen() {
         </Panel>
       ) : null}
 
-      {problems.length > 0 || orphanProblems.length > 0 ? (
+      {retryableProblems.length > 0 ? (
         <Section>
-          <Label color={colors.statusWarn}>Needs ops · {problems.length + orphanProblems.length}</Label>
-          {problems.map(({ stop, entry }) => (
+          <Label color={colors.statusMoving}>Retry signature POD · {retryableProblems.length}</Label>
+          {retryableProblems.map(({ stop, entry }) => (
+            <Card key={stop.id} style={{ borderColor: colors.statusMoving }}>
+              <Awb>{stop.awb}</Awb>
+              <Small color={colors.statusMoving}>
+                This delivery was rejected before the signature-only backend update. Retry now with the saved signature.
+              </Small>
+              <Button
+                title="Retry with saved signature"
+                variant="secondary"
+                loading={signatureRetry.isPending}
+                onPress={() => signatureRetry.mutate(entry.clientOpId)}
+              />
+            </Card>
+          ))}
+          {signatureRetry.isError ? (
+            <Panel style={{ borderColor: colors.statusWarn }}>
+              <Small color={colors.statusWarn}>Could not retry this saved delivery. Refresh the run and ask the hub if it remains here.</Small>
+            </Panel>
+          ) : null}
+        </Section>
+      ) : null}
+
+      {needsOpsProblems.length > 0 || orphanConflicts.length > 0 ? (
+        <Section>
+          <Label color={colors.statusWarn}>Needs ops · {needsOpsProblems.length + orphanConflicts.length}</Label>
+          {needsOpsProblems.map(({ stop, entry }) => (
             <Card
               key={stop.id}
               accessibilityLabel={`Open ${stop.awb}`}
@@ -151,14 +197,33 @@ export default function RiderDeliveriesScreen() {
               style={{ borderColor: colors.statusWarn }}
             >
               <Awb>{stop.awb}</Awb>
-              <Small color={colors.statusWarn}>{entry?.error ?? "The server did not accept this record."}</Small>
+              <Small color={colors.statusWarn}>{entry?.error ?? "The server reported a conflict."}</Small>
             </Card>
           ))}
-          {orphanProblems.map((e) => (
-            <Card key={e.clientOpId} style={{ borderColor: colors.statusWarn }}>
-              <Awb>{e.awb}</Awb>
-              <Small color={colors.statusWarn}>{e.error ?? "The server did not accept this record."}</Small>
-              <Button title="Dismiss — ops has it" variant="ghost" onPress={() => void dismiss(e.clientOpId)} />
+          {orphanConflicts.map((entry) => (
+            <Card key={entry.clientOpId} style={{ borderColor: colors.statusWarn }}>
+              <Awb>{entry.awb}</Awb>
+              <Small color={colors.statusWarn}>{entry.error ?? "The server reported a conflict."}</Small>
+              <Button title="Dismiss — ops has it" variant="ghost" onPress={() => void dismiss(entry.clientOpId)} />
+            </Card>
+          ))}
+        </Section>
+      ) : null}
+
+      {rejectedProblems.length > 0 || orphanRejected.length > 0 ? (
+        <Section>
+          <Label color={colors.statusMoving}>Rejected · review</Label>
+          {rejectedProblems.map(({ stop, entry }) => (
+            <Card key={stop.id} style={{ borderColor: colors.statusMoving }}>
+              <Awb>{stop.awb}</Awb>
+              <Small color={colors.statusMoving}>{entry?.error ?? "The server rejected this record. Ask the hub to review it."}</Small>
+            </Card>
+          ))}
+          {orphanRejected.map((entry) => (
+            <Card key={entry.clientOpId} style={{ borderColor: colors.statusMoving }}>
+              <Awb>{entry.awb}</Awb>
+              <Small color={colors.statusMoving}>{entry.error ?? "The server rejected this record."}</Small>
+              <Button title="Dismiss rejected record" variant="ghost" onPress={() => void dismiss(entry.clientOpId)} />
             </Card>
           ))}
         </Section>

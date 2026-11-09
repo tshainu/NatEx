@@ -301,9 +301,9 @@ export const otpVerify = doorstepProc
 // ------------------------------------------------------------------- doorstep
 
 /**
- * Delivered. The POD the merchant's policy requires must actually be present —
- * the service refuses a weaker proof than the policy asks for — and COD must
- * reconcile to the cent before the parcel changes hands (§1, §9).
+ * Delivered. Rider sessions use signature proof; back-office sessions must
+ * provide the proof required by the merchant's policy. COD must reconcile to
+ * the cent before the parcel changes hands (§1, §9).
  */
 export const recordDelivery = doorstepProc
   .input(

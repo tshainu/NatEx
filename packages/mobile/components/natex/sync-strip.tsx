@@ -16,13 +16,24 @@ export function SyncStrip() {
   const colors = useColors();
   const box = useOutbox();
   const pending = box.entries.filter((e) => e.state === "pending").length;
-  const problems = box.entries.filter((e) => e.state === "rejected" || e.state === "conflict").length;
+  const rejected = box.entries.filter((e) => e.state === "rejected").length;
+  const conflicts = box.entries.filter((e) => e.state === "conflict").length;
 
-  const tone = problems > 0 ? colors.statusWarn : box.offline || pending > 0 ? colors.statusMoving : colors.statusGood;
+  const tone = conflicts > 0
+    ? colors.statusWarn
+    : rejected > 0
+      ? colors.statusMoving
+      : box.offline || pending > 0
+        ? colors.statusMoving
+        : colors.statusGood;
+  const issueHeadlines = [
+    conflicts > 0 ? `${plural(conflicts, "record")} ${conflicts === 1 ? "needs" : "need"} ops` : null,
+    rejected > 0 ? `${plural(rejected, "record")} rejected · review Deliveries` : null,
+  ].filter((value): value is string => value !== null);
   const headline = box.draining
     ? "Syncing…"
-    : problems > 0
-      ? `${plural(problems, "record")} ${problems === 1 ? "needs" : "need"} ops`
+    : issueHeadlines.length > 0
+      ? issueHeadlines.join(" · ")
       : box.offline
         ? pending > 0
           ? `Offline · ${plural(pending, "record")} saved on phone`
@@ -42,7 +53,15 @@ export function SyncStrip() {
       style={[styles.strip, { borderColor: `${tone}66`, backgroundColor: `${tone}1F` }]}
     >
       <Ionicons
-        name={box.offline ? "cloud-offline-outline" : pending > 0 ? "cloud-upload-outline" : "cloud-done-outline"}
+        name={
+          box.offline
+            ? "cloud-offline-outline"
+            : conflicts > 0 || rejected > 0
+              ? "alert-circle-outline"
+              : pending > 0
+                ? "cloud-upload-outline"
+                : "cloud-done-outline"
+        }
         size={22}
         color={tone}
       />

@@ -30,11 +30,9 @@ import {
  * because a rider at a gate should never be two navigations away from either
  * outcome.
  *
- * What the server will insist on is checked here first, so the rider finds out
- * at the door rather than an hour later in a sync verdict:
- *   - the POD method is the merchant's policy (§6), not the rider's choice
- *   - OTP is verified by the server, so it needs signal; signature and photo
- *     are captured on the phone and queue like everything else
+ * Rider POD is signature-only; OTP is not required and NIC is optional. The
+ * receiver name/mobile and signature are captured on the phone and queue like
+ * everything else. Back-office proof policy remains enforced by the server.
  *   - COD must match to the cent (§1) — no "close enough"
  * The record itself always goes through the outbox (§7), online or not.
  */
@@ -336,6 +334,7 @@ function DeliverForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }
 
   return (
     <Screen
+      inTabs
       footer={
         <View style={styles.footerActions}>
           <Button title="Back" variant="secondary" onPress={onCancel} disabled={save.isPending} style={styles.backAction} />
@@ -482,6 +481,7 @@ function FailForm({ stop, onCancel }: { stop: RunStop; onCancel: () => void }) {
 
   return (
     <Screen
+      inTabs
       footer={
         <View style={styles.footerActions}>
           <Button title="Back" variant="secondary" onPress={onCancel} disabled={save.isPending} style={styles.backAction} />
