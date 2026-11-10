@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, like, lt, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, like, lt, type SQL } from "drizzle-orm";
 import { db } from "../../database";
+import type { DbTransaction } from "../../database/transaction";
 import { deliveryPod, ndr, reasonCode, rto } from "../../database/schema/delivery";
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
@@ -103,6 +104,27 @@ export async function liveNdrForParcel(parcelId: string): Promise<NdrRow | null>
     .orderBy(desc(ndr.raisedAt))
     .limit(1);
   return row ?? null;
+}
+
+/** Delivery-module-owned historical activity that must block a bag receipt rollback. */
+export async function postReceiptNdrRtoActivity(
+  parcelIds: string[],
+  receivedAt: Date,
+  executor: DbTransaction,
+): Promise<{ parcelId: string; kind: "ndr" | "rto" }[]> {
+  if (parcelIds.length === 0) return [];
+  const ndrRows = await executor
+    .select({ parcelId: ndr.parcelId })
+    .from(ndr)
+    .where(and(inArray(ndr.parcelId, parcelIds), gte(ndr.raisedAt, receivedAt)));
+  const rtoRows = await executor
+    .select({ parcelId: rto.parcelId })
+    .from(rto)
+    .where(and(inArray(rto.parcelId, parcelIds), gte(rto.initiatedAt, receivedAt)));
+  return [
+    ...ndrRows.map((row) => ({ parcelId: row.parcelId, kind: "ndr" as const })),
+    ...rtoRows.map((row) => ({ parcelId: row.parcelId, kind: "rto" as const })),
+  ];
 }
 
 export interface ListNdrInput {

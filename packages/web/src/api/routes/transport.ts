@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { mutate, staffProc, transportProc } from "../middleware/pipeline";
+import { adminProc, mutate, staffProc, transportProc } from "../middleware/pipeline";
 import * as transportService from "../modules/transport/service";
 import { POD_PHOTO_TYPES, presignGet, presignPut } from "../shared/storage";
 import { errors } from "../shared/errors";
@@ -338,6 +338,35 @@ export const bagReceive = transportProc
     ),
   );
 
+/** Admin-only compensating action; every expected snapshot field is rechecked server-side. */
+export const bagReceiptRollback = adminProc
+  .input(
+    z.object({
+      bagId: z.string().min(1).max(80),
+      expectedBagCode: z.string().trim().min(3).max(32),
+      expectedTripCode: z.string().trim().min(3).max(32),
+      expectedOriginHubId: z.string().min(1).max(80),
+      expectedDestHubId: z.string().min(1).max(80),
+      expectedSealNumber: z.string().trim().min(1).max(32),
+      expectedAwbs: z.array(awb).min(1).max(300),
+      reason: z.string().trim().min(12).max(800),
+    }),
+  )
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "transport.bagReceiptRollback",
+        entity: "transport_bag",
+        entityId: (result) => (result as transportService.RollbackBagReceiptResult).bag.id,
+        action: "bag.receipt_rolled_back",
+        auditWrittenByHandler: true,
+      },
+      () => transportService.rollbackBagReceipt(input, context.principal, context.requestId),
+    ),
+  );
+
 // ------------------------------------------------- scan log, chain, queues
 
 export const scans = staffProc
@@ -417,6 +446,7 @@ export const transport = {
   tripArrive,
   inbound,
   bagReceive,
+  bagReceiptRollback,
   scans,
   custody,
   exceptions,

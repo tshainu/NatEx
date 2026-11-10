@@ -41,8 +41,9 @@ import {
  * Other modules call these functions; they never SELECT these tables.
  *
  * NON-NEGOTIABLE (§1, §6): a parcel's status is never written without a paired
- * parcel_event row. `transitionParcel()` below is the single choke point that
- * writes both. No other function in this codebase updates parcel.status.
+ * parcel_event row. `transitionParcel()` is the normal choke point; the only
+ * exception is the dedicated audited destination-receipt rollback below, which
+ * appends a compensating event rather than editing history.
  */
 
 export type ParcelRow = typeof parcel.$inferSelect;
@@ -1331,6 +1332,122 @@ export async function reassignBranch(
     moved += 1;
   }
   return moved;
+}
+
+/**
+ * Compensate one parcel's exact inbound-bag receipt. This deliberately does not
+ * use the generic state machine: it is an admin-only correction guarded by the
+ * transport transaction, and it preserves the original event while appending a
+ * new AtDestHub → InTransit event.
+ */
+export async function rollbackDestinationHubReceipt(
+  input: {
+    parcelId: string;
+    expectedAwb: string;
+    originHubId: string;
+    destinationHubId: string;
+    bagCode: string;
+    tripCode: string;
+    reason: string;
+  },
+  actor: Principal,
+  executor: DbTransaction,
+): Promise<Pick<ParcelRow, "id" | "awb" | "status" | "branchId" | "consigneePhone">> {
+  if (actor.role !== "admin") errors.forbidden("Only an admin may reverse a bag receipt.");
+  const [current] = await executor
+    .select({ id: parcel.id, awb: parcel.awb, status: parcel.status, branchId: parcel.branchId })
+    .from(parcel)
+    .where(eq(parcel.id, input.parcelId))
+    .limit(1);
+  if (!current) errors.notFound("Parcel");
+  if (
+    current!.awb !== input.expectedAwb.trim().toUpperCase() ||
+    current!.status !== "AtDestHub" ||
+    current!.branchId !== input.destinationHubId
+  ) {
+    errors.conflict("Parcel state changed since the bag receipt; no rollback was applied.", {
+      parcelId: input.parcelId,
+      expectedAwb: input.expectedAwb,
+      currentStatus: current!.status,
+      currentBranchId: current!.branchId,
+    });
+  }
+
+  const receiptNotes = `Received at destination hub out of bag ${input.bagCode}.`;
+  const branchMoveNotes =
+    `Scanned in at the destination hub out of bag ${input.bagCode}. ` +
+    `Accountability moved from ${input.originHubId} to ${input.destinationHubId}.`;
+  const events = await executor
+    .select({
+      id: parcelEvent.id,
+      fromStatus: parcelEvent.fromStatus,
+      toStatus: parcelEvent.toStatus,
+      notes: parcelEvent.notes,
+      ts: parcelEvent.ts,
+    })
+    .from(parcelEvent)
+    .where(eq(parcelEvent.parcelId, input.parcelId));
+  const receiptEvents = events.filter(
+    (event) => event.toStatus === "AtDestHub" && event.notes === receiptNotes,
+  );
+  if (receiptEvents.length !== 1) {
+    errors.conflict("The parcel does not have one unambiguous receipt event for this bag.", {
+      parcelId: input.parcelId,
+      bagCode: input.bagCode,
+    });
+  }
+  const receiptEvent = receiptEvents[0]!;
+  const latestTimestamp = Math.max(...events.map((event) => event.ts.getTime()));
+  const latestEvents = events.filter((event) => event.ts.getTime() === latestTimestamp);
+  if (
+    receiptEvent.ts.getTime() !== latestTimestamp ||
+    latestEvents.some(
+      (event) =>
+        event.id !== receiptEvent.id &&
+        !(
+          event.fromStatus === "InTransit" &&
+          event.toStatus === "InTransit" &&
+          event.notes === branchMoveNotes
+        ),
+    ) ||
+    latestEvents.length > 2
+  ) {
+    errors.conflict("The parcel has later activity after receipt; no rollback was applied.", {
+      parcelId: input.parcelId,
+      awb: input.expectedAwb,
+    });
+  }
+
+  const [updated] = await executor
+    .update(parcel)
+    .set({ status: "InTransit", branchId: input.originHubId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(parcel.id, input.parcelId),
+        eq(parcel.status, "AtDestHub"),
+        eq(parcel.branchId, input.destinationHubId),
+      ),
+    )
+    .returning({
+      id: parcel.id,
+      awb: parcel.awb,
+      status: parcel.status,
+      branchId: parcel.branchId,
+      consigneePhone: parcel.consigneePhone,
+    });
+  if (!updated) errors.conflict("Parcel changed state concurrently; no rollback was applied.");
+
+  await appendParcelEvent(
+    {
+      parcelId: input.parcelId,
+      fromStatus: "AtDestHub",
+      toStatus: "InTransit",
+      actor,
+      notes: `Audited rollback of bag ${input.bagCode} (trip ${input.tripCode}). Reason: ${input.reason.trim()}`,
+    },
+    executor,
+  );
+  return updated!;
 }
 
 /** Parcels in a given set of statuses at a branch — the hub/bagging work queue. */

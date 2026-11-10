@@ -10,10 +10,12 @@ import {
 import { prefixedId } from "../../shared/ulid";
 import { isTransientDbError } from "../../shared/request-scope";
 import { errors } from "../../shared/errors";
+import { auditInsert } from "../../shared/audit";
 import { normaliseLkPhone } from "../../shared/sms";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import * as parcels from "../parcels/service";
+import * as deliveryService from "../delivery/service";
 import * as identity from "../identity/service";
 import type { ParcelStatus } from "../parcels/state-machine";
 
@@ -1520,6 +1522,288 @@ export async function receiveBag(
     sealMatched,
     exceptionsRaised,
   };
+}
+
+export interface RollbackBagReceiptInput {
+  bagId: string;
+  expectedBagCode: string;
+  expectedTripCode: string;
+  expectedOriginHubId: string;
+  expectedDestHubId: string;
+  expectedSealNumber: string;
+  expectedAwbs: string[];
+  reason: string;
+}
+
+export interface RollbackBagReceiptResult {
+  bag: BagRow;
+  trip: { id: string; code: string; status: string };
+  reversedParcels: { parcelId: string; awb: string; status: ParcelStatus; branchId: string }[];
+}
+
+/**
+ * Reverse one mistakenly recorded destination receipt. This is intentionally
+ * stricter than a generic status edit: the caller supplies the exact bag/trip/
+ * route/seal/manifest snapshot, and every write plus its compensating history,
+ * transactional outbox, and audit entry commits or rolls back together.
+ */
+export async function rollbackBagReceipt(
+  input: RollbackBagReceiptInput,
+  actor: Principal,
+  requestId: string,
+): Promise<RollbackBagReceiptResult> {
+  if (actor.role !== "admin") errors.forbidden("Only an admin may reverse a bag receipt.");
+  const reason = input.reason.trim();
+  if (reason.length < 12 || reason.length > 800) {
+    errors.badRequest("Provide a rollback reason between 12 and 800 characters.");
+  }
+  const expectedAwbs = input.expectedAwbs.map((awb) => awb.trim().toUpperCase()).sort();
+  if (expectedAwbs.length === 0 || new Set(expectedAwbs).size !== expectedAwbs.length) {
+    errors.badRequest("The expected manifest must contain unique tracking numbers.");
+  }
+
+  return db.transaction(async (tx): Promise<RollbackBagReceiptResult> => {
+    const [row] = await tx.select().from(bag).where(eq(bag.id, input.bagId)).limit(1);
+    if (!row) errors.notFound("Bag");
+    assertBagVisible(row!, actor);
+    const expectedCode = input.expectedBagCode.trim().toUpperCase();
+    const expectedTripCode = input.expectedTripCode.trim().toUpperCase();
+    if (
+      row!.code.toUpperCase() !== expectedCode ||
+      row!.originHubId !== input.expectedOriginHubId ||
+      row!.destHubId !== input.expectedDestHubId ||
+      row!.sealNumber?.trim() !== input.expectedSealNumber.trim() ||
+      row!.branchId !== row!.destHubId ||
+      row!.status !== "received" ||
+      !row!.tripId ||
+      !row!.receivedAt
+    ) {
+      errors.conflict("The bag no longer matches the verified received-state snapshot; nothing was changed.", {
+        bagId: row!.id,
+        bagCode: row!.code,
+        status: row!.status,
+        branchId: row!.branchId,
+      });
+    }
+
+    const [tripRow] = await tx.select().from(trip).where(eq(trip.id, row!.tripId!)).limit(1);
+    if (
+      !tripRow ||
+      tripRow.code.toUpperCase() !== expectedTripCode ||
+      tripRow.status !== "arrived" ||
+      tripRow.originHubId !== row!.originHubId ||
+      tripRow.destHubId !== row!.destHubId
+    ) {
+      errors.conflict("The trip no longer matches the verified arrived-state snapshot; nothing was changed.", {
+        bagId: row!.id,
+        tripId: row!.tripId,
+      });
+    }
+
+    const manifest = await tx
+      .select()
+      .from(bagItem)
+      .where(and(eq(bagItem.bagId, row!.id), isNull(bagItem.removedAt)))
+      .orderBy(asc(bagItem.awb));
+    const manifestAwbs = manifest.map((item) => item.awb.toUpperCase()).sort();
+    if (
+      manifest.length !== row!.itemCount ||
+      manifestAwbs.length !== expectedAwbs.length ||
+      manifestAwbs.some((awb, i) => awb !== expectedAwbs[i]) ||
+      new Set(manifest.map((item) => item.parcelId)).size !== manifest.length
+    ) {
+      errors.conflict("The active bag manifest differs from the verified snapshot; nothing was changed.", {
+        bagId: row!.id,
+        expectedAwbs,
+        currentAwbs: manifestAwbs,
+      });
+    }
+
+    const parcelIds = manifest.map((item) => item.parcelId);
+    const activeClaims = await tx
+      .select({ bagId: bagItem.bagId, parcelId: bagItem.parcelId })
+      .from(bagItem)
+      .where(and(inArray(bagItem.parcelId, parcelIds), isNull(bagItem.removedAt)));
+    if (
+      activeClaims.length !== manifest.length ||
+      activeClaims.some((claim) => claim.bagId !== row!.id)
+    ) {
+      errors.conflict("A manifest parcel has another active bag claim; nothing was changed.", {
+        bagId: row!.id,
+      });
+    }
+
+    const unresolved = await tx
+      .select({ id: custodyException.id, kind: custodyException.kind, status: custodyException.status })
+      .from(custodyException)
+      .where(
+        and(
+          inArray(custodyException.status, ["open", "investigating"]),
+          or(
+            eq(custodyException.bagId, row!.id),
+            inArray(custodyException.parcelId, parcelIds),
+            eq(custodyException.tripId, tripRow!.id),
+          ),
+        ),
+      );
+    if (unresolved.length > 0) {
+      errors.conflict("Resolve the bag's open custody exceptions before reversing receipt.", {
+        exceptions: unresolved.map(({ id, kind, status }) => ({ id, kind, status })),
+      });
+    }
+
+    const scanRows = await tx
+      .select({
+        kind: hubScan.kind,
+        awb: hubScan.awb,
+        parcelId: hubScan.parcelId,
+        outcome: hubScan.outcome,
+        branchId: hubScan.branchId,
+        hubId: hubScan.hubId,
+        tripId: hubScan.tripId,
+      })
+      .from(hubScan)
+      .where(
+        and(
+          eq(hubScan.bagId, row!.id),
+          inArray(hubScan.kind, ["parcel_in", "bag_receive"]),
+        ),
+      );
+    const acceptedBagReceipt = scanRows.some(
+      (scan) =>
+        scan.kind === "bag_receive" &&
+        scan.outcome === "accepted" &&
+        scan.branchId === row!.destHubId &&
+        scan.hubId === row!.destHubId &&
+        scan.tripId === tripRow!.id,
+    );
+    const parcelScans = scanRows.filter((scan) => scan.kind === "parcel_in");
+    const expectedParcelByAwb = new Map(manifest.map((item) => [item.awb.toUpperCase(), item.parcelId]));
+    const acceptedParcelScans = parcelScans.filter((scan) => scan.outcome === "accepted");
+    const acceptedAwbs = [...new Set(acceptedParcelScans.map((scan) => scan.awb?.toUpperCase() ?? ""))].sort();
+    if (
+      !acceptedBagReceipt ||
+      parcelScans.some((scan) => scan.outcome === "rejected") ||
+      acceptedAwbs.length !== expectedAwbs.length ||
+      acceptedAwbs.some((awb, i) => awb !== expectedAwbs[i]) ||
+      acceptedParcelScans.some(
+        (scan) =>
+          !scan.awb ||
+          !scan.parcelId ||
+          scan.branchId !== row!.destHubId ||
+          scan.hubId !== row!.destHubId ||
+          expectedParcelByAwb.get(scan.awb.toUpperCase()) !== scan.parcelId,
+      )
+    ) {
+      errors.conflict("Receipt scans do not prove the exact verified manifest at the destination; nothing was changed.", {
+        bagId: row!.id,
+        expectedAwbs,
+        acceptedAwbs,
+      });
+    }
+
+    const laterDeliveryActivity = await deliveryService.postReceiptDeliveryActivity(
+      parcelIds,
+      row!.receivedAt!,
+      tx,
+    );
+    if (laterDeliveryActivity.length > 0) {
+      errors.conflict("A manifest parcel has an active runsheet stop or later delivery activity; nothing was changed.", {
+        activity: laterDeliveryActivity,
+      });
+    }
+
+    const reversedParcels: RollbackBagReceiptResult["reversedParcels"] = [];
+    for (const item of manifest) {
+      const updatedParcel = await parcels.rollbackDestinationHubReceipt(
+        {
+          parcelId: item.parcelId,
+          expectedAwb: item.awb,
+          originHubId: row!.originHubId,
+          destinationHubId: row!.destHubId,
+          bagCode: row!.code,
+          tripCode: tripRow!.code,
+          reason,
+        },
+        actor,
+        tx,
+      );
+      await enqueue(
+        "parcel.status_changed",
+        {
+          parcelId: updatedParcel.id,
+          awb: updatedParcel.awb,
+          from: "AtDestHub",
+          to: "InTransit",
+          consigneePhone: updatedParcel.consigneePhone,
+          reason: "bag.receipt_rolled_back",
+        },
+        tx,
+      );
+      reversedParcels.push({
+        parcelId: updatedParcel.id,
+        awb: updatedParcel.awb,
+        status: updatedParcel.status as ParcelStatus,
+        branchId: updatedParcel.branchId,
+      });
+    }
+
+    const [updatedBag] = await tx
+      .update(bag)
+      .set({ status: "in_transit", branchId: row!.originHubId })
+      .where(
+        and(
+          eq(bag.id, row!.id),
+          eq(bag.status, "received"),
+          eq(bag.branchId, row!.destHubId),
+          eq(bag.tripId, tripRow!.id),
+        ),
+      )
+      .returning();
+    if (!updatedBag) errors.conflict("Bag changed state concurrently; no rollback was applied.");
+
+    await auditInsert(
+      {
+        entity: "transport_bag",
+        entityId: row!.id,
+        action: "bag.receipt_rolled_back",
+        actor,
+        requestId,
+        before: {
+          code: row!.code,
+          status: row!.status,
+          branchId: row!.branchId,
+          originHubId: row!.originHubId,
+          destHubId: row!.destHubId,
+          tripId: tripRow!.id,
+          tripCode: tripRow!.code,
+          tripStatus: tripRow!.status,
+          sealNumber: row!.sealNumber,
+          receivedAt: row!.receivedAt,
+          awbs: expectedAwbs,
+        },
+        after: {
+          code: updatedBag!.code,
+          status: updatedBag!.status,
+          branchId: updatedBag!.branchId,
+          tripId: tripRow!.id,
+          tripCode: tripRow!.code,
+          tripStatus: tripRow!.status,
+          awbs: expectedAwbs,
+          reversedParcels,
+          reason,
+          priorReceiptEvidencePreserved: true,
+        },
+      },
+      tx,
+    );
+
+    return {
+      bag: updatedBag!,
+      trip: { id: tripRow!.id, code: tripRow!.code, status: tripRow!.status },
+      reversedParcels,
+    };
+  });
 }
 
 /** Inbound bags a hub should expect — the receiving screen's work queue. */

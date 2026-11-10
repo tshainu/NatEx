@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, like, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
+import type { DbTransaction } from "../../database/transaction";
 import {
   deliveryAttempt,
   deliveryOtp,
@@ -44,6 +45,7 @@ import {
   autoRto,
   liveNdrForParcel,
   openOrUpdateNdr,
+  postReceiptNdrRtoActivity,
   reasonRto,
   resolveNdrForParcel,
 } from "./ndr";
@@ -81,6 +83,43 @@ export type PodRow = typeof deliveryPod.$inferSelect;
 
 /** Statuses a parcel may be in to go onto a runsheet. */
 const RUNSHEET_ELIGIBLE = ["AtDestHub", "DeliveryAttempted", "OnHold"] as const;
+
+/**
+ * Read delivery-owned evidence within the caller's transaction. A parcel with
+ * an active pending stop at any timestamp, or any post-receipt assignment or
+ * doorstep activity, cannot be moved back to transit by reversing its receipt.
+ */
+export async function postReceiptDeliveryActivity(
+  parcelIds: string[],
+  receivedAt: Date,
+  executor: DbTransaction,
+): Promise<{ parcelId: string; kind: string }[]> {
+  if (parcelIds.length === 0) return [];
+  const stops = await executor
+    .select({ parcelId: runsheetItem.parcelId })
+    .from(runsheetItem)
+    .where(
+      and(
+        inArray(runsheetItem.parcelId, parcelIds),
+        or(gte(runsheetItem.createdAt, receivedAt), eq(runsheetItem.state, "pending")),
+      ),
+    );
+  const attempts = await executor
+    .select({ parcelId: deliveryAttempt.parcelId })
+    .from(deliveryAttempt)
+    .where(and(inArray(deliveryAttempt.parcelId, parcelIds), gte(deliveryAttempt.ts, receivedAt)));
+  const pods = await executor
+    .select({ parcelId: deliveryPod.parcelId })
+    .from(deliveryPod)
+    .where(and(inArray(deliveryPod.parcelId, parcelIds), gte(deliveryPod.ts, receivedAt)));
+  const ndrRto = await postReceiptNdrRtoActivity(parcelIds, receivedAt, executor);
+  return [
+    ...stops.map((row) => ({ parcelId: row.parcelId, kind: "runsheet_stop" })),
+    ...attempts.map((row) => ({ parcelId: row.parcelId, kind: "delivery_attempt" })),
+    ...pods.map((row) => ({ parcelId: row.parcelId, kind: "pod" })),
+    ...ndrRto,
+  ];
+}
 
 /** How long a delivery OTP is valid (§9: SMS-only, resend-and-expire). */
 // §10 M5: doorstep OTP validity is settings.delivery_otp_ttl_minutes (default 15).
