@@ -2292,6 +2292,13 @@ export async function processExpiredRiderRetryCases(limit = 25): Promise<number>
         actor: systemActor,
       });
       if (isNew && claimed.reasonNotifyConsignee) {
+        const [noticeMerchant, branch, retailCharge] = await Promise.all([
+          parcel.merchantId ? getMerchant(parcel.merchantId) : Promise.resolve(null),
+          getBranch(parcel.branchId),
+          chargeByParcel(parcel.id),
+        ]);
+        const merchantName = noticeMerchant?.name?.trim() || retailCharge?.senderName?.trim() || "the sender";
+        const hubPhone = branch?.phone?.trim() ? normaliseLkPhone(branch.phone) : NATEX_HOTLINE_NUMBER;
         await enqueue("notify.dispatch", {
           templateKey: "parcel.delivery_failed",
           parcelId: parcel.id,
@@ -2301,9 +2308,10 @@ export async function processExpiredRiderRetryCases(limit = 25): Promise<number>
           vars: {
             awb: parcel.awb,
             consigneeName: parcel.consigneeName,
+            merchantName,
+            hubPhone,
             attemptNo: parcel.deliveryAttempts,
             reason: claimed.lastReasonLabel,
-            trackUrl: `natex.lk/track/${parcel.awb}`,
           },
         });
       }

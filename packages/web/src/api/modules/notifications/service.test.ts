@@ -55,6 +55,25 @@ describe("notification SMS policy", () => {
     });
   });
 
+  test("renders the failed-attempt SMS with merchant and hub contact, without a tracking link", () => {
+    const failed = DEFAULT_TEMPLATES.find((template) => template.key === "parcel.delivery_failed")!;
+    const rendered = render(failed.bodySms, {
+      consigneeName: "Meena",
+      merchantName: "Royal Fabric",
+      awb: "NX800002000",
+      hubPhone: "+94771234567",
+      reason: "Customer unavailable",
+      attemptNo: "1",
+    });
+    expect(rendered.missing).toEqual([]);
+    expect(rendered.text).toBe(
+      "Dear Meena, Your order from Royal Fabric- NX800002000 has been rescheduled due to Customer unavailable. Please contact for further assistance +94771234567. Hotline: +94772772708.",
+    );
+    expect(rendered.text).not.toContain("NatEx: ");
+    expect(rendered.text).not.toMatch(/https?:\/\//i);
+    expect(rendered.text).not.toContain("natex.lk/track");
+  });
+
   test("renders the destination-arrival SMS with total due and final-hub contact", () => {
     const arrival = DEFAULT_TEMPLATES.find((template) => template.key === "parcel.arrived_at_hub")!;
     const rendered = render(arrival.bodySms, {
