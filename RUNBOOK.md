@@ -523,3 +523,5 @@ The system browser favicon and Apple shortcut icon reuse the existing public web
 ## 12. NatEx green icon refresh (2026-11-10)
 
 The owner-supplied green NatEx mark now replaces the website favicon, site-shell/login/receipt mark, and the official field app's launcher, adaptive, splash, login and web-favicon artwork. Web icons include ICO, 16px/32px PNG and a 180px Apple touch icon; HTML links use the `20261110` cache token. The Android adaptive foreground is transparent and scaled within the safe area over a white background. Merchant-app branding remains separate and unchanged. No database or authentication behavior changes; a new field-app build must be installed for the native launcher/splash icon update to appear on devices.
+
+The web shell and login use a white logo on their dark surfaces; the green logo asset is intended for light surfaces and print. Browser-tab favicons select green 16px/32px PNGs for light color preference and white 16px/32px PNGs for dark preference, with the ICO retained as fallback. The Apple touch icon remains green-on-white. This web-only theme contrast update does not require a new mobile build.

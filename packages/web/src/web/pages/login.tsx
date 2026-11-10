@@ -131,7 +131,7 @@ export default function Login() {
         <div aria-hidden className="absolute inset-y-0 right-0 w-px bg-ink-600" />
 
         <div className="relative flex items-center gap-2.5 px-12 pt-10">
-          <img src="/natex-logo.png" alt="NatEx" className="h-12 w-auto" />
+          <img src="/natex-logo-dark.png" alt="NatEx" className="h-12 w-auto" />
         </div>
 
         <div className="relative px-12 pb-12">
@@ -165,7 +165,7 @@ export default function Login() {
       <section className="flex flex-col justify-center px-6 py-10 sm:px-12">
         <div className="mx-auto w-full max-w-[400px]">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <img src="/natex-logo.png" alt="NatEx" className="h-9 w-auto" />
+            <img src="/natex-logo-dark.png" alt="NatEx" className="h-9 w-auto" />
           </div>
           <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-text-lo">
             Welcome back
