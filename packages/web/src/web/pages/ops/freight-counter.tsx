@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Printer, RotateCcw, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Printer, RotateCcw, Search } from "lucide-react";
 import { client, orpc, apiMessage } from "@/lib/api";
 import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { addressPartsFromLegacy, formatAddress, isCompleteAddress, EMPTY_ADDRESS, provinceForDistrict, type AddressParts } from "@/lib/address";
@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AddressFields } from "@/components/natex/address-fields";
+import { DataTable, MonoCell, type Column } from "@/components/natex/data-table";
 import { useAuth } from "@/components/auth-provider";
 import { Dialog } from "@/components/ui/dialog";
 import { FreightReceipt } from "@/components/natex/freight-receipt";
@@ -58,9 +59,38 @@ const empty = (branchId: string): FormState => ({
 });
 
 type Booking = Awaited<ReturnType<typeof client.freight.counterBooking>>;
+type CounterHistoryRow = Awaited<ReturnType<typeof client.freight.counterHistory>>["rows"][number];
 type BranchOption = { id: string; name: string; type?: string; address?: string; phone?: string | null; counterRateCardId?: string | null };
 
 type CounterTab = "booking" | "history";
+type HistorySortKey = "booked" | "awb" | "sender" | "receiver" | "item" | "branch" | "payer" | "charge" | "due";
+type HistorySort = { key: HistorySortKey; direction: "asc" | "desc" };
+
+function sortCounterHistory(rows: CounterHistoryRow[], sort: HistorySort): CounterHistoryRow[] {
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+  const value = (row: CounterHistoryRow): number | string => {
+    switch (sort.key) {
+      case "booked": return new Date(row.freightCharge.createdAt).getTime();
+      case "awb": return row.freightCharge.awb;
+      case "sender": return row.freightCharge.senderName;
+      case "receiver": return row.freightCharge.recipientPhone;
+      case "item": return row.parcel.description || "";
+      case "branch": return row.freightCharge.branchName;
+      case "payer": return row.freightCharge.payer === "sender" ? "Sender" : "Recipient";
+      case "charge": return row.freightCharge.amountCents;
+      case "due": return row.dueCents;
+    }
+  };
+  const multiplier = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const a = value(left);
+    const b = value(right);
+    const compared = typeof a === "number" && typeof b === "number"
+      ? a - b
+      : collator.compare(String(a), String(b));
+    return compared === 0 ? collator.compare(left.freightCharge.awb, right.freightCharge.awb) : compared * multiplier;
+  });
+}
 
 export default function RetailFreightCounter() {
   const { session } = useAuth();
@@ -82,6 +112,7 @@ export default function RetailFreightCounter() {
   const [activeTab, setActiveTab] = React.useState<CounterTab>("booking");
   const [historyTerm, setHistoryTerm] = React.useState("");
   const [historySearch, setHistorySearch] = React.useState("");
+  const [historySort, setHistorySort] = React.useState<HistorySort>({ key: "booked", direction: "desc" });
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
   const [printNotice, setPrintNotice] = React.useState<string | null>(null);
   const receiptPopupRef = React.useRef<ReceiptPrintWindow | null>(null);
@@ -200,8 +231,41 @@ export default function RetailFreightCounter() {
     enabled: activeTab === "history" && (canChooseBranch || Boolean(session?.user.branchId)),
     staleTime: 15_000,
   });
-  const historyRows = historyQuery.data?.rows ?? [];
+  const historyRows = React.useMemo(() => historyQuery.data?.rows ?? [], [historyQuery.data]);
+  const sortedHistoryRows = React.useMemo(() => sortCounterHistory(historyRows, historySort), [historyRows, historySort]);
   const selectedHistory = historyRows.find((row) => row.freightCharge.id === selectedHistoryId) ?? null;
+  const historyHeader = (label: string, key: HistorySortKey) => {
+    const active = historySort.key === key;
+    const Icon = active ? (historySort.direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+    return {
+      header: (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Sort by ${label}${active ? `, currently ${historySort.direction === "asc" ? "ascending" : "descending"}` : ""}`}
+          aria-pressed={active}
+          onClick={() => setHistorySort((previous) => previous.key === key
+            ? { ...previous, direction: previous.direction === "asc" ? "desc" : "asc" }
+            : { key, direction: key === "booked" ? "desc" : "asc" })}
+        >
+          {label}<Icon className="size-3.5" aria-hidden />
+        </button>
+      ),
+      ...(active ? { ariaSort: historySort.direction === "asc" ? "ascending" as const : "descending" as const } : {}),
+    };
+  };
+  const historyColumns: Column<CounterHistoryRow>[] = [
+    { key: "booked", ...historyHeader("Booked", "booked"), width: "w-[155px]", cell: (row) => new Date(row.freightCharge.createdAt).toLocaleString("en-LK", { dateStyle: "medium", timeStyle: "short" }) },
+    { key: "awb", ...historyHeader("Tracking number", "awb"), width: "w-[160px]", className: "whitespace-nowrap", cell: (row) => <MonoCell>{row.freightCharge.awb}</MonoCell> },
+    { key: "sender", ...historyHeader("Sender", "sender"), width: "w-[170px]", cell: (row) => row.freightCharge.senderName },
+    { key: "receiver", ...historyHeader("Receiver phone", "receiver"), width: "w-[145px]", className: "whitespace-nowrap", cell: (row) => row.freightCharge.recipientPhone },
+    { key: "item", ...historyHeader("Parcel", "item"), width: "w-[190px]", cell: (row) => row.parcel.description || "No description" },
+    { key: "branch", ...historyHeader("Branch / hub", "branch"), width: "w-[150px]", cell: (row) => row.freightCharge.branchName },
+    { key: "payer", ...historyHeader("Payer", "payer"), width: "w-[120px]", cell: (row) => row.freightCharge.payer === "sender" ? "Sender" : "Recipient" },
+    { key: "charge", ...historyHeader("Charge", "charge"), width: "w-[115px]", align: "right", className: "whitespace-nowrap font-mono", cell: (row) => money(row.freightCharge.amountCents) },
+    { key: "due", ...historyHeader("Paid / due", "due"), width: "w-[130px]", align: "right", className: "whitespace-nowrap", cell: (row) => row.dueCents <= 0 ? <span className="font-medium text-status-success">Paid</span> : `Due ${money(row.dueCents)}` },
+    { key: "document", header: "Document", width: "w-[145px]", cell: (row) => <Button size="sm" variant="outline" className="whitespace-nowrap" onClick={() => setSelectedHistoryId(row.freightCharge.id)}><Search aria-hidden />View receipt / notice</Button> },
+  ];
 
   const create = useMutation({
     mutationFn: () => client.freight.counterBooking({
@@ -439,7 +503,7 @@ export default function RetailFreightCounter() {
         )
       ) : (
         <section aria-label="Counter booking history" className="space-y-4">
-          <Card title="Counter booking history" description="Search by tracking number, sender name, or sender/receiver phone number. Select a booking to view its current charge notice or payment receipt and print it again.">
+          <Card title="Counter booking history" description="Search by tracking number, sender name, or sender/receiver phone number. Click a column title to sort the latest 50 shown; search to find older bookings. Select a row’s document action to view and print it again.">
             <Field label="Search history">
               <Input value={historyTerm} onChange={(event) => { setHistoryTerm(event.target.value); setSelectedHistoryId(null); }} placeholder="tracking number, sender, or receiver phone" />
             </Field>
@@ -452,26 +516,17 @@ export default function RetailFreightCounter() {
               </Field>
             ) : <p className="mt-3 text-xs text-muted-foreground">Showing bookings for {session?.user.branchName ?? "your assigned branch / hub"} only.</p>}
           </Card>
-          {historyQuery.isError ? <ErrorNote>{apiMessage(historyQuery.error, "Counter history could not be loaded.")}</ErrorNote> : null}
-          {historyQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading Counter history…</p> : null}
-          <div className="grid gap-3">
-            {historyRows.map((row) => (
-              <Card key={row.freightCharge.id} className="max-w-5xl">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-mono text-sm font-semibold">{row.freightCharge.awb}</p>
-                    <p className="mt-1 text-sm">Sender: {row.freightCharge.senderName} · Receiver: {row.freightCharge.recipientPhone}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{row.parcel.description || "No parcel description"} · {row.freightCharge.branchName}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{row.freightCharge.payer === "sender" ? "Sender pays" : "Recipient pays"} · {money(row.freightCharge.amountCents)} · {row.dueCents <= 0 ? "Paid" : `Due ${money(row.dueCents)}`}</p>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => setSelectedHistoryId(row.freightCharge.id)}>
-                    <Search aria-hidden />View receipt / notice
-                  </Button>
-                </div>
-              </Card>
-            ))}
-            {!historyQuery.isLoading && historyRows.length === 0 ? <p className="rounded-md border border-border p-4 text-sm text-muted-foreground">No Counter bookings match this search in the selected location.</p> : null}
-          </div>
+          <DataTable
+            columns={historyColumns}
+            rows={sortedHistoryRows}
+            rowKey={(row) => row.freightCharge.id}
+            loading={historyQuery.isLoading}
+            error={historyQuery.isError ? apiMessage(historyQuery.error, "Counter history could not be loaded.") : null}
+            emptyTitle="No Counter bookings found"
+            emptyDescription="No bookings match this search in the selected location. Try a different tracking number, sender, or phone number."
+            dense
+            tableClassName="min-w-[1380px]"
+          />
           {historyQuery.data && historyQuery.data.total > historyRows.length ? (
             <p className="text-xs text-muted-foreground">Showing the latest {historyRows.length} of {historyQuery.data.total}. Narrow your search to find older bookings.</p>
           ) : null}

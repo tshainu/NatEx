@@ -23,6 +23,7 @@ export interface Column<T> {
   /** Money and ids: right-aligned mono (design.md). */
   className?: string;
   headerClassName?: string;
+  ariaSort?: "ascending" | "descending" | "none";
 }
 
 export interface Pagination {
@@ -46,6 +47,7 @@ export function DataTable<T>({
   rowClassName,
   dense = false,
   className,
+  tableClassName,
   reveal = true,
 }: {
   columns: Column<T>[];
@@ -64,6 +66,7 @@ export function DataTable<T>({
   rowClassName?: (row: T) => string | undefined;
   dense?: boolean;
   className?: string;
+  tableClassName?: string;
   reveal?: boolean;
 }) {
   const totalPages = pagination
@@ -84,12 +87,13 @@ export function DataTable<T>({
       ) : null}
 
       <div className="natex-scroll min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-left">
+        <table className={cn("w-full border-collapse text-left", tableClassName)}>
           <thead className="sticky top-0 z-10">
             <tr className="bg-muted">
               {columns.map((column) => (
                 <th
                   key={column.key}
+                  aria-sort={column.ariaSort}
                   className={cn(
                     "label-xs border-b border-border px-4 py-2.5 text-muted-foreground",
                     column.align === "right" && "text-right",
