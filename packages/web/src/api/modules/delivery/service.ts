@@ -771,8 +771,10 @@ export async function addToRunsheet(
   const sheet = await getRunsheet(input.runsheetId);
   if (!sheet) errors.notFound(`Runsheet ${input.runsheetId}`);
   assertRunsheetVisible(sheet!, actor);
-  if (sheet!.status !== "draft") {
-    errors.conflict(`Runsheet ${sheet!.code} is ${sheet!.status}; stops can only be added to a draft.`, {
+  const isDraft = sheet!.status === "draft";
+  const isDispatched = sheet!.status === "dispatched";
+  if (!isDraft && !isDispatched) {
+    errors.conflict(`Runsheet ${sheet!.code} is ${sheet!.status}; stops can only be added to an open run.`, {
       currentStatus: sheet!.status,
     });
   }
@@ -785,7 +787,7 @@ export async function addToRunsheet(
   }));
 
   const existing = await db
-    .select({ parcelId: runsheetItem.parcelId })
+    .select({ parcelId: runsheetItem.parcelId, seq: runsheetItem.seq })
     .from(runsheetItem)
     .where(eq(runsheetItem.runsheetId, sheet!.id));
   const alreadyOn = new Set(existing.map((r) => r.parcelId));
@@ -793,6 +795,7 @@ export async function addToRunsheet(
   let added = 0;
   let codDelta = 0;
   let freightDelta = 0;
+  let updatedRun = sheet!;
 
   for (const p of found) {
     if (alreadyOn.has(p.id)) {
@@ -825,57 +828,181 @@ export async function addToRunsheet(
     const freightDueCents = charge?.payer === "recipient" ? charge.amountCents : 0;
 
     const newItemId = prefixedId("rsi");
-    await db.insert(runsheetItem).values({
-      id: newItemId,
-      runsheetId: sheet!.id,
-      parcelId: p.id,
-      awb: p.awb,
-      // Insertion order until the route is optimised; optimiseRunsheet rewrites it.
-      seq: alreadyOn.size + added + 1,
-      state: "pending",
-      attemptNo: p.deliveryAttempts,
-      consigneeName: p.consigneeName,
-      consigneePhone: p.consigneePhone,
-      destAddress: p.destAddress,
-      destLat: p.destLat,
-      destLng: p.destLng,
-      codAmountCents: p.codAmountCents,
-      freightAmountCents: freightDueCents,
-      freightPayer: charge?.payer ?? null,
-    });
-    const [retryCase] = await db
-      .select()
-      .from(deliveryRetryCase)
-      .where(and(eq(deliveryRetryCase.parcelId, p.id), eq(deliveryRetryCase.state, "open")))
-      .limit(1);
-    if (retryCase && retryCase.expiresAt.getTime() > Date.now()) {
-      await db.update(deliveryRetryCase).set({
-        activeRiderId: sheet!.riderId,
+    if (isDispatched) {
+      await transitionParcel(
+        {
+          awbOrId: p.awb,
+          to: "OutForDelivery",
+          notes: `Appended to active runsheet ${sheet!.code} by ${actor.name}.`,
+        },
+        actor,
+        {},
+        async (tx, before, after) => {
+          if (before.status !== p.status || !(RUNSHEET_ELIGIBLE as readonly string[]).includes(before.status)) {
+            errors.conflict(`Parcel ${before.awb} changed state. Refresh stock and try again.`, {
+              awb: before.awb,
+              currentStatus: before.status,
+            });
+          }
+          if (!isGlobalScope(actor.role) && before.branchId !== sheet!.branchId) {
+            errors.forbidden(`Parcel ${before.awb} is accountable to another branch.`);
+          }
+
+          const [retryCase] = await tx
+            .select()
+            .from(deliveryRetryCase)
+            .where(eq(deliveryRetryCase.parcelId, before.id))
+            .limit(1);
+          if (retryCase?.state === "escalating") {
+            errors.conflict("NDR escalation is still in progress. Refresh and append again after it finishes.");
+          }
+
+          const liveClaims = await tx
+            .select({ runsheetId: runsheet.id, state: runsheetItem.state })
+            .from(runsheetItem)
+            .innerJoin(runsheet, eq(runsheet.id, runsheetItem.runsheetId))
+            .where(and(
+              eq(runsheetItem.parcelId, before.id),
+              inArray(runsheet.status, ["draft", "dispatched"]),
+            ));
+          if (liveClaims.some((claim) => claim.runsheetId !== sheet!.id && claim.state !== "removed")) {
+            errors.conflict(`Parcel ${before.awb} is already assigned to another open runsheet.`, {
+              awb: before.awb,
+            });
+          }
+
+          const [lastStop] = await tx
+            .select({ seq: runsheetItem.seq })
+            .from(runsheetItem)
+            .where(eq(runsheetItem.runsheetId, sheet!.id))
+            .orderBy(desc(runsheetItem.seq))
+            .limit(1);
+          const nextSeq = (lastStop?.seq ?? 0) + 1;
+          await tx.insert(runsheetItem).values({
+            id: newItemId,
+            runsheetId: sheet!.id,
+            parcelId: before.id,
+            awb: before.awb,
+            seq: nextSeq,
+            state: "pending",
+            attemptNo: before.deliveryAttempts,
+            consigneeName: before.consigneeName,
+            consigneePhone: before.consigneePhone,
+            destAddress: before.destAddress,
+            destLat: before.destLat,
+            destLng: before.destLng,
+            codAmountCents: before.codAmountCents,
+            freightAmountCents: freightDueCents,
+            freightPayer: charge?.payer ?? null,
+          });
+
+          const [nextRun] = await tx
+            .update(runsheet)
+            .set({
+              plannedCount: sql`${runsheet.plannedCount} + 1`,
+              codExpectedCents: sql`${runsheet.codExpectedCents} + ${before.codAmountCents}`,
+              freightExpectedCents: sql`${runsheet.freightExpectedCents} + ${freightDueCents}`,
+              routeMethod: "manual_append",
+              routeDistanceMetres: null,
+              optimisedAt: null,
+            })
+            .where(and(eq(runsheet.id, sheet!.id), eq(runsheet.status, "dispatched")))
+            .returning();
+          if (!nextRun) errors.conflict(`Runsheet ${sheet!.code} is no longer dispatched.`);
+          updatedRun = nextRun!;
+
+          if (retryCase?.state === "open" && retryCase.expiresAt.getTime() <= Date.now()) {
+            errors.conflict("The 72-hour Rider retry window expired before the stop could be appended.");
+          }
+          if (retryCase && ["open", "out_for_delivery", "escalated", "rto"].includes(retryCase.state)) {
+            await tx.update(deliveryRetryCase).set({
+              state: "out_for_delivery",
+              activeRiderId: sheet!.riderId,
+              runsheetId: sheet!.id,
+              runsheetItemId: newItemId,
+              updatedAt: new Date(),
+            }).where(and(
+              eq(deliveryRetryCase.id, retryCase.id),
+              inArray(deliveryRetryCase.state, ["open", "out_for_delivery", "escalated", "rto"]),
+            ));
+          }
+
+          await enqueue("notify.dispatch", {
+            templateKey: "parcel.out_for_delivery",
+            parcelId: after.id,
+            awb: before.awb,
+            merchantId: before.merchantId,
+            toPhone: before.consigneePhone,
+            vars: {
+              awb: before.awb,
+              consigneeName: before.consigneeName,
+              riderName: sheet!.riderName,
+              codLine: codLineFor(before.codAmountCents),
+              codAmount: before.codAmountCents > 0 ? formatLkr(before.codAmountCents) : "",
+              trackUrl: `natex.lk/track/${before.awb}`,
+            },
+          }, tx);
+        },
+      );
+    } else {
+      const nextSeq = existing.reduce((max, row) => Math.max(max, row.seq), 0) + added + 1;
+      await db.insert(runsheetItem).values({
+        id: newItemId,
         runsheetId: sheet!.id,
-        runsheetItemId: newItemId,
-        updatedAt: new Date(),
-      }).where(and(eq(deliveryRetryCase.id, retryCase.id), eq(deliveryRetryCase.state, "open")));
+        parcelId: p.id,
+        awb: p.awb,
+        // Draft stops retain scan order until Ops explicitly optimises the route.
+        seq: nextSeq,
+        state: "pending",
+        attemptNo: p.deliveryAttempts,
+        consigneeName: p.consigneeName,
+        consigneePhone: p.consigneePhone,
+        destAddress: p.destAddress,
+        destLat: p.destLat,
+        destLng: p.destLng,
+        codAmountCents: p.codAmountCents,
+        freightAmountCents: freightDueCents,
+        freightPayer: charge?.payer ?? null,
+      });
+      const [retryCase] = await db
+        .select()
+        .from(deliveryRetryCase)
+        .where(and(eq(deliveryRetryCase.parcelId, p.id), eq(deliveryRetryCase.state, "open")))
+        .limit(1);
+      if (retryCase && retryCase.expiresAt.getTime() > Date.now()) {
+        await db.update(deliveryRetryCase).set({
+          activeRiderId: sheet!.riderId,
+          runsheetId: sheet!.id,
+          runsheetItemId: newItemId,
+          updatedAt: new Date(),
+        }).where(and(eq(deliveryRetryCase.id, retryCase.id), eq(deliveryRetryCase.state, "open")));
+      }
+      codDelta += p.codAmountCents;
+      freightDelta += freightDueCents;
     }
     alreadyOn.add(p.id);
     added += 1;
-    codDelta += p.codAmountCents;
-    freightDelta += freightDueCents;
     lines.push({ awb: p.awb, verdict: "added" });
   }
 
-  const [updated] = await db
-    .update(runsheet)
-    .set({
-      plannedCount: sheet!.plannedCount + added,
-      codExpectedCents: sheet!.codExpectedCents + codDelta,
-      freightExpectedCents: sheet!.freightExpectedCents + freightDelta,
-      // Any change invalidates the stop order.
-      optimisedAt: added > 0 ? null : sheet!.optimisedAt,
-    })
-    .where(eq(runsheet.id, sheet!.id))
-    .returning();
+  if (isDraft && added > 0) {
+    const [updated] = await db
+      .update(runsheet)
+      .set({
+        plannedCount: sheet!.plannedCount + added,
+        codExpectedCents: sheet!.codExpectedCents + codDelta,
+        freightExpectedCents: sheet!.freightExpectedCents + freightDelta,
+        routeDistanceMetres: null,
+        // Any change invalidates the stop order.
+        optimisedAt: null,
+      })
+      .where(and(eq(runsheet.id, sheet!.id), eq(runsheet.status, "draft")))
+      .returning();
+    if (!updated) errors.conflict(`Runsheet ${sheet!.code} is no longer a draft.`);
+    updatedRun = updated!;
+  }
 
-  return { runsheet: updated!, lines, added };
+  return { runsheet: updatedRun, lines, added };
 }
 
 export async function removeFromRunsheet(

@@ -372,6 +372,8 @@ function RunsheetDrawer({
   }, [runsheetId]);
 
   const isDraft = sheet?.status === "draft";
+  const isDispatched = sheet?.status === "dispatched";
+  const canAddStops = isDraft || isDispatched;
   const stock = useDeliverable(Boolean(isDraft));
 
   const fail = (message: string) => {
@@ -383,7 +385,11 @@ function RunsheetDrawer({
       setAddLines(r.lines);
       setAwbText("");
       setError(null);
-      setDone(`${r.added} stop${r.added === 1 ? "" : "s"} added.`);
+      setDone(
+        r.added === 0
+          ? "No stops were added. Review the result beside each tracking number."
+          : `${r.added} stop${r.added === 1 ? "" : "s"} added${isDispatched ? " to the end of the active route and marked Out for Delivery" : " to the draft"}.`,
+      );
     },
     onError: fail,
   });
@@ -530,8 +536,13 @@ function RunsheetDrawer({
           {error ? <ErrorNote>{error}</ErrorNote> : null}
           {done ? <SuccessNote>{done}</SuccessNote> : null}
 
-          {isDraft ? (
+          {canAddStops ? (
             <section className="space-y-3 border-t pt-4">
+              {isDispatched ? (
+                <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[13px] leading-relaxed text-sky-900">
+                  Appended parcels go after the existing stops and are marked Out for Delivery immediately. The current stop order is preserved.
+                </p>
+              ) : null}
               <form
                 className="space-y-2"
                 onSubmit={(e) => {
@@ -541,7 +552,10 @@ function RunsheetDrawer({
                   add.mutate({ runsheetId: sheet.id, awbs: awbs.slice(0, 200) });
                 }}
               >
-                <Field label="Add stops" hint="Scan or paste tracking numbers, one per line. Each gets its own verdict — a stray label never fails the batch.">
+                <Field
+                  label={isDispatched ? "Append stops to active route" : "Add stops"}
+                  hint="Scan or paste tracking numbers, one per line. Each gets its own verdict — a stray label never fails the batch."
+                >
                   <Textarea
                     value={awbText}
                     onChange={(e) => setAwbText(e.target.value)}
@@ -552,17 +566,19 @@ function RunsheetDrawer({
                 </Field>
                 <div className="flex flex-wrap gap-2">
                   <Button type="submit" size="sm" pending={add.isPending} disabled={awbs.length === 0}>
-                    Add {awbs.length || ""} stop{awbs.length === 1 ? "" : "s"}
+                    {isDispatched ? "Append" : "Add"} {awbs.length || ""} stop{awbs.length === 1 ? "" : "s"}
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!stock.data || stock.data.ready.length === 0}
-                    onClick={() => setAwbText(stock.data!.ready.map((p) => p.awb).join("\n"))}
-                  >
-                    Fill from ready stock ({stock.data?.ready.length ?? 0})
-                  </Button>
+                  {isDraft ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!stock.data || stock.data.ready.length === 0}
+                      onClick={() => setAwbText(stock.data!.ready.map((p) => p.awb).join("\n"))}
+                    >
+                      Fill from ready stock ({stock.data?.ready.length ?? 0})
+                    </Button>
+                  ) : null}
                 </div>
               </form>
               {addLines.length > 0 ? (
@@ -578,23 +594,25 @@ function RunsheetDrawer({
                   ))}
                 </ul>
               ) : null}
-              <div className="flex flex-wrap gap-2 border-t pt-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  pending={optimise.isPending}
-                  disabled={liveStops.length < 2}
-                  onClick={() => optimise.mutate({ runsheetId: sheet.id })}
-                >
-                  <Route aria-hidden />
-                  Order the stops
-                </Button>
-                <Button size="sm" disabled={liveStops.length === 0} onClick={() => setConfirm("dispatch")}>
-                  <Send aria-hidden />
-                  Dispatch
-                </Button>
-              </div>
-              <div className="space-y-2 border-t pt-3">
+              {isDraft ? (
+                <>
+                  <div className="flex flex-wrap gap-2 border-t pt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      pending={optimise.isPending}
+                      disabled={liveStops.length < 2}
+                      onClick={() => optimise.mutate({ runsheetId: sheet.id })}
+                    >
+                      <Route aria-hidden />
+                      Order the stops
+                    </Button>
+                    <Button size="sm" disabled={liveStops.length === 0} onClick={() => setConfirm("dispatch")}>
+                      <Send aria-hidden />
+                      Dispatch
+                    </Button>
+                  </div>
+                  <div className="space-y-2 border-t pt-3">
                 <Field
                   label="Cancel this draft"
                   hint="Nothing has left the hub, so no parcel moves. The reason is recorded in the audit log — at least 5 characters."
@@ -615,7 +633,9 @@ function RunsheetDrawer({
                   <Ban aria-hidden />
                   Cancel the draft
                 </Button>
-              </div>
+                  </div>
+                </>
+              ) : null}
             </section>
           ) : null}
 
