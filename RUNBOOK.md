@@ -16,9 +16,9 @@ build (2026-10-03) unless it says otherwise.
 | `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | yes | Turso. |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **yes** | 32+ random bytes each. With either unset outside development the server throws at the first sign-in instead of using the public dev key. Rotating `JWT_ACCESS_SECRET` signs everybody out within 15 minutes (access TTL); that is the emergency "kill all sessions" lever. |
 | `MFA_ENCRYPTION_KEY` | **yes** | Encrypts TOTP secrets at rest (AES-256-GCM, key = SHA-256 of this value). **Changing it invalidates every enrolled authenticator**: every ops/admin/finance user must be reset and re-enrol (section 3). Store it with the DB backups' keys, not with the app. |
-| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Use the owner-whitelisted sender `NatEx` for OTP, POD, merchant registration, receiver rescheduling, and failed-delivery notices. Other customer booking/status SMS remain disabled. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
-| `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception; failed-delivery notices and reschedules are the only parcel-notification SMS exceptions. |
-| Tracking links in SMS | — | POD SMS contains no tracking number or link. Failed-delivery and receiver-reschedule SMS may include their tracking number/link and short public reason; generic booking/status messages remain disabled. |
+| `SMS_EXECUTION_URL`, `SMS_SENDER_ID`, `SMS_DLR_WEBHOOK_SECRET` | yes for live SMS | Use the owner-whitelisted sender `NatEx` for OTP, POD, merchant registration, receiver rescheduling, failed-delivery notices and destination-hub arrival notices. Other customer booking/status SMS remain disabled. Unset gateway ⇒ messages are logged to `shared_sms_log` and never sent. |
+| `SMS_DISABLE_ALL=true` | **yes on Demo** | Suppresses all SMS gateway calls in Demo. Keep enabled even if a gateway URL is configured. Production registration messages are a narrow fixed-copy exception; POD, failed-delivery, reschedule and final-hub-arrival notices are the only parcel-notification SMS exceptions. |
+| Tracking links in SMS | — | POD SMS contains no tracking number or link. Failed-delivery, receiver-reschedule and destination-arrival SMS may include the tracking number and short public reason where applicable, but never a tracking link; generic booking/status messages remain disabled. |
 | `NIGHTLY_INVARIANT_HOUR`, `NIGHTLY_TICK_MS` | no | Nightly COD invariant: default hour 23 (Asia/Colombo), tick 300000 ms. |
 | `SENTRY_DSN` | no | **Not wired — see section 5.** |
 
@@ -202,28 +202,43 @@ Creation retry through the normal idempotent mutation returns the original creat
 
 ### Failed-delivery SMS
 
-When a new failed doorstep attempt uses a reason configured to notify the consignee, the
-`parcel.delivery_failed` template follows WhatsApp → SMS → Push. SMS is enabled only for this
-template (and POD confirmation); other generic parcel-status templates remain blocked from SMS.
-The approved failure copy includes the AWB, attempt number, public reason, the NatEx support
-number `0772772708`, and the tracking URL. A failed delivery job is retried by the outbox up to
-five times; inspect `notify_message` and `shared_sms_log` before any manual replay to avoid
-duplicate messages. Gateway acceptance is not proof of handset delivery.
+When a failed doorstep attempt uses a reason configured to notify the consignee, the
+`parcel.delivery_failed` template follows WhatsApp → SMS → Push. SMS is enabled for this template,
+POD confirmation and destination-hub arrival notices; other parcel-status templates remain blocked
+from SMS. Eligible failed attempts notify immediately, including during the rider reattempt window.
+The approved failure copy includes the consignee, merchant/sender, AWB, public reason, current
+branch contact number and fixed hotline `+9477272708`; it does not include a tracking link. A failed
+delivery job is retried by the outbox up to five times; inspect `notify_message` and `shared_sms_log`
+before any manual replay to avoid duplicate messages. Gateway acceptance is not proof of handset
+delivery.
+
+### Destination-hub arrival SMS
+
+`parcel.arrived_at_hub` is queued in the parcel transition transaction only for a non-deduplicated
+`InTransit` → `AtDestHub` receipt when the receiving branch matches the parcel's configured
+destination-zone delivery branch. Intermediate transfer hubs do not notify the consignee. The
+message includes the consignee, merchant name (or freight sender snapshot), tracking number,
+destination branch contact and the amount due. Amount due is COD plus any unpaid recipient-paid
+freight; sender-paid freight is not added. If the destination branch has no phone number, the
+configured hotline is used as the contact fallback. Arrival SMS contains no link and must remain
+within the single-message length limit. Demo must keep `SMS_DISABLE_ALL=true`; never send a real
+test SMS as part of a release check.
 
 ### Receiver reschedule SMS
 
 On the NDR queue, successfully saving **Reattempt** or **Address change** with a new attempt date
 queues the receiver notice in the same transaction as the saved schedule. The message uses the
 corrected receiver phone when supplied, the tracking number, the date and a short public delivery
-reason label. Internal notes, addresses and names are never copied into SMS. The format is
-`NatEx: Tracking {number}. Delivery rescheduled to {YYYY-MM-DD}. Reason: {reason}.`
+reason label. Internal notes, addresses and names are never copied into SMS. The prefix-free format is
+`Tracking {number}. Delivery rescheduled to {YYYY-MM-DD}. Reason: {reason}.`
 Messages are ASCII/GSM-7, limited to one SMS, and never contain tracking links.
 
 The persistent schedule key and send state suppress replays; canceled/resolved schedules cannot
 send pending notices. Demo and the independent SMS-disable flag suppress gateway calls. A job
 interrupted after its one-time send claim is not blindly resent: check the SMS log before any
 operator intervention, since gateway acceptance is not proof of handset delivery. No booking,
-out-for-delivery, generic status, sender or RTO SMS is enabled by this change.
+out-for-delivery, sender or RTO SMS is enabled by this change. Every outbound SMS body has the
+legacy leading `NatEx: ` prefix removed; the gateway sender ID remains `NatEx`.
 
 ---
 

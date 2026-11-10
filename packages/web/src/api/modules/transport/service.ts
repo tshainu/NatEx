@@ -11,12 +11,17 @@ import { prefixedId } from "../../shared/ulid";
 import { isTransientDbError } from "../../shared/request-scope";
 import { errors } from "../../shared/errors";
 import { auditInsert } from "../../shared/audit";
+import { formatLkr } from "../../shared/money";
 import { normaliseLkPhone } from "../../shared/sms";
+import { NATEX_HOTLINE_NUMBER } from "../../shared/sms-policy";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import * as parcels from "../parcels/service";
 import * as deliveryService from "../delivery/service";
+import * as freight from "../freight/ledger";
 import * as identity from "../identity/service";
+import * as merchants from "../merchants/service";
+import * as routing from "../routing/service";
 import type { ParcelStatus } from "../parcels/state-machine";
 
 /**
@@ -38,6 +43,68 @@ import type { ParcelStatus } from "../parcels/state-machine";
 export type BagRow = typeof bag.$inferSelect;
 export type BagItemRow = typeof bagItem.$inferSelect;
 export type TripRow = typeof trip.$inferSelect;
+
+const ARRIVAL_NOTICE_TEMPLATE_KEY = "parcel.arrived_at_hub";
+
+export function isFinalDeliveryHub(destinationZoneBranchId: string | null | undefined, receivingHubId: string): boolean {
+  return Boolean(destinationZoneBranchId && destinationZoneBranchId === receivingHubId);
+}
+
+export function calculateArrivalAmounts(
+  codAmountCents: number,
+  charge: { amountCents: number; payer: string } | null,
+  entries: readonly { amountCents: number }[],
+): { codAmountCents: number; recipientFreightDueCents: number; amountDueCents: number } {
+  const cod = Math.max(0, codAmountCents);
+  const recipientFreightDue = charge?.payer === "recipient"
+    ? Math.max(0, charge.amountCents - entries.reduce((total, entry) => total + entry.amountCents, 0))
+    : 0;
+  return {
+    codAmountCents: cod,
+    recipientFreightDueCents: recipientFreightDue,
+    amountDueCents: cod + recipientFreightDue,
+  };
+}
+
+/** Build a receiver notice only for the parcel's configured final delivery hub. */
+async function arrivalNoticeForFinalHub(parcelId: string, receivingHubId: string) {
+  const parcel = await parcels.getParcelById(parcelId);
+  if (!parcel?.destZoneId) return null;
+  const destinationZone = await routing.getZoneById(parcel.destZoneId);
+  if (!isFinalDeliveryHub(destinationZone?.branchId, receivingHubId)) return null;
+
+  const [hub, merchant, charge] = await Promise.all([
+    identity.getBranch(receivingHubId),
+    parcel.merchantId ? merchants.getMerchant(parcel.merchantId) : Promise.resolve(null),
+    freight.chargeByParcel(parcel.id),
+  ]);
+  const entries = charge ? await freight.entriesForCharge(charge.id) : [];
+  const amounts = calculateArrivalAmounts(parcel.codAmountCents, charge, entries);
+  const amountDueLine = amounts.codAmountCents > 0
+    ? `Your COD amount is ${formatLkr(amounts.amountDueCents)}${amounts.recipientFreightDueCents > 0 ? " (including delivery charge)" : ""}; please keep this total amount ready.`
+    : amounts.recipientFreightDueCents > 0
+      ? `Please keep ${formatLkr(amounts.amountDueCents)} ready for the delivery charge.`
+      : "";
+  const merchantName = merchant?.name?.trim() || charge?.senderName?.trim() || "the sender";
+  const hubPhone = hub?.phone?.trim() ? normaliseLkPhone(hub.phone) : NATEX_HOTLINE_NUMBER;
+
+  return {
+    templateKey: ARRIVAL_NOTICE_TEMPLATE_KEY,
+    parcelId: parcel.id,
+    awb: parcel.awb,
+    merchantId: parcel.merchantId,
+    toPhone: parcel.consigneePhone,
+    vars: {
+      consigneeName: parcel.consigneeName,
+      merchantName,
+      awb: parcel.awb,
+      codAmount: formatLkr(amounts.codAmountCents),
+      amountDue: formatLkr(amounts.amountDueCents),
+      amountDueLine,
+      hubPhone,
+    },
+  };
+}
 export type HubScanRow = typeof hubScan.$inferSelect;
 export type ExceptionRow = typeof custodyException.$inferSelect;
 
@@ -1370,6 +1437,13 @@ export async function receiveBag(
         actor,
         `Scanned in at the destination hub out of bag ${row!.code}.`,
       );
+      let arrivalNotice: Awaited<ReturnType<typeof arrivalNoticeForFinalHub>> = null;
+      try {
+        arrivalNotice = await arrivalNoticeForFinalHub(item.parcelId, row!.destHubId);
+      } catch (err) {
+        // Receiver communication must not prevent the physical custody scan.
+        console.error("[transport] Could not prepare destination-arrival notice.", err);
+      }
       const outcome = await parcels.transitionParcel(
         {
           awbOrId: item.parcelId,
@@ -1380,6 +1454,11 @@ export async function receiveBag(
           clientId: input.clientId ? `${input.clientId}:${awb}` : null,
         },
         actor,
+        {},
+        async (tx, before, after) => {
+          if (!arrivalNotice || before.status !== "InTransit" || after.status !== "AtDestHub") return;
+          await enqueue("notify.dispatch", arrivalNotice, tx);
+        },
       );
       if (outcome.deduped) {
         duplicates.push({ awb, outcome: "duplicate", reason: "Scan already applied" });

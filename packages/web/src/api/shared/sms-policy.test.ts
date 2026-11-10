@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assertArrivalNoticeSms,
   assertDeliveryFailureSms,
   assertRescheduleSms,
   assertMerchantRegistrationSms,
@@ -10,9 +11,17 @@ import {
   MERCHANT_REGISTRATION_ACCEPTED_SMS,
   MERCHANT_REGISTRATION_RECEIPT_SMS,
   NATEX_SMS_SENDER_ID,
+  removeLeadingNatExPrefix,
 } from "./sms-policy";
 
 describe("customer SMS tracking-material policy", () => {
+  test("removes only the exact leading NatEx colon prefix once", () => {
+    expect(removeLeadingNatExPrefix("NatEx: Your parcel arrived.")).toBe("Your parcel arrived.");
+    expect(removeLeadingNatExPrefix("NatEx: NatEx: Your parcel arrived.")).toBe("NatEx: Your parcel arrived.");
+    expect(removeLeadingNatExPrefix("NatEx your parcel arrived.")).toBe("NatEx your parcel arrived.");
+    expect(removeLeadingNatExPrefix("Your parcel arrived. NatEx: call us.")).toBe("Your parcel arrived. NatEx: call us.");
+  });
+
   test("detects tracking placeholders, current numbers, legacy numbers, and links", () => {
     for (const body of [
       "Delivered: {{awb}}",
@@ -34,8 +43,8 @@ describe("customer SMS tracking-material policy", () => {
     expect(() => assertPodSmsHasNoTrackingMaterial(body)).not.toThrow();
   });
 
-  test("allows a short failed-delivery notice to identify the parcel", () => {
-    const body = "NatEx NX4400440040: delivery attempt 1 of 3 failed (Consignee unreachable). Call 0772772708 to rearrange. natex.lk/track/NX4400440040";
+  test("allows a short failed-delivery notice to identify the parcel without a tracking link", () => {
+    const body = "Dear Ana, your order NX4400440040 has been rescheduled due to an unavailable receiver. Hotline: +94772772708.";
     expect(() => assertDeliveryFailureSms(body)).not.toThrow();
   });
 
@@ -45,6 +54,13 @@ describe("customer SMS tracking-material policy", () => {
         "Failed-delivery SMS must be a non-empty, single-line message of at most 320 characters.",
       );
     }
+  });
+
+  test("permits a short arrival notice with an AWB, but rejects links or missing identifiers", () => {
+    expect(() => assertArrivalNoticeSms("Dear Ana, your parcel NX800002000 has arrived at the hub.")).not.toThrow();
+    expect(() => assertArrivalNoticeSms("Dear Ana, your parcel has arrived at the hub.")).toThrow("must include the tracking number");
+    expect(() => assertArrivalNoticeSms("NX800002000 https://natex.lk/track/NX800002000")).toThrow("must not include a link");
+    expect(() => assertArrivalNoticeSms("NX800002000\nsecond line")).toThrow("single-line message");
   });
 
   test("accepts only exact approved merchant-registration and onboarding SMS copies", () => {
@@ -69,7 +85,7 @@ describe("customer SMS tracking-material policy", () => {
       newDate: "2026-11-10",
       reason: "Address incomplete / call 0771234567 or mail help@example.com",
     });
-    expect(body).toBe("NatEx: Tracking NXB-20261105-ABC123. Delivery rescheduled to 2026-11-10. Reason: Address incomplete call or mail.");
+    expect(body).toBe("Tracking NXB-20261105-ABC123. Delivery rescheduled to 2026-11-10. Reason: Address incomplete call or mail.");
     expect(body.length).toBeLessThanOrEqual(160);
     expect(/^[\x20-\x7e]+$/.test(body)).toBe(true);
     expect(NATEX_SMS_SENDER_ID).toBe("NatEx");

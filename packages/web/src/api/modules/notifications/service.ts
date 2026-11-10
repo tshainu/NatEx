@@ -5,7 +5,13 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { formatLkr } from "../../shared/money";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
-import { assertDeliveryFailureSms, containsTrackingMaterial } from "../../shared/sms-policy";
+import {
+  assertArrivalNoticeSms,
+  assertDeliveryFailureSms,
+  containsTrackingMaterial,
+  NATEX_HOTLINE_NUMBER,
+  removeLeadingNatExPrefix,
+} from "../../shared/sms-policy";
 import { prefixedId } from "../../shared/ulid";
 
 /**
@@ -62,7 +68,7 @@ export const DEFAULT_TEMPLATES: {
     channelOrder: "whatsapp,push",
     bodyWhatsapp:
       "Hello {{consigneeName}}, {{merchantName}} has booked a NatEx delivery to you. Your tracking number is {{awb}}. Track it at {{trackUrl}}",
-    bodySms: "NatEx: {{merchantName}} booked a delivery to you. tracking number {{awb}}. {{trackUrl}}",
+    bodySms: "{{merchantName}} booked a delivery to you. tracking number {{awb}}. {{trackUrl}}",
     pushTitle: "Parcel booked",
     bodyPush: "{{merchantName}} booked a delivery to you — tracking number {{awb}}.",
   },
@@ -87,7 +93,7 @@ export const DEFAULT_TEMPLATES: {
     channelOrder: "whatsapp,sms,push",
     bodyWhatsapp:
       "Your NatEx parcel {{awb}} was delivered on {{date}} and received by {{receivedBy}}. Thank you.",
-    bodySms: "NatEx: Your parcel was delivered on {{date}}, received by {{receivedBy}}. POD recorded. Thank you.",
+    bodySms: "Your parcel was delivered on {{date}}, received by {{receivedBy}}. POD recorded. Thank you.",
     pushTitle: "Delivered",
     bodyPush: "Parcel {{awb}} was delivered.",
   },
@@ -98,11 +104,23 @@ export const DEFAULT_TEMPLATES: {
     audience: "consignee",
     channelOrder: "whatsapp,sms,push",
     bodyWhatsapp:
-      "We could not deliver your NatEx parcel {{awb}} today ({{reason}}). This was attempt {{attemptNo}} of 3. Reply to this message or call us to arrange redelivery. {{trackUrl}}",
+      `Dear {{consigneeName}}, Your order from {{merchantName}}- {{awb}} has been rescheduled due to {{reason}}. Please contact for further assistance {{hubPhone}}. Hotline: ${NATEX_HOTLINE_NUMBER}.`,
     bodySms:
-      "NatEx {{awb}}: delivery attempt {{attemptNo}} of 3 failed ({{reason}}). Call 0772772708 to rearrange. {{trackUrl}}",
+      `Dear {{consigneeName}}, Your order from {{merchantName}}- {{awb}} has been rescheduled due to {{reason}}. Please contact for further assistance {{hubPhone}}. Hotline: ${NATEX_HOTLINE_NUMBER}.`,
     pushTitle: "Delivery attempt failed",
     bodyPush: "Attempt {{attemptNo}} of 3 on {{awb}} failed: {{reason}}.",
+  },
+  {
+    key: "parcel.arrived_at_hub",
+    name: "Arrived at destination hub",
+    description: "Sent to the consignee when the parcel is received at its final delivery hub.",
+    audience: "consignee",
+    channelOrder: "sms",
+    bodyWhatsapp: "",
+    bodySms:
+      "Dear {{consigneeName}}, Your package from {{merchantName}} with Tracking number {{awb}}. {{amountDueLine}} Please contact for further assistance at {{hubPhone}} (destination hub). Thank you.",
+    pushTitle: "Arrived at destination hub",
+    bodyPush: "",
   },
   {
     key: "parcel.rto_initiated",
@@ -111,8 +129,8 @@ export const DEFAULT_TEMPLATES: {
     audience: "merchant",
     channelOrder: "whatsapp,push",
     bodyWhatsapp:
-      "NatEx: parcel {{awb}} to {{consigneeName}} is being returned to you. Reason: {{reason}}.",
-    bodySms: "NatEx: {{awb}} is being returned to you. Reason: {{reason}}.",
+      "Parcel {{awb}} to {{consigneeName}} is being returned to you. Reason: {{reason}}.",
+    bodySms: "{{awb}} is being returned to you. Reason: {{reason}}.",
     pushTitle: "Return to sender",
     bodyPush: "{{awb}} is being returned. {{reason}}",
   },
@@ -123,8 +141,8 @@ export const DEFAULT_TEMPLATES: {
     audience: "merchant",
     channelOrder: "whatsapp,push",
     bodyWhatsapp:
-      "NatEx: returned parcel {{awb}} was handed back to {{receivedBy}} on {{date}}.",
-    bodySms: "NatEx: returned parcel {{awb}} handed back to {{receivedBy}} on {{date}}.",
+      "Returned parcel {{awb}} was handed back to {{receivedBy}} on {{date}}.",
+    bodySms: "Returned parcel {{awb}} handed back to {{receivedBy}} on {{date}}.",
     pushTitle: "Return completed",
     bodyPush: "Returned parcel {{awb}} handed back.",
   },
@@ -207,19 +225,36 @@ export async function seedTemplates(): Promise<number> {
 
 const POD_TEMPLATE_KEY = "parcel.delivered";
 const DELIVERY_FAILURE_TEMPLATE_KEY = "parcel.delivery_failed";
+const ARRIVAL_NOTICE_TEMPLATE_KEY = "parcel.arrived_at_hub";
 const POD_SMS_BODY = DEFAULT_TEMPLATES.find((template) => template.key === POD_TEMPLATE_KEY)!.bodySms;
 /** Enforce the policy when reading legacy DB-configured templates as well. */
 function applySmsPolicy(row: TemplateRow): TemplateRow {
-  if (row.key === DELIVERY_FAILURE_TEMPLATE_KEY) return row;
-  if (row.key !== POD_TEMPLATE_KEY) {
+  const normalized: TemplateRow = {
+    ...row,
+    bodyWhatsapp: row.bodyWhatsapp === null ? null : removeLeadingNatExPrefix(row.bodyWhatsapp),
+    bodySms: row.bodySms === null ? null : removeLeadingNatExPrefix(row.bodySms),
+    bodyPush: row.bodyPush === null ? null : removeLeadingNatExPrefix(row.bodyPush),
+    pushTitle: row.pushTitle === null ? null : removeLeadingNatExPrefix(row.pushTitle),
+  };
+  if (row.key === DELIVERY_FAILURE_TEMPLATE_KEY) {
+    // Insert-only seeding keeps old rows; project the untouched shipped row to
+    // the current owner-approved copy without overwriting intentional edits.
+    if (row.version === 1 && row.updatedByName === null) {
+      const shipped = DEFAULT_TEMPLATES.find((template) => template.key === DELIVERY_FAILURE_TEMPLATE_KEY)!;
+      return { ...normalized, bodyWhatsapp: shipped.bodyWhatsapp, bodySms: shipped.bodySms };
+    }
+    return normalized;
+  }
+  if (row.key !== POD_TEMPLATE_KEY && row.key !== ARRIVAL_NOTICE_TEMPLATE_KEY) {
     return {
-      ...row,
-      channelOrder: row.channelOrder.split(",").map((channel) => channel.trim()).filter((channel) => channel !== "sms").join(","),
+      ...normalized,
+      channelOrder: normalized.channelOrder.split(",").map((channel) => channel.trim()).filter((channel) => channel !== "sms").join(","),
       bodySms: "SMS is reserved for Proof of Delivery messages.",
     };
   }
-  const hasTrackingReference = containsTrackingMaterial(row.bodySms ?? "");
-  return { ...row, bodySms: hasTrackingReference ? POD_SMS_BODY : row.bodySms };
+  if (row.key === ARRIVAL_NOTICE_TEMPLATE_KEY) return normalized;
+  const hasTrackingReference = containsTrackingMaterial(normalized.bodySms ?? "");
+  return { ...normalized, bodySms: hasTrackingReference ? POD_SMS_BODY : normalized.bodySms };
 }
 
 export async function listTemplates(): Promise<TemplateRow[]> {
@@ -323,15 +358,20 @@ export function templateProblems(
     if (parts.length === 0) out.push("At least one channel is required.");
     for (const c of parts) if (!(CHANNELS as readonly string[]).includes(c)) out.push(`Unknown channel "${c}". Use whatsapp, sms, push.`);
     if (new Set(parts).size !== parts.length) out.push("A channel appears twice in the ladder.");
-    if (key !== POD_TEMPLATE_KEY && key !== DELIVERY_FAILURE_TEMPLATE_KEY && parts.includes("sms")) {
-      out.push("SMS is allowed only for Proof of Delivery and failed-delivery notices.");
+    if (key !== POD_TEMPLATE_KEY && key !== DELIVERY_FAILURE_TEMPLATE_KEY && key !== ARRIVAL_NOTICE_TEMPLATE_KEY && parts.includes("sms")) {
+      out.push("SMS is allowed only for Proof of Delivery, failed-delivery, and destination-arrival notices.");
     }
   }
-  if (patch.bodySms && key !== DELIVERY_FAILURE_TEMPLATE_KEY && containsTrackingMaterial(patch.bodySms)) {
+  if (patch.bodySms && key !== DELIVERY_FAILURE_TEMPLATE_KEY && key !== ARRIVAL_NOTICE_TEMPLATE_KEY && containsTrackingMaterial(patch.bodySms)) {
     out.push("SMS messages must not include a tracking number or tracking link.");
   }
-  if (patch.bodySms && key === DELIVERY_FAILURE_TEMPLATE_KEY && patch.bodySms.length > 320) {
-    out.push("Failed-delivery SMS must be no longer than 320 characters.");
+  if (patch.bodySms && (key === DELIVERY_FAILURE_TEMPLATE_KEY || key === ARRIVAL_NOTICE_TEMPLATE_KEY) && patch.bodySms.length > 320) {
+    out.push(`${key === DELIVERY_FAILURE_TEMPLATE_KEY ? "Failed-delivery" : "Destination-arrival"} SMS must be no longer than 320 characters.`);
+  }
+  if (patch.bodySms && key === ARRIVAL_NOTICE_TEMPLATE_KEY) {
+    for (const required of ["{{consigneeName}}", "{{merchantName}}", "{{awb}}", "{{amountDueLine}}", "{{hubPhone}}"] as const) {
+      if (!patch.bodySms.includes(required)) out.push(`Destination-arrival SMS must retain ${required}.`);
+    }
   }
   return out;
 }
@@ -350,6 +390,10 @@ export const SAMPLE_VARS: Vars = {
   receivedBy: "Meena Ganesan",
   reason: "Consignee not available",
   attemptNo: 1,
+  amountDueLine: "Your COD amount is Rs. 5,200.00 (including delivery charge); please keep this total amount ready.",
+  codAmount: "Rs. 4,800.00",
+  amountDue: "Rs. 5,200.00",
+  hubPhone: "+94771234567",
 };
 
 // -------------------------------------------------------------- substitution
@@ -364,7 +408,7 @@ export type Vars = Record<string, string | number | null | undefined>;
  */
 export function render(body: string, vars: Vars): { text: string; missing: string[] } {
   const missing: string[] = [];
-  const text = body.replace(/\{\{(\w+)\}\}/g, (_m, key: string) => {
+  const text = removeLeadingNatExPrefix(body).replace(/\{\{(\w+)\}\}/g, (_m, key: string) => {
     const value = vars[key];
     // undefined/null means the caller forgot the variable — worth reporting.
     // An empty string is a deliberate blank: `codLine()` returns "" for a
@@ -549,8 +593,13 @@ export async function dispatch(input: NotifyInput): Promise<NotifyResult> {
     } else if (channel === "whatsapp") {
       result = await sendWhatsapp(input.toPhone, text);
     } else {
-      const purpose = template!.key === DELIVERY_FAILURE_TEMPLATE_KEY ? "delivery_failure" : "pod";
+      const purpose = template!.key === DELIVERY_FAILURE_TEMPLATE_KEY
+        ? "delivery_failure"
+        : template!.key === ARRIVAL_NOTICE_TEMPLATE_KEY
+          ? "arrival_notice"
+          : "pod";
       if (purpose === "delivery_failure") assertDeliveryFailureSms(text);
+      if (purpose === "arrival_notice") assertArrivalNoticeSms(text);
       const sms = await sendSms({ to: input.toPhone, body: text, purpose });
       result =
         sms.state === "failed"

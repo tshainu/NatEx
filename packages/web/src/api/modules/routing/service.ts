@@ -31,6 +31,12 @@ export async function listZones(branchId?: string): Promise<ZoneRow[]> {
   return db.select().from(zone);
 }
 
+/** Resolve a booking's destination service zone to its configured delivery branch. */
+export async function getZoneById(id: string): Promise<ZoneRow | null> {
+  const [row] = await db.select().from(zone).where(eq(zone.id, id)).limit(1);
+  return row ?? null;
+}
+
 export interface ServiceabilityResult {
   serviceable: boolean;
   zone: { id: string; name: string; branchId: string } | null;

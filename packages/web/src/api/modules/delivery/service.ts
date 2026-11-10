@@ -17,7 +17,8 @@ import { hashSecret, isGlobalScope, verifySecret, type Principal } from "../../s
 import { distanceMetres } from "../../shared/geo";
 import { formatLkr } from "../../shared/money";
 import { codLine as codLineFor } from "../notifications/service";
-import { sendSms } from "../../shared/sms";
+import { normaliseLkPhone, sendSms } from "../../shared/sms";
+import { NATEX_HOTLINE_NUMBER } from "../../shared/sms-policy";
 import { colomboToday, formatLkDate } from "../../shared/time";
 import {
   getParcelByAwb,
@@ -2154,7 +2155,14 @@ export async function recordFailure(
       await db.update(deliveryRetryCase).set({ state: "rto", resolvedAt: new Date(), escalatingAt: null, updatedAt: new Date() })
         .where(eq(deliveryRetryCase.id, activeRetryCaseId));
     }
-  } else if (!deferNdr && isNew && reason.notifyConsignee) {
+  } else if (reason.notifyConsignee) {
+    const [noticeMerchant, branch, retailCharge] = await Promise.all([
+      p!.merchantId ? getMerchant(p!.merchantId) : Promise.resolve(null),
+      getBranch(p!.branchId),
+      chargeByParcel(p!.id),
+    ]);
+    const merchantName = noticeMerchant?.name?.trim() || retailCharge?.senderName?.trim() || "the sender";
+    const hubPhone = branch?.phone?.trim() ? normaliseLkPhone(branch.phone) : NATEX_HOTLINE_NUMBER;
     await enqueue("notify.dispatch", {
       templateKey: "parcel.delivery_failed",
       parcelId: p!.id,
@@ -2164,6 +2172,8 @@ export async function recordFailure(
       vars: {
         awb: p!.awb,
         consigneeName: p!.consigneeName,
+        merchantName,
+        hubPhone,
         attemptNo: attemptsUsed,
         reason: reason.label,
         trackUrl: `natex.lk/track/${p!.awb}`,

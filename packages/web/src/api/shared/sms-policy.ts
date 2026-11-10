@@ -1,11 +1,17 @@
 const TRACKING_MATERIAL = /\{\{\s*(?:awb|tracking_?number|track_?url|tracking_?url)\s*\}\}|\bNX(?:\d{8,}|B-\d{8}-[A-Z0-9]{6,})\b|https?:\/\/|www\.|\/track\//i;
 
 export const NATEX_SMS_SENDER_ID = "NatEx";
+export const NATEX_HOTLINE_NUMBER = "+94772772708";
+
+/** Remove the legacy body prefix exactly once; the sender ID remains separate. */
+export function removeLeadingNatExPrefix(body: string): string {
+  return body.startsWith("NatEx: ") ? body.slice("NatEx: ".length) : body;
+}
 
 export const MERCHANT_REGISTRATION_RECEIPT_SMS =
-  "NatEx: We received your merchant registration request. We’ll contact you after review.";
+  "We received your merchant registration request. We’ll contact you after review.";
 export const MERCHANT_REGISTRATION_ACCEPTED_SMS =
-  "NatEx: Congratulations! You have been successfully registered as a Merchant. Keep your login details confidential. Passwords are never sent by SMS; contact NatEx if you need help.";
+  "Congratulations! You have been successfully registered as a Merchant. Keep your login details confidential. Passwords are never sent by SMS; contact NatEx if you need help.";
 export const MERCHANT_ONBOARDING_WELCOME_SMS = MERCHANT_REGISTRATION_ACCEPTED_SMS;
 
 /** Merchant registration/onboarding SMS is limited to exact approved literal copies. */
@@ -42,6 +48,20 @@ export function assertDeliveryFailureSms(body: string): void {
   }
 }
 
+/** Arrival SMS may identify a parcel, but must remain a short single-line notice. */
+export function assertArrivalNoticeSms(body: string): void {
+  const hasControlCharacter = [...body].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+  if (!body.trim() || body.length > 320 || hasControlCharacter) {
+    throw new Error("Destination-arrival SMS must be a non-empty, single-line message of at most 320 characters.");
+  }
+  if (!/\bNX[A-Z0-9-]{3,24}\b/i.test(body) || /https?:\/\/|www\./i.test(body)) {
+    throw new Error("Destination-arrival SMS must include the tracking number and must not include a link.");
+  }
+}
+
 export interface RescheduleSmsCopy {
   trackingNumber: string;
   newDate: string;
@@ -49,7 +69,7 @@ export interface RescheduleSmsCopy {
 }
 
 const RESCHEDULE_SMS_PATTERN =
-  /^NatEx: Tracking [A-Z0-9-]{3,24}\. Delivery rescheduled to (\d{4}-\d{2}-\d{2})\. Reason: [A-Za-z0-9][A-Za-z0-9 ,.'-]{0,39}\.$/;
+  /^Tracking [A-Z0-9-]{3,24}\. Delivery rescheduled to (\d{4}-\d{2}-\d{2})\. Reason: [A-Za-z0-9][A-Za-z0-9 ,.'-]{0,39}\.$/;
 
 function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -83,7 +103,7 @@ export function buildRescheduleSms(copy: RescheduleSmsCopy): string {
   if (!isCalendarDate(copy.newDate)) {
     throw new Error("Reschedule SMS requires a valid YYYY-MM-DD delivery date.");
   }
-  const body = `NatEx: Tracking ${trackingNumber}. Delivery rescheduled to ${copy.newDate}. Reason: ${shortPublicReason(copy.reason)}.`;
+  const body = `Tracking ${trackingNumber}. Delivery rescheduled to ${copy.newDate}. Reason: ${shortPublicReason(copy.reason)}.`;
   assertRescheduleSms(body);
   return body;
 }

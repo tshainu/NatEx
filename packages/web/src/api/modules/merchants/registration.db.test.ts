@@ -271,7 +271,7 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect(confirmation).toEqual({ registrationRequestId: request.id, stage: "confirmation" });
 
     const sent: { to: string; body: string; purpose: string }[] = [];
-    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "merchant_registration" | "reschedule" }) => {
+    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "arrival_notice" | "merchant_registration" | "reschedule" }) => {
       sent.push(message);
       return { logId: "sms_test", state: "sent" as const, gatewayRef: null, raw: "accepted" };
     };

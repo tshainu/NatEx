@@ -3,12 +3,14 @@ import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { prefixedId } from "./ulid";
 import {
+  assertArrivalNoticeSms,
   assertRescheduleSms,
   assertDeliveryFailureSms,
   assertMerchantRegistrationSms,
   assertPodSmsHasNoTrackingMaterial,
   isSmsDisabled,
   NATEX_SMS_SENDER_ID,
+  removeLeadingNatExPrefix,
 } from "./sms-policy";
 
 /**
@@ -26,8 +28,8 @@ import {
 export interface SendSmsInput {
   to: string;
   body: string;
-  /** OTP, POD, failed-delivery notices, two fixed registration messages, or the fixed reschedule notice. */
-  purpose: "otp" | "pod" | "delivery_failure" | "merchant_registration" | "reschedule";
+  /** OTP, POD, delivery updates, two fixed registration messages, or the fixed reschedule notice. */
+  purpose: "otp" | "pod" | "delivery_failure" | "arrival_notice" | "merchant_registration" | "reschedule";
 }
 
 export interface SendSmsResult {
@@ -67,13 +69,15 @@ export function normaliseLkPhone(input: string): string {
 }
 
 export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
-  if (!["otp", "pod", "delivery_failure", "merchant_registration", "reschedule"].includes(input.purpose)) {
+  if (!["otp", "pod", "delivery_failure", "arrival_notice", "merchant_registration", "reschedule"].includes(input.purpose)) {
     throw new Error("Unsupported SMS purpose.");
   }
-  if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(input.body);
-  if (input.purpose === "delivery_failure") assertDeliveryFailureSms(input.body);
-  if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(input.body);
-  if (input.purpose === "reschedule") assertRescheduleSms(input.body);
+  const body = removeLeadingNatExPrefix(input.body);
+  if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(body);
+  if (input.purpose === "delivery_failure") assertDeliveryFailureSms(body);
+  if (input.purpose === "arrival_notice") assertArrivalNoticeSms(body);
+  if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(body);
+  if (input.purpose === "reschedule") assertRescheduleSms(body);
   const url = process.env.SMS_EXECUTION_URL;
   const senderId = NATEX_SMS_SENDER_ID;
   const to = normaliseLkPhone(input.to);
@@ -83,7 +87,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     id: logId,
     toPhone: to,
     senderId,
-    body: input.body,
+    body,
     purpose: input.purpose,
     state: "queued",
   });
@@ -120,12 +124,12 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   try {
     const target = new URL(url);
     target.searchParams.set("phone_no", gatewayTo);
-    target.searchParams.set("message", input.body);
+    target.searchParams.set("message", body);
     target.searchParams.set("sender_id", senderId);
     const res = await fetch(target, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ phone_no: gatewayTo, message: input.body, sender_id: senderId }),
+      body: new URLSearchParams({ phone_no: gatewayTo, message: body, sender_id: senderId }),
       signal: AbortSignal.timeout(10_000),
     });
     const providerResponse = await res.text();

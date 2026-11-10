@@ -179,7 +179,7 @@ describe("NDR receiver reschedule SMS", () => {
     expect(queuedAfterReplay).toHaveLength(1);
 
     const sent: { to: string; body: string; purpose: string }[] = [];
-    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "merchant_registration" | "reschedule" }) => {
+    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "arrival_notice" | "merchant_registration" | "reschedule" }) => {
       sent.push(message);
       return { logId: "sms-test", state: "sent" as const, gatewayRef: null, raw: "accepted" };
     };
@@ -199,7 +199,7 @@ describe("NDR receiver reschedule SMS", () => {
     }
     expect(sent).toEqual([{
       to: "+94770000099",
-      body: "NatEx: Tracking NX2611057002. Delivery rescheduled to 2026-11-12. Reason: Address incomplete or unreadable.",
+      body: "Tracking NX2611057002. Delivery rescheduled to 2026-11-12. Reason: Address incomplete or unreadable.",
       purpose: "reschedule",
     }]);
     const completedNdr = await ndrService.getNdr(ids.addressNdr);
