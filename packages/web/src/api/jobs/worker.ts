@@ -9,6 +9,7 @@ import {
   isSmsDisabled,
   MERCHANT_REGISTRATION_ACCEPTED_SMS,
   MERCHANT_REGISTRATION_RECEIPT_SMS,
+  MERCHANT_ONBOARDING_WELCOME_SMS,
 } from "../shared/sms-policy";
 import * as deliveryNdrService from "../modules/delivery/ndr";
 import * as notifications from "../modules/notifications/service";
@@ -54,6 +55,10 @@ export async function dispatchQueuedSms(p: SmsSendPayload, sender: typeof sendSm
 interface MerchantRegistrationSmsPayload {
   registrationRequestId: string;
   stage: "receipt" | "confirmation";
+}
+
+interface MerchantWelcomeSmsPayload {
+  merchantId: string;
 }
 
 interface RescheduleSmsPayload {
@@ -153,6 +158,32 @@ export async function dispatchMerchantRegistrationSms(
   if (state === "failed") throw new Error("Merchant registration SMS delivery failed.");
 }
 
+/** Fixed-copy onboarding notice; credentials are never included in the job or SMS. */
+export async function dispatchMerchantWelcomeSms(
+  payload: MerchantWelcomeSmsPayload,
+  sender: typeof sendSms = sendSms,
+): Promise<void> {
+  if (
+    !payload ||
+    typeof payload.merchantId !== "string" ||
+    payload.merchantId.length === 0 ||
+    Object.keys(payload).sort().join(",") !== "merchantId"
+  ) {
+    throw new Error("Invalid merchant welcome SMS job payload.");
+  }
+
+  const merchant = await merchantsService.getMerchant(payload.merchantId);
+  if (!merchant) throw new Error("Merchant for welcome SMS was not found.");
+  if (process.env.NODE_ENV !== "production" || isSmsDisabled()) return;
+
+  const result = await sender({
+    to: merchant.contactPhone,
+    body: MERCHANT_ONBOARDING_WELCOME_SMS,
+    purpose: "merchant_registration",
+  });
+  if (result.state === "failed") throw new Error("Merchant onboarding welcome SMS delivery failed.");
+}
+
 function parse<T>(json: string): T {
   return JSON.parse(json) as T;
 }
@@ -168,6 +199,17 @@ async function handle(topic: string, payloadJson: string): Promise<void> {
         throw new Error("Invalid merchant registration SMS job payload.");
       }
       await dispatchMerchantRegistrationSms(payload);
+      return;
+    }
+
+    case "merchant_welcome.sms": {
+      let payload: MerchantWelcomeSmsPayload;
+      try {
+        payload = parse<MerchantWelcomeSmsPayload>(payloadJson);
+      } catch {
+        throw new Error("Invalid merchant welcome SMS job payload.");
+      }
+      await dispatchMerchantWelcomeSms(payload);
       return;
     }
 

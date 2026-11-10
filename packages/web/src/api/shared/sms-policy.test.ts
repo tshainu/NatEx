@@ -6,6 +6,7 @@ import {
   assertPodSmsHasNoTrackingMaterial,
   buildRescheduleSms,
   containsTrackingMaterial,
+  MERCHANT_ONBOARDING_WELCOME_SMS,
   MERCHANT_REGISTRATION_ACCEPTED_SMS,
   MERCHANT_REGISTRATION_RECEIPT_SMS,
   NATEX_SMS_SENDER_ID,
@@ -46,9 +47,13 @@ describe("customer SMS tracking-material policy", () => {
     }
   });
 
-  test("accepts only the two exact merchant-registration SMS copies", () => {
+  test("accepts only exact approved merchant-registration and onboarding SMS copies", () => {
     expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_RECEIPT_SMS)).not.toThrow();
     expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_ACCEPTED_SMS)).not.toThrow();
+    expect(() => assertMerchantRegistrationSms(MERCHANT_ONBOARDING_WELCOME_SMS)).not.toThrow();
+    expect(MERCHANT_ONBOARDING_WELCOME_SMS).toContain("Congratulations!");
+    expect(MERCHANT_ONBOARDING_WELCOME_SMS).toContain("Passwords are never sent by SMS");
+    expect(MERCHANT_ONBOARDING_WELCOME_SMS).not.toMatch(/password\s*[:=]/i);
     for (const body of [
       `${MERCHANT_REGISTRATION_RECEIPT_SMS} NX2610020001`,
       MERCHANT_REGISTRATION_RECEIPT_SMS.replace("review.", "review!"),

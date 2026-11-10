@@ -1,10 +1,42 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { formatTextControl, shouldTitleCaseField } from "@/lib/text-case";
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+type CaseFormat = "none" | "title";
+
+function Input({
+  className,
+  type,
+  name,
+  id,
+  autoComplete,
+  autoCapitalize,
+  onChange,
+  caseFormat,
+  ...props
+}: React.ComponentProps<"input"> & { caseFormat?: CaseFormat }) {
+  const shouldFormat = shouldTitleCaseField({
+    type,
+    name,
+    id,
+    autoComplete,
+    autoCapitalize,
+    caseFormat,
+    className,
+  });
   return (
     <input
       type={type}
+      name={name}
+      id={id}
+      autoComplete={autoComplete}
+      autoCapitalize={autoCapitalize ?? (shouldFormat ? "words" : "none")}
+      onChange={(event) => {
+        if (shouldFormat && !((event.nativeEvent as InputEvent).isComposing ?? false)) {
+          formatTextControl(event.currentTarget);
+        }
+        onChange?.(event);
+      }}
       data-slot="input"
       className={cn(
         "flex h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 py-1 text-sm shadow-none transition-colors",
@@ -45,9 +77,36 @@ function Field({
   );
 }
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+function Textarea({
+  className,
+  name,
+  id,
+  autoComplete,
+  autoCapitalize,
+  onChange,
+  caseFormat,
+  ...props
+}: React.ComponentProps<"textarea"> & { caseFormat?: CaseFormat }) {
+  const shouldFormat = shouldTitleCaseField({
+    name,
+    id,
+    autoComplete,
+    autoCapitalize,
+    caseFormat,
+    className,
+  });
   return (
     <textarea
+      name={name}
+      id={id}
+      autoComplete={autoComplete}
+      autoCapitalize={autoCapitalize ?? (shouldFormat ? "words" : "none")}
+      onChange={(event) => {
+        if (shouldFormat && !((event.nativeEvent as InputEvent).isComposing ?? false)) {
+          formatTextControl(event.currentTarget);
+        }
+        onChange?.(event);
+      }}
       data-slot="textarea"
       className={cn(
         "flex min-h-[72px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm transition-colors",

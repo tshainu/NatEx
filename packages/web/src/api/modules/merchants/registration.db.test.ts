@@ -548,7 +548,12 @@ describe("merchant registration backend (isolated SQLite)", () => {
     const merchantRow = await merchantsService.getMerchant(approved.approvedMerchantId!);
     expect(merchantRow).toMatchObject({ branchId: BRANCH_ID, rateCardId: `rtc_${RUN}`, status: "active", lat: 6927100, lng: 79861200 });
     expect(fulfilled[0]!.value.portalUser?.id).toBeTruthy();
-    expect((await db.select().from(outbox)).length).toBe(beforeOutboxCount);
+    const afterOutbox = await db.select().from(outbox);
+    expect(afterOutbox.length).toBe(beforeOutboxCount + 1);
+    const welcomeJobs = afterOutbox.filter((job) => job.topic === "merchant_welcome.sms");
+    expect(welcomeJobs).toHaveLength(1);
+    expect(JSON.parse(welcomeJobs[0]!.payloadJson)).toEqual({ merchantId: approved.approvedMerchantId });
+    expect(welcomeJobs[0]!.payloadJson).not.toMatch(/password|username/i);
     const audits = (await db.select().from(auditLog)).filter((row) => row.entityId === replay.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ actorId: ACTOR.userId, action: "merchant.onboarding_approved" });

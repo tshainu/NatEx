@@ -16,6 +16,7 @@ import { prefixedId } from "./ulid";
 export type OutboxTopic =
   | "sms.send"
   | "merchant_registration.sms"
+  | "merchant_welcome.sms"
   | "parcel.status_changed"
   | "manifest.handed_over"
   // Milestone 2 — custody events. Audit-only for now: they exist so linehaul

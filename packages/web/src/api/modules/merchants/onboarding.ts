@@ -3,6 +3,7 @@ import type { DbTransaction } from "../../database/transaction";
 import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { writeAudit } from "../../shared/audit";
+import { enqueue } from "../../shared/outbox";
 import { createUser } from "../identity/service";
 import { assignRateCard } from "./rate-cards";
 import {
@@ -65,6 +66,10 @@ async function createOnboardedMerchant(
 
   if (input.registrationRequestId) {
     await convertRegistrationRequest(input.registrationRequestId, created.id, executor);
+  } else {
+    // The converted-registration path already queues its fixed acceptance SMS.
+    // Other admin-approved onboarding paths get the same credential-safe notice.
+    await enqueue("merchant_welcome.sms", { merchantId: created.id }, executor);
   }
 
   return {

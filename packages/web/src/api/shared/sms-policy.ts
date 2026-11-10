@@ -5,11 +5,16 @@ export const NATEX_SMS_SENDER_ID = "NatEx";
 export const MERCHANT_REGISTRATION_RECEIPT_SMS =
   "NatEx: We received your merchant registration request. We’ll contact you after review.";
 export const MERCHANT_REGISTRATION_ACCEPTED_SMS =
-  "NatEx: Your merchant registration has been accepted and set up. Contact NatEx if you need help.";
+  "NatEx: Congratulations! You have been successfully registered as a Merchant. Keep your login details confidential. Passwords are never sent by SMS; contact NatEx if you need help.";
+export const MERCHANT_ONBOARDING_WELCOME_SMS = MERCHANT_REGISTRATION_ACCEPTED_SMS;
 
-/** Merchant-registration SMS is limited to the two user-approved literal copies. */
+/** Merchant registration/onboarding SMS is limited to exact approved literal copies. */
 export function assertMerchantRegistrationSms(body: string): void {
-  if (body !== MERCHANT_REGISTRATION_RECEIPT_SMS && body !== MERCHANT_REGISTRATION_ACCEPTED_SMS) {
+  if (
+    body !== MERCHANT_REGISTRATION_RECEIPT_SMS &&
+    body !== MERCHANT_REGISTRATION_ACCEPTED_SMS &&
+    body !== MERCHANT_ONBOARDING_WELCOME_SMS
+  ) {
     throw new Error("Merchant-registration SMS must match an approved fixed template.");
   }
 }
