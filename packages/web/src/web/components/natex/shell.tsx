@@ -33,9 +33,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             className="flex items-center gap-2 outline-none"
           >
             <img
-              src="/natex-logo-dark.png"
+              src="/natex-wordmark-white.png"
               alt="NatEx"
-              className="h-[42px] w-auto object-contain"
+              className="h-[42px] w-auto max-w-full object-contain"
             />
           </Link>
           <p className="mt-2.5 text-[12px] text-text-lo">{user.name}</p>
