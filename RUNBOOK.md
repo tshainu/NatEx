@@ -207,7 +207,7 @@ When a failed doorstep attempt uses a reason configured to notify the consignee,
 POD confirmation and destination-hub arrival notices; other parcel-status templates remain blocked
 from SMS. Eligible failed attempts notify immediately, including during the rider reattempt window.
 The approved failure copy includes the consignee, merchant/sender, AWB, public reason, current
-branch contact number and fixed hotline `+9477272708`; it does not include a tracking link. A failed
+branch contact number and fixed hotline `+94772772708`; it does not include a tracking link. A failed
 delivery job is retried by the outbox up to five times; inspect `notify_message` and `shared_sms_log`
 before any manual replay to avoid duplicate messages. Gateway acceptance is not proof of handset
 delivery.
