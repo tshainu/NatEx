@@ -78,10 +78,10 @@ export function Screen({
       >
         {body}
         {footer ? (
-          <View
+            <View
             style={[
               styles.footer,
-              { backgroundColor: colors.background, borderTopColor: colors.border },
+              { backgroundColor: colors.card, borderTopColor: colors.border },
             ]}
           >
             {footer}
@@ -133,7 +133,8 @@ export function Divider() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: {
-    padding: Space.page,
+    paddingHorizontal: Space.page,
+    paddingTop: Space.page,
     paddingBottom: Space.page * 2,
     gap: Space.unit * 2,
   },
@@ -143,17 +144,28 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: Space.page,
-    paddingTop: Space.card,
+    paddingTop: Space.unit * 1.5,
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: Space.unit,
+    ...Platform.select({
+      web: { boxShadow: "0px -4px 14px rgba(0,0,0,0.12)" },
+      default: {
+        elevation: 8,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.12,
+        shadowRadius: 14,
+      },
+    }),
   },
   header: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: Space.unit * 1.5,
+    marginBottom: 2,
   },
-  headerSubtitle: { marginTop: 2 },
+  headerSubtitle: { marginTop: 4 },
   headerRight: { alignItems: "flex-end" },
-  section: { gap: Space.unit },
+  section: { gap: Space.unit * 0.75 },
   divider: { height: StyleSheet.hairlineWidth, opacity: 0.8 },
 });

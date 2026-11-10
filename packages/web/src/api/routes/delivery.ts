@@ -89,6 +89,11 @@ export const myRunsheet = staffProc
   .input(z.object({ runDate: runDate.optional() }))
   .handler(({ input, context }) => deliveryService.myRunsheet(context.principal, input.runDate));
 
+/** Date-filtered failed attempts; retry eligibility is computed from server state. */
+export const myFailedAttempts = doorstepProc
+  .input(z.object({ runDate: runDate.optional(), limit: z.number().int().min(1).max(200).optional() }))
+  .handler(({ input, context }) => deliveryService.myFailedAttempts(input, context.principal));
+
 /** What is sitting at the hub and may legally go out, plus what is blocked and why. */
 export const deliverable = staffProc
   .input(z.object({}))
@@ -377,6 +382,23 @@ export const recordFailure = doorstepProc
     ),
   );
 
+/** Start a retry only for the latest safe failure on the assigned Rider's active run. */
+export const retryFailedAttempt = doorstepProc
+  .input(z.object({ retryCaseId: z.string().min(1).max(64) }))
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "delivery.retryFailedAttempt",
+        entity: "delivery_retry_case",
+        entityId: () => input.retryCaseId,
+        action: "parcel.delivery_reattempt_started",
+      },
+      () => deliveryService.reattemptFailedParcel(input.retryCaseId, context.principal),
+    ),
+  );
+
 /**
  * An upload slot for a doorstep photo (photo-policy merchants, §6). The phone
  * PUTs the image straight to object storage and then names the returned
@@ -425,6 +447,7 @@ export const delivery = {
   runsheetPage,
   runsheetGet,
   myRunsheet,
+  myFailedAttempts,
   deliverable,
   runsheetCreate,
   runsheetAdd,
@@ -437,6 +460,7 @@ export const delivery = {
   otpVerify,
   recordDelivery,
   recordFailure,
+  retryFailedAttempt,
   podPhotoUpload,
   history,
   counts,

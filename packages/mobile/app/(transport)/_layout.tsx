@@ -4,6 +4,7 @@ import { RoleGate } from "../../components/natex/role-gate";
 import { Fonts, Space, Type } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Platform } from "react-native";
 
 /**
  * The transport clerk's four tabs.
@@ -26,13 +27,24 @@ export default function TransportLayout() {
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.mutedForeground,
           tabBarStyle: {
-            backgroundColor: colors.surface,
+            backgroundColor: colors.card,
             borderTopColor: colors.border,
-            height: Space.minTouch + 26 + bottomInset,
-            paddingTop: 6,
+            borderTopWidth: 1,
+            height: Space.minTouch + 24 + bottomInset,
+            paddingTop: 8,
             paddingBottom: bottomInset,
+            ...Platform.select({
+              web: { boxShadow: "0px -4px 14px rgba(0,0,0,0.12)" },
+              default: {
+                elevation: 12,
+                shadowColor: "#000000",
+                shadowOffset: { width: 0, height: -4 },
+                shadowOpacity: 0.12,
+                shadowRadius: 14,
+              },
+            }),
           },
-          tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1 },
+          tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1, marginTop: 2 },
         }}
       >
         <Tabs.Screen

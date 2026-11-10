@@ -12,6 +12,7 @@ import {
   MERCHANT_ONBOARDING_WELCOME_SMS,
 } from "../shared/sms-policy";
 import * as deliveryNdrService from "../modules/delivery/ndr";
+import * as deliveryRetryService from "../modules/delivery/service";
 import * as notifications from "../modules/notifications/service";
 import type { NotifyInput } from "../modules/notifications/service";
 import * as alerts from "../modules/cod/alerts";
@@ -345,6 +346,10 @@ export function startWorker(): void {
   const timer = setInterval(() => {
     workerGlobal.__natexOutboxLastTick = Date.now();
     void drainOnce()
+      .then(async (result) => {
+        await deliveryRetryService.processExpiredRiderRetryCases();
+        return result;
+      })
       .then(() => {
         workerGlobal.__natexOutboxLastOk = Date.now();
       })

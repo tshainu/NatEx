@@ -82,8 +82,11 @@ One staggered reveal on portal load (rows fade+rise 8px, 24ms apart, capped at ~
 
 ## Mobile (Expo)
 
-- Dark-first, since riders work outdoors and in basements: `--ink-900` background, emerald primary.
-- **Thumb-first:** primary action is a full-width 56px button pinned to the bottom of the screen. Scan and confirm must be usable one-handed, in one tap, wearing a helmet.
-- AWB in 20px mono, centred, above everything else on scan/confirm screens.
-- Large touch targets (min 48px), high-contrast text, no thin weights below 14px.
-- Role decides the tab set: a rider never sees transport tabs and vice-versa.
+- Dark-first, since field staff work outdoors and in basements: `--ink-900` shell, raised ink cards, emerald primary actions. Day mode remains available in Settings; both palettes use the same semantic status colours.
+- **Field-operations console, not a miniature portal:** one prominent next action, compact route progress, readable stop rows, and quiet read-only completion history. Reduce nested generic cards; use spacing and alignment for hierarchy instead of decorative borders or motion.
+- Rider navigation follows the shift: **Pickups → Run → Hand in → Me**. Role decides the tab set; a rider never sees transport tabs and vice versa. Detail flows stay pushed routes so the tab bar remains reserved for daily work.
+- The delivery run separates **Next stop**, **Attention / sync**, and **Completed**. A parcel whose server status is `Delivered` is always completed/read-only, even if a local runsheet item or outbox record is stale. Keep server conflicts visible for review; never offer another Deliver action for a completed parcel.
+- **Thumb-first:** the primary action is a full-width 56px button pinned to the bottom of the screen. Scan and confirm must be usable one-handed, in one tap, wearing a helmet.
+- AWB in 20px mono, centred, above everything else on scan/confirm screens. Money and tracking codes remain tabular mono.
+- Large touch targets (min 48px), high-contrast text, no thin weights below 14px, explicit status words, safe-area-aware pinned actions, and clear offline/queued/rejected/conflict states.
+- Preserve workflow invariants during visual changes: scan is presence only; handover moves custody; COD matches exactly; courier freight stays separate from COD; signature remains required and NIC optional for Rider POD; failed-attempt reason consequences remain explicit; outbox writes remain local-first.

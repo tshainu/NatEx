@@ -1,10 +1,11 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, like, lte, lt, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import {
   deliveryAttempt,
   deliveryOtp,
   deliveryPod,
+  deliveryRetryCase,
   runsheet,
   runsheetItem,
 } from "../../database/schema/delivery";
@@ -48,9 +49,11 @@ import {
   postReceiptNdrRtoActivity,
   reasonRto,
   resolveNdrForParcel,
+  type NdrRow,
 } from "./ndr";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { isDevelopment } from "../../shared/env";
+import { retryDeadline, riderRetryDecision } from "./retry-policy";
 import {
   deliveryOtpIssue,
   normaliseReceiverPhone,
@@ -80,6 +83,7 @@ export type RunsheetRow = typeof runsheet.$inferSelect;
 export type RunsheetItemRow = typeof runsheetItem.$inferSelect;
 export type AttemptRow = typeof deliveryAttempt.$inferSelect;
 export type PodRow = typeof deliveryPod.$inferSelect;
+export type RetryCaseRow = typeof deliveryRetryCase.$inferSelect;
 
 /** Statuses a parcel may be in to go onto a runsheet. */
 const RUNSHEET_ELIGIBLE = ["AtDestHub", "DeliveryAttempted", "OnHold"] as const;
@@ -364,6 +368,20 @@ async function reattemptGate(p: ParcelRow): Promise<{ ok: true } | { ok: false; 
       reason: `All ${MAX_DELIVERY_ATTEMPTS} delivery attempts used — this parcel must be returned.`,
     };
   }
+  const [retryCase] = await db
+    .select()
+    .from(deliveryRetryCase)
+    .where(eq(deliveryRetryCase.parcelId, p.id))
+    .limit(1);
+  if (retryCase?.state === "open" && retryCase.expiresAt.getTime() <= Date.now()) {
+    return { ok: false, reason: "The 72-hour Rider retry window has expired; wait for NDR instruction." };
+  }
+  if (retryCase && ["out_for_delivery", "escalating", "escalated", "rto", "resolved"].includes(retryCase.state)) {
+    const live = await liveNdrForParcel(p.id);
+    if (!live || (live.merchantInstruction !== "reattempt" && live.merchantInstruction !== "address_change")) {
+      return { ok: false, reason: "This parcel needs an Ops or merchant decision before another run." };
+    }
+  }
   if (p.status === "AtDestHub") return { ok: true };
 
   const live = await liveNdrForParcel(p.id);
@@ -397,6 +415,206 @@ export async function attemptsForParcel(parcelId: string): Promise<AttemptRow[]>
     .from(deliveryAttempt)
     .where(eq(deliveryAttempt.parcelId, parcelId))
     .orderBy(asc(deliveryAttempt.ts));
+}
+
+/** Server-scoped append-only failure rows for the Rider's date-filtered history. */
+export async function myFailedAttempts(input: { runDate?: string; limit?: number }, scope: Principal) {
+  if (!scope.roles.includes("rider")) errors.forbidden("Failed-attempt history is available to the signed-in Rider only.");
+  const runDate = input.runDate ?? colomboToday();
+  const start = new Date(`${runDate}T00:00:00+05:30`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select()
+    .from(deliveryAttempt)
+    .where(and(
+      eq(deliveryAttempt.riderId, scope.userId),
+      eq(deliveryAttempt.outcome, "failed"),
+      gte(deliveryAttempt.ts, start),
+      lt(deliveryAttempt.ts, end),
+    ))
+    .orderBy(desc(deliveryAttempt.ts))
+    .limit(Math.min(Math.max(input.limit ?? 100, 1), 200));
+  if (rows.length === 0) return [];
+
+  const parcelIds = [...new Set(rows.map((row) => row.parcelId))];
+  const [cases, allAttempts] = await Promise.all([
+    db.select().from(deliveryRetryCase).where(inArray(deliveryRetryCase.parcelId, parcelIds)),
+    db.select().from(deliveryAttempt).where(inArray(deliveryAttempt.parcelId, parcelIds))
+      .orderBy(desc(deliveryAttempt.ts), desc(deliveryAttempt.id)),
+  ]);
+  const attemptRunIds = [...new Set(rows.flatMap((row) => row.runsheetId ? [row.runsheetId] : []))];
+  const attemptRuns = attemptRunIds.length
+    ? await db.select({ id: runsheet.id, code: runsheet.code }).from(runsheet)
+        .where(inArray(runsheet.id, attemptRunIds))
+    : [];
+  const runCodeById = new Map(attemptRuns.map((row) => [row.id, row.code]));
+  const retryCaseByParcel = new Map(cases.map((row) => [row.parcelId, row]));
+  const latestAttemptByParcel = new Map<string, AttemptRow>();
+  for (const attempt of allAttempts) {
+    if (!latestAttemptByParcel.has(attempt.parcelId)) latestAttemptByParcel.set(attempt.parcelId, attempt);
+  }
+  const itemIds = [...new Set(cases.flatMap((row) => row.runsheetItemId ? [row.runsheetItemId] : []))];
+  const assignments = itemIds.length
+    ? await db.select({
+        itemId: runsheetItem.id,
+        itemState: runsheetItem.state,
+        riderId: runsheet.riderId,
+        runStatus: runsheet.status,
+        runCode: runsheet.code,
+      }).from(runsheetItem).innerJoin(runsheet, eq(runsheet.id, runsheetItem.runsheetId))
+        .where(inArray(runsheetItem.id, itemIds))
+    : [];
+  const assignmentByItem = new Map(assignments.map((row) => [row.itemId, row]));
+  const parcels = await Promise.all(parcelIds.map(async (id) => [id, await getParcelById(id)] as const));
+  const parcelById = new Map(parcels);
+  const nowMs = Date.now();
+
+  return rows.map((attempt) => {
+    const retryCase = retryCaseByParcel.get(attempt.parcelId);
+    const assigned = retryCase?.runsheetItemId ? assignmentByItem.get(retryCase.runsheetItemId) : undefined;
+    const parcel = parcelById.get(attempt.parcelId);
+    const latest = latestAttemptByParcel.get(attempt.parcelId);
+    const decision = retryCase && parcel
+      ? riderRetryDecision({
+          nowMs,
+          expiresAtMs: retryCase.expiresAt.getTime(),
+          attemptsUsed: parcel.deliveryAttempts,
+          reasonAllowsReattempt: retryCase.reasonAllowsReattempt,
+          reasonTriggersRto: retryCase.reasonTriggersRto,
+          retryCaseOpen: retryCase.state === "open",
+          isLatestFailure: latest?.id === attempt.id && retryCase.latestAttemptId === attempt.id,
+          parcelStatus: parcel.status,
+          assignedToRider: retryCase.activeRiderId === scope.userId && assigned?.riderId === scope.userId,
+          runDispatched: assigned?.runStatus === "dispatched",
+          stopFailed: assigned?.itemState === "failed",
+        })
+      : { allowed: false as const, reason: "This attempt needs Ops review or reassignment." };
+
+    return {
+      id: attempt.id,
+      clientId: attempt.clientId,
+      awb: attempt.awb,
+      consigneeName: parcel?.consigneeName ?? "Recipient",
+      timestamp: attempt.ts,
+      attemptNo: attempt.attemptNo,
+      runsheetCode: attempt.runsheetId ? (runCodeById.get(attempt.runsheetId) ?? "Run") : "Run",
+      reasonLabel: attempt.reasonLabel ?? "Delivery failed",
+      retryCaseId: retryCase?.id ?? null,
+      retryUntil: retryCase?.expiresAt ?? null,
+      canReattempt: decision.allowed,
+      retryBlockedReason: decision.allowed ? null : decision.reason,
+    };
+  });
+}
+
+export async function reattemptFailedParcel(
+  retryCaseId: string,
+  actor: Principal,
+): Promise<{ parcel: ParcelRow; runsheetId: string; runsheetItemId: string; retryUntil: Date }> {
+  if (!actor.roles.includes("rider")) errors.forbidden("Only the assigned Rider can start this retry.");
+  const [retryCase] = await db
+    .select()
+    .from(deliveryRetryCase)
+    .where(eq(deliveryRetryCase.id, retryCaseId))
+    .limit(1);
+  if (!retryCase) errors.notFound("Rider retry window");
+  if (!retryCase!.activeRiderId || !retryCase!.runsheetId || !retryCase!.runsheetItemId) {
+    errors.conflict("This failure was not recorded on a Rider's dispatched run. Ask Ops for the next step.");
+  }
+  const parcel = await getParcelById(retryCase!.parcelId);
+  if (!parcel) errors.notFound(`Parcel ${retryCase!.awb}`);
+  const retryRunsheetId = retryCase!.runsheetId!;
+  const retryRunsheetItemId = retryCase!.runsheetItemId!;
+  const [assignment] = await db.select({ item: runsheetItem, run: runsheet })
+    .from(runsheetItem)
+    .innerJoin(runsheet, eq(runsheet.id, runsheetItem.runsheetId))
+    .where(eq(runsheetItem.id, retryRunsheetItemId))
+    .limit(1);
+  const [latestAttempt] = await db.select().from(deliveryAttempt)
+    .where(eq(deliveryAttempt.parcelId, retryCase!.parcelId))
+    .orderBy(desc(deliveryAttempt.ts), desc(deliveryAttempt.id))
+    .limit(1);
+  const decision = riderRetryDecision({
+    nowMs: Date.now(),
+    expiresAtMs: retryCase!.expiresAt.getTime(),
+    attemptsUsed: parcel!.deliveryAttempts,
+    reasonAllowsReattempt: retryCase!.reasonAllowsReattempt,
+    reasonTriggersRto: retryCase!.reasonTriggersRto,
+    retryCaseOpen: retryCase!.state === "open",
+    isLatestFailure: latestAttempt?.id === retryCase!.latestAttemptId,
+    parcelStatus: parcel!.status,
+    assignedToRider: retryCase!.activeRiderId === actor.userId && assignment?.run.riderId === actor.userId,
+    runDispatched: assignment?.run.status === "dispatched",
+    stopFailed: assignment?.item.state === "failed",
+  });
+  if (!decision.allowed) errors.conflict(decision.reason, { awb: retryCase!.awb, retryCaseId });
+  if (!assignment || assignment.run.branchId !== parcel!.branchId) {
+    errors.forbidden("The assigned run does not match the parcel's accountable branch.");
+  }
+
+  const now = new Date();
+  const moved = await transitionParcel(
+    {
+      awbOrId: parcel!.awb,
+      to: "OutForDelivery",
+      notes: `Rider re-attempt from failed attempt ${retryCase!.latestAttemptId}; original history retained.`,
+    },
+    actor,
+    { riderRetryCaseId: retryCase!.id },
+    async (tx, before) => {
+      const [currentCase] = await tx.select().from(deliveryRetryCase)
+        .where(eq(deliveryRetryCase.id, retryCase!.id)).limit(1);
+      const [currentItem] = await tx.select().from(runsheetItem)
+        .where(eq(runsheetItem.id, retryRunsheetItemId)).limit(1);
+      const [currentRun] = await tx.select().from(runsheet)
+        .where(eq(runsheet.id, retryRunsheetId)).limit(1);
+      const [currentLatest] = await tx.select().from(deliveryAttempt)
+        .where(eq(deliveryAttempt.parcelId, retryCase!.parcelId))
+        .orderBy(desc(deliveryAttempt.ts), desc(deliveryAttempt.id)).limit(1);
+      const lockedDecision = riderRetryDecision({
+        nowMs: now.getTime(),
+        expiresAtMs: currentCase?.expiresAt.getTime() ?? 0,
+        attemptsUsed: before.deliveryAttempts,
+        reasonAllowsReattempt: currentCase?.reasonAllowsReattempt ?? false,
+        reasonTriggersRto: currentCase?.reasonTriggersRto ?? true,
+        retryCaseOpen: currentCase?.state === "open",
+        isLatestFailure: currentLatest?.id === currentCase?.latestAttemptId,
+        parcelStatus: before.status,
+        assignedToRider: currentCase?.activeRiderId === actor.userId && currentRun?.riderId === actor.userId &&
+          currentCase?.runsheetId === currentRun?.id && currentCase?.runsheetItemId === currentItem?.id,
+        runDispatched: currentRun?.status === "dispatched",
+        stopFailed: currentItem?.state === "failed",
+      });
+      if (!lockedDecision.allowed || !currentItem || !currentRun || currentRun.id !== currentItem.runsheetId) {
+        errors.conflict(lockedDecision.allowed ? "The assigned stop changed. Refresh the run." : lockedDecision.reason);
+      }
+
+      const [restored] = await tx.update(runsheetItem).set({
+        state: "pending",
+        attemptNo: before.deliveryAttempts,
+        settledAt: null,
+      }).where(and(eq(runsheetItem.id, currentItem!.id), eq(runsheetItem.state, "failed"))).returning();
+      if (!restored) errors.conflict("This failed stop has already been retried or reassigned.");
+      await tx.update(runsheet).set({
+        failedCount: Math.max(0, currentRun!.failedCount - 1),
+        codExpectedCents: currentRun!.codExpectedCents + currentItem!.codAmountCents,
+        freightExpectedCents: currentRun!.freightExpectedCents + currentItem!.freightAmountCents,
+      }).where(and(eq(runsheet.id, currentRun!.id), eq(runsheet.status, "dispatched")));
+      const [keptOpen] = await tx.update(deliveryRetryCase).set({ updatedAt: now })
+        .where(and(
+          eq(deliveryRetryCase.id, currentCase!.id),
+          eq(deliveryRetryCase.state, "open"),
+          gt(deliveryRetryCase.expiresAt, now),
+        )).returning({ id: deliveryRetryCase.id });
+      if (!keptOpen) errors.conflict("The retry window expired or was closed. Ask Ops for the next step.");
+    },
+  );
+  return {
+    parcel: moved.parcel,
+    runsheetId: assignment!.run.id,
+    runsheetItemId: assignment!.item.id,
+    retryUntil: retryCase!.expiresAt,
+  };
 }
 
 export async function podForParcel(parcelId: string): Promise<PodRow | null> {
@@ -606,8 +824,9 @@ export async function addToRunsheet(
     const charge = await chargeByParcel(p.id);
     const freightDueCents = charge?.payer === "recipient" ? charge.amountCents : 0;
 
+    const newItemId = prefixedId("rsi");
     await db.insert(runsheetItem).values({
-      id: prefixedId("rsi"),
+      id: newItemId,
       runsheetId: sheet!.id,
       parcelId: p.id,
       awb: p.awb,
@@ -624,6 +843,19 @@ export async function addToRunsheet(
       freightAmountCents: freightDueCents,
       freightPayer: charge?.payer ?? null,
     });
+    const [retryCase] = await db
+      .select()
+      .from(deliveryRetryCase)
+      .where(and(eq(deliveryRetryCase.parcelId, p.id), eq(deliveryRetryCase.state, "open")))
+      .limit(1);
+    if (retryCase && retryCase.expiresAt.getTime() > Date.now()) {
+      await db.update(deliveryRetryCase).set({
+        activeRiderId: sheet!.riderId,
+        runsheetId: sheet!.id,
+        runsheetItemId: newItemId,
+        updatedAt: new Date(),
+      }).where(and(eq(deliveryRetryCase.id, retryCase.id), eq(deliveryRetryCase.state, "open")));
+    }
     alreadyOn.add(p.id);
     added += 1;
     codDelta += p.codAmountCents;
@@ -847,6 +1079,10 @@ export async function dispatchRunsheet(
 
   for (const item of pending) {
     try {
+      const parcel = await getParcelByAwb(item.awb);
+      if (!parcel) errors.notFound(`Parcel ${item.awb}`);
+      const retryGate = await reattemptGate(parcel!);
+      if (!retryGate.ok) errors.conflict(retryGate.reason, { awb: item.awb });
       const moved = await transitionParcel(
         {
           awbOrId: item.awb,
@@ -1402,6 +1638,14 @@ export async function recordDelivery(
 
   // A delivered parcel has no outstanding question for the merchant.
   await resolveNdrForParcel(p!.id, actor, "Delivered on a later attempt");
+  await db.update(deliveryRetryCase).set({
+    state: "resolved",
+    resolvedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(and(
+    eq(deliveryRetryCase.parcelId, p!.id),
+    inArray(deliveryRetryCase.state, ["open", "out_for_delivery", "escalating", "escalated"]),
+  ));
 
   await enqueue("notify.dispatch", {
     templateKey: "parcel.delivered",
@@ -1480,6 +1724,8 @@ export interface RecordFailureResult {
   ndrId: string | null;
   /** Set when the parcel was turned back — automatically or by the reason code. */
   rtoId: string | null;
+  /** Present only while a safe Rider failure is inside its 72-hour retry window. */
+  retryUntil: Date | null;
   deduped: boolean;
 }
 
@@ -1507,13 +1753,16 @@ export async function recordFailure(
     const [seen] = await db
       .select()
       .from(deliveryAttempt)
-      .where(
-        and(eq(deliveryAttempt.clientId, input.clientId), eq(deliveryAttempt.parcelId, p!.id)),
-      )
+      .where(and(
+        eq(deliveryAttempt.clientId, input.clientId),
+        eq(deliveryAttempt.parcelId, p!.id),
+      ))
       .limit(1);
     if (seen) {
       const reason = await requireReasonCode(seen.reasonCode ?? input.reasonCode);
       const live = await liveNdrForParcel(p!.id);
+      const [retryCase] = await db.select().from(deliveryRetryCase)
+        .where(and(eq(deliveryRetryCase.parcelId, p!.id), eq(deliveryRetryCase.state, "open"))).limit(1);
       return {
         parcel: p!,
         attempt: seen,
@@ -1523,6 +1772,7 @@ export async function recordFailure(
         countedAsAttempt: reason.countsAsAttempt,
         ndrId: live?.id ?? null,
         rtoId: null,
+        retryUntil: retryCase?.expiresAt ?? null,
         deduped: true,
       };
     }
@@ -1536,45 +1786,44 @@ export async function recordFailure(
   }
 
   const reason = await requireReasonCode(input.reasonCode);
-
   const [item] = await db
     .select()
     .from(runsheetItem)
     .where(and(eq(runsheetItem.parcelId, p!.id), eq(runsheetItem.state, "pending")))
     .orderBy(desc(runsheetItem.createdAt))
     .limit(1);
+  const failureRun = item ? await getRunsheet(item.runsheetId) : null;
+  const isRiderAttempt = actor.roles.includes("rider") && failureRun?.riderId === actor.userId;
+  if (actor.role === "rider" || isRiderAttempt) {
+    if (!item || !failureRun) errors.forbidden("A Rider may record a failure only for a stop on their dispatched runsheet.");
+    if (failureRun!.riderId !== actor.userId || failureRun!.status !== "dispatched") {
+      errors.forbidden("This failed attempt is not on your active dispatched runsheet.");
+    }
+    if (failureRun!.branchId !== p!.branchId) errors.forbidden("This stop belongs to another branch.");
+  }
+  const hasDispatchedRun = Boolean(
+    item && failureRun?.status === "dispatched" && failureRun.branchId === p!.branchId,
+  );
 
-  // A non-counting failure records the attempt ordinal it happened *at*, so the
-  // append-only log reads in order without implying an attempt was consumed.
+  const now = new Date();
   const attemptNo = reason.countsAsAttempt ? p!.deliveryAttempts + 1 : p!.deliveryAttempts;
+  const attemptsUsed = reason.countsAsAttempt ? p!.deliveryAttempts + 1 : p!.deliveryAttempts;
+  const exhausted = shouldAutoRto(attemptsUsed);
+  const existingNdr = await liveNdrForParcel(p!.id);
+  const [existingCase] = await db.select().from(deliveryRetryCase)
+    .where(eq(deliveryRetryCase.parcelId, p!.id)).limit(1);
+  const canStartRetryWindow = Boolean(
+    isRiderAttempt && hasDispatchedRun && reason.allowsReattempt && !reason.triggersRto &&
+    !exhausted && !existingNdr &&
+    (!existingCase || (existingCase.state === "open" && existingCase.expiresAt.getTime() > now.getTime())),
+  );
 
-  const [attempt] = await db
-    .insert(deliveryAttempt)
-    .values({
-      id: prefixedId("att"),
-      parcelId: p!.id,
-      awb: p!.awb,
-      runsheetId: item?.runsheetId ?? null,
-      runsheetItemId: item?.id ?? null,
-      attemptNo,
-      outcome: "failed",
-      reasonCode: reason.code,
-      reasonLabel: reason.label,
-      notes: input.notes ?? null,
-      riderId: actor.userId,
-      riderName: actor.name,
-      deviceId: actor.deviceId ?? null,
-      lat: input.lat ?? null,
-      lng: input.lng ?? null,
-      clientId: input.clientId ?? null,
-      clientTs: input.clientTs ?? null,
-      ts: new Date(),
-    })
-    .returning();
-
-  const attemptsUsed = reason.countsAsAttempt
-    ? await incrementDeliveryAttempts(p!.id)
-    : p!.deliveryAttempts;
+  const attemptId = prefixedId("att");
+  const retryCaseId = existingCase?.id ?? prefixedId("retry");
+  let attempt: AttemptRow | undefined;
+  let activeRetryCaseId: string | null = null;
+  let deferNdr = false;
+  let retryUntil: Date | null = null;
 
   const moved = await transitionParcel(
     {
@@ -1588,52 +1837,197 @@ export async function recordFailure(
       clientId: input.clientId,
     },
     actor,
-  );
+    {},
+    async (tx, before) => {
+      if (before.deliveryAttempts !== p!.deliveryAttempts) {
+        errors.conflict(`Parcel ${p!.awb} attempt count changed concurrently. Refresh and record the outcome again.`);
+      }
 
-  if (item) {
-    await db
-      .update(runsheetItem)
-      .set({ state: "failed", attemptNo, settledAt: new Date() })
-      .where(eq(runsheetItem.id, item.id));
-    const sheet = await getRunsheet(item.runsheetId);
-    if (sheet) {
-      await db
-        .update(runsheet)
-        .set({
-          failedCount: sheet.failedCount + 1,
-          // The rider is no longer carrying this parcel's cash.
-          codExpectedCents: Math.max(0, sheet.codExpectedCents - item.codAmountCents),
-          freightExpectedCents: Math.max(0, sheet.freightExpectedCents - item.freightAmountCents),
-        })
-        .where(eq(runsheet.id, sheet.id));
+      let currentItem: typeof runsheetItem.$inferSelect | undefined;
+      let currentRun: typeof runsheet.$inferSelect | undefined;
+      if (item) {
+        [currentItem] = await tx.select().from(runsheetItem)
+          .where(eq(runsheetItem.id, item.id)).limit(1);
+        [currentRun] = await tx.select().from(runsheet)
+          .where(eq(runsheet.id, item.runsheetId)).limit(1);
+        if (!currentItem || currentItem.state !== "pending" || !currentRun || currentRun.status !== "dispatched") {
+          errors.conflict("The assigned delivery stop changed before the failure could be recorded. Refresh the run.");
+        }
+        if (currentRun.branchId !== before.branchId || currentItem.parcelId !== before.id) {
+          errors.forbidden("This stop does not match the parcel's accountable dispatched run.");
+        }
+        if ((actor.role === "rider" || isRiderAttempt) && currentRun.riderId !== actor.userId) {
+          errors.forbidden("This failed attempt is not on your active dispatched runsheet.");
+        }
+      }
+
+      [attempt] = await tx.insert(deliveryAttempt).values({
+        id: attemptId,
+        parcelId: p!.id,
+        awb: p!.awb,
+        runsheetId: item?.runsheetId ?? null,
+        runsheetItemId: item?.id ?? null,
+        attemptNo,
+        outcome: "failed",
+        reasonCode: reason.code,
+        reasonLabel: reason.label,
+        notes: input.notes ?? null,
+        riderId: actor.userId,
+        riderName: actor.name,
+        deviceId: actor.deviceId ?? null,
+        lat: input.lat ?? null,
+        lng: input.lng ?? null,
+        clientId: input.clientId ?? null,
+        clientTs: input.clientTs ?? null,
+        ts: now,
+      }).returning();
+
+      if (reason.countsAsAttempt) await incrementDeliveryAttempts(p!.id, tx);
+
+      if (currentItem && currentRun) {
+        const [settled] = await tx.update(runsheetItem).set({
+          state: "failed",
+          attemptNo,
+          settledAt: now,
+        }).where(and(eq(runsheetItem.id, currentItem.id), eq(runsheetItem.state, "pending"))).returning({ id: runsheetItem.id });
+        if (!settled) errors.conflict("The delivery stop was already settled. Refresh the run.");
+
+        const [updatedRun] = await tx.update(runsheet).set({
+          failedCount: currentRun.failedCount + 1,
+          codExpectedCents: Math.max(0, currentRun.codExpectedCents - currentItem.codAmountCents),
+          freightExpectedCents: Math.max(0, currentRun.freightExpectedCents - currentItem.freightAmountCents),
+        }).where(and(eq(runsheet.id, currentRun.id), eq(runsheet.status, "dispatched"))).returning({ id: runsheet.id });
+        if (!updatedRun) errors.conflict("The dispatched runsheet changed before the failure was recorded.");
+      }
+
+      const [currentCase] = await tx.select().from(deliveryRetryCase)
+        .where(eq(deliveryRetryCase.parcelId, p!.id)).limit(1);
+      if (canStartRetryWindow && !currentCase) {
+        retryUntil = retryDeadline(now);
+        await tx.insert(deliveryRetryCase).values({
+          id: retryCaseId,
+          parcelId: p!.id,
+          awb: p!.awb,
+          firstAttemptId: attemptId,
+          latestAttemptId: attemptId,
+          activeRiderId: currentRun?.riderId ?? actor.userId,
+          runsheetId: item!.runsheetId,
+          runsheetItemId: item!.id,
+          lastReasonCode: reason.code,
+          lastReasonLabel: reason.label,
+          reasonAllowsReattempt: reason.allowsReattempt,
+          reasonTriggersRto: reason.triggersRto,
+          reasonNotifyConsignee: reason.notifyConsignee,
+          state: "open",
+          firstFailureAt: now,
+          expiresAt: retryUntil,
+          createdAt: now,
+          updatedAt: now,
+        });
+        activeRetryCaseId = retryCaseId;
+        deferNdr = true;
+      } else if (canStartRetryWindow && currentCase?.state === "open" && currentCase.expiresAt.getTime() > now.getTime()) {
+        retryUntil = currentCase.expiresAt;
+        const [updatedCase] = await tx.update(deliveryRetryCase).set({
+          latestAttemptId: attemptId,
+          activeRiderId: currentRun?.riderId ?? actor.userId,
+          runsheetId: item!.runsheetId,
+          runsheetItemId: item!.id,
+          lastReasonCode: reason.code,
+          lastReasonLabel: reason.label,
+          reasonAllowsReattempt: reason.allowsReattempt,
+          reasonTriggersRto: reason.triggersRto,
+          reasonNotifyConsignee: reason.notifyConsignee,
+          updatedAt: now,
+        }).where(and(
+          eq(deliveryRetryCase.id, currentCase.id),
+          eq(deliveryRetryCase.state, "open"),
+          gt(deliveryRetryCase.expiresAt, now),
+        )).returning({ id: deliveryRetryCase.id });
+        if (!updatedCase) errors.conflict("The retry window changed before this failure was recorded. Refresh and try again.");
+        activeRetryCaseId = currentCase.id;
+        deferNdr = true;
+      } else {
+        if (currentCase && !["resolved", "rto"].includes(currentCase.state)) {
+          await tx.update(deliveryRetryCase).set({
+            state: "escalating",
+            escalatingAt: now,
+            latestAttemptId: attemptId,
+            activeRiderId: currentRun?.riderId ?? currentCase.activeRiderId,
+            runsheetId: item?.runsheetId ?? currentCase.runsheetId,
+            runsheetItemId: item?.id ?? currentCase.runsheetItemId,
+            lastReasonCode: reason.code,
+            lastReasonLabel: reason.label,
+            reasonAllowsReattempt: reason.allowsReattempt,
+            reasonTriggersRto: reason.triggersRto,
+            reasonNotifyConsignee: reason.notifyConsignee,
+            updatedAt: now,
+          }).where(eq(deliveryRetryCase.id, currentCase.id));
+          activeRetryCaseId = currentCase.id;
+        } else if (!currentCase) {
+          await tx.insert(deliveryRetryCase).values({
+            id: retryCaseId,
+            parcelId: p!.id,
+            awb: p!.awb,
+            firstAttemptId: attemptId,
+            latestAttemptId: attemptId,
+            activeRiderId: currentRun?.riderId ?? null,
+            runsheetId: item?.runsheetId ?? null,
+            runsheetItemId: item?.id ?? null,
+            lastReasonCode: reason.code,
+            lastReasonLabel: reason.label,
+            reasonAllowsReattempt: reason.allowsReattempt,
+            reasonTriggersRto: reason.triggersRto,
+            reasonNotifyConsignee: reason.notifyConsignee,
+            state: "escalating",
+            firstFailureAt: now,
+            expiresAt: retryDeadline(now),
+            escalatingAt: now,
+            createdAt: now,
+            updatedAt: now,
+          });
+          activeRetryCaseId = retryCaseId;
+        }
+      }
+    },
+  );
+  if (!attempt) {
+    errors.conflict(`A status event already exists for ${p!.awb}; refresh the parcel before recording another failure.`);
+  }
+
+  const parcelAfterFailure = (await getParcelById(p!.id)) ?? moved.parcel;
+  let ndrRow: NdrRow | null = null;
+  let isNew = false;
+  if (!deferNdr) {
+    const ndrResult = await openOrUpdateNdr({ parcel: parcelAfterFailure, reason, attempts: attemptsUsed, actor });
+    ndrRow = ndrResult.ndr;
+    isNew = ndrResult.isNew;
+    if (activeRetryCaseId && !reason.triggersRto && !exhausted) {
+      await db.update(deliveryRetryCase).set({
+        state: "escalated",
+        escalatingAt: null,
+        escalatedAt: now,
+        updatedAt: now,
+      }).where(eq(deliveryRetryCase.id, activeRetryCaseId));
     }
   }
 
-  const { ndr: ndrRow, isNew } = await openOrUpdateNdr({
-    parcel: moved.parcel,
-    reason,
-    attempts: attemptsUsed,
-    actor,
-  });
-
   let rtoId: string | null = null;
-  // The parcel as the caller should see it. An RTO moves it on again past
-  // DeliveryAttempted, so the post-RTO row replaces this snapshot below —
-  // returning the pre-RTO one told a rider's screen the parcel was still
-  // awaiting a decision when it had already been turned back.
-  let parcelAfter = moved.parcel;
-  const exhausted = shouldAutoRto(attemptsUsed);
-
+  let parcelAfter = parcelAfterFailure;
   if (reason.triggersRto || exhausted) {
     const why = exhausted
       ? `All ${MAX_DELIVERY_ATTEMPTS} attempts used. Last failure: ${reason.label}.`
       : reason.label;
     const result = exhausted
-      ? await autoRto(moved.parcel, why)
-      : await reasonRto(moved.parcel, why, actor);
+      ? await autoRto(parcelAfterFailure, why)
+      : await reasonRto(parcelAfterFailure, why, actor);
     rtoId = result.rto.id;
     parcelAfter = result.parcel;
-  } else if (isNew && reason.notifyConsignee) {
+    if (activeRetryCaseId) {
+      await db.update(deliveryRetryCase).set({ state: "rto", resolvedAt: new Date(), escalatingAt: null, updatedAt: new Date() })
+        .where(eq(deliveryRetryCase.id, activeRetryCaseId));
+    }
+  } else if (!deferNdr && isNew && reason.notifyConsignee) {
     await enqueue("notify.dispatch", {
       templateKey: "parcel.delivery_failed",
       parcelId: p!.id,
@@ -1650,7 +2044,7 @@ export async function recordFailure(
     });
   }
 
-  if (isNew) {
+  if (!deferNdr && isNew && ndrRow) {
     const merchant = p!.merchantId ? await getMerchant(p!.merchantId) : null;
     await enqueue("notify.dispatch", {
       templateKey: "ndr.raised",
@@ -1675,10 +2069,138 @@ export async function recordFailure(
     attemptsUsed,
     attemptsAllowed: MAX_DELIVERY_ATTEMPTS,
     countedAsAttempt: reason.countsAsAttempt,
-    ndrId: ndrRow.id,
+    ndrId: ndrRow?.id ?? null,
     rtoId,
+    retryUntil,
     deduped: false,
   };
+}
+
+/**
+ * Raise NDR after a retry window expires. The claim state is recoverable after
+ * a crash: an `escalating` row older than five minutes is retried. A parcel
+ * already out with a Rider is left on that run; if it fails after the deadline,
+ * recordFailure escalates it immediately.
+ */
+export async function processExpiredRiderRetryCases(limit = 25): Promise<number> {
+  const now = new Date();
+  const staleClaimBefore = new Date(now.getTime() - 5 * 60 * 1000);
+  const dueCondition = or(
+    and(eq(deliveryRetryCase.state, "open"), lte(deliveryRetryCase.expiresAt, now)),
+    and(eq(deliveryRetryCase.state, "escalating"), lte(deliveryRetryCase.escalatingAt, staleClaimBefore)),
+  );
+  const due = await db.select().from(deliveryRetryCase).where(dueCondition)
+    .orderBy(asc(deliveryRetryCase.expiresAt)).limit(Math.min(Math.max(limit, 1), 100));
+
+  let completed = 0;
+  for (const candidate of due) {
+    const [claimed] = await db.update(deliveryRetryCase).set({
+      state: "escalating",
+      escalatingAt: now,
+      updatedAt: now,
+    }).where(and(
+      eq(deliveryRetryCase.id, candidate.id),
+      dueCondition,
+    )).returning();
+    if (!claimed) continue;
+
+    try {
+      const parcel = await getParcelById(claimed.parcelId);
+      if (!parcel || parcel.status === "Delivered") {
+        await db.update(deliveryRetryCase).set({ state: "resolved", resolvedAt: now, updatedAt: now })
+          .where(eq(deliveryRetryCase.id, claimed.id));
+        completed += 1;
+        continue;
+      }
+      if (["RTOInitiated", "ReturnedToMerchant", "RTODelivered"].includes(parcel.status)) {
+        await db.update(deliveryRetryCase).set({ state: "rto", resolvedAt: now, updatedAt: now })
+          .where(eq(deliveryRetryCase.id, claimed.id));
+        completed += 1;
+        continue;
+      }
+      if (parcel.status === "OutForDelivery") {
+        await db.update(deliveryRetryCase).set({ state: "out_for_delivery", escalatingAt: null, updatedAt: now })
+          .where(eq(deliveryRetryCase.id, claimed.id));
+        continue;
+      }
+
+      const reason = { code: claimed.lastReasonCode, label: claimed.lastReasonLabel };
+      const systemActor: Principal = {
+        userId: "system:retry-window",
+        name: "NatEx system (72-hour retry window expired)",
+        role: "ops",
+        roles: ["ops"],
+        branchId: parcel.branchId,
+        merchantId: null,
+      };
+      if (claimed.reasonTriggersRto || shouldAutoRto(parcel.deliveryAttempts)) {
+        const why = shouldAutoRto(parcel.deliveryAttempts)
+          ? `All ${MAX_DELIVERY_ATTEMPTS} attempts used. Last failure: ${claimed.lastReasonLabel}.`
+          : claimed.lastReasonLabel;
+        if (claimed.reasonTriggersRto) await reasonRto(parcel, why, systemActor);
+        else await autoRto(parcel, why);
+        await db.update(deliveryRetryCase).set({
+          state: "rto",
+          resolvedAt: now,
+          escalatingAt: null,
+          updatedAt: now,
+        }).where(eq(deliveryRetryCase.id, claimed.id));
+        completed += 1;
+        continue;
+      }
+      const { ndr: ndrRow, isNew } = await openOrUpdateNdr({
+        parcel,
+        reason,
+        attempts: parcel.deliveryAttempts,
+        actor: systemActor,
+      });
+      if (isNew && claimed.reasonNotifyConsignee) {
+        await enqueue("notify.dispatch", {
+          templateKey: "parcel.delivery_failed",
+          parcelId: parcel.id,
+          awb: parcel.awb,
+          merchantId: parcel.merchantId,
+          toPhone: parcel.consigneePhone,
+          vars: {
+            awb: parcel.awb,
+            consigneeName: parcel.consigneeName,
+            attemptNo: parcel.deliveryAttempts,
+            reason: claimed.lastReasonLabel,
+            trackUrl: `natex.lk/track/${parcel.awb}`,
+          },
+        });
+      }
+      if (isNew) {
+        const merchant = parcel.merchantId ? await getMerchant(parcel.merchantId) : null;
+        await enqueue("notify.dispatch", {
+          templateKey: "ndr.raised",
+          parcelId: parcel.id,
+          awb: parcel.awb,
+          merchantId: parcel.merchantId,
+          toPhone: merchant?.contactPhone ?? null,
+          vars: {
+            awb: parcel.awb,
+            consigneeName: parcel.consigneeName,
+            reason: claimed.lastReasonLabel,
+            attemptNo: parcel.deliveryAttempts,
+            slaDue: ndrRow.slaDueAt ? formatLkDate(colomboToday(ndrRow.slaDueAt)) : "tomorrow",
+          },
+        });
+      }
+      await db.update(deliveryRetryCase).set({
+        state: "escalated",
+        escalatingAt: null,
+        escalatedAt: now,
+        updatedAt: now,
+      }).where(eq(deliveryRetryCase.id, claimed.id));
+      completed += 1;
+    } catch (error) {
+      await db.update(deliveryRetryCase).set({ state: "open", escalatingAt: null, updatedAt: now })
+        .where(eq(deliveryRetryCase.id, claimed.id));
+      console.warn(`[delivery] retry-window escalation failed for ${claimed.awb}:`, error);
+    }
+  }
+  return completed;
 }
 
 // ---------------------------------------------------------- cancel a draft

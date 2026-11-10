@@ -1,6 +1,6 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ export function WorkspaceSwitcher() {
 function WorkspaceMenu() {
   const colors = useColors();
   const { user, role, session, switchRole } = useAuth();
+  const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
   const [switching, setSwitching] = React.useState(false);
   const [switchError, setSwitchError] = React.useState<string | null>(null);
@@ -43,7 +44,7 @@ function WorkspaceMenu() {
   const assignedRoles = workspacesQuery.data?.roles ?? session?.availableMobileRoles ?? [];
   const available = WORKSPACES.filter((workspace) => assignedRoles.includes(workspace.role));
 
-  if (!isFieldSession || available.length < 2) return null;
+  if (!isFieldSession || (available.length < 2 && role !== "rider")) return null;
 
   async function choose(nextRole: MobileFieldRole) {
     if (nextRole === role || switching) {
@@ -63,19 +64,24 @@ function WorkspaceMenu() {
     }
   }
 
+  function openRiderPage(path: "/(rider)/delivered" | "/(rider)/failed-attempts") {
+    setOpen(false);
+    router.push(path);
+  }
+
   return (
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Open workspaces menu"
+        accessibilityLabel={role === "rider" ? "Open Rider menu" : "Open workspaces menu"}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
         style={({ pressed }) => [
           styles.trigger,
-          { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+          { backgroundColor: colors.accent, borderColor: colors.border, opacity: pressed ? 0.78 : 1 },
         ]}
       >
-        <Ionicons name="menu-outline" size={22} color={colors.foreground} />
+        <Ionicons name="menu-outline" size={22} color={colors.primary} />
       </Pressable>
       <Modal
         visible={open}
@@ -97,14 +103,16 @@ function WorkspaceMenu() {
           >
             <View style={[styles.brand, { borderBottomColor: colors.border }]}>
               <View style={styles.brandLine}>
-                <Ionicons name="apps-outline" size={21} color={colors.primary} />
+            <Ionicons name="apps-outline" size={22} color={colors.primary} />
                 <Title>NX Official</Title>
               </View>
               {user?.name ? <Small>{user.name}</Small> : null}
-              <Small color={colors.mutedForeground}>Choose a workspace</Small>
+              <Small color={colors.mutedForeground}>
+                {available.length > 1 ? "Choose a workspace" : "Rider menu"}
+              </Small>
             </View>
             <View style={styles.options}>
-              {available.map((workspace) => {
+              {available.length > 1 ? available.map((workspace) => {
                 const selected = role === workspace.role;
                 return (
                   <Pressable
@@ -116,7 +124,7 @@ function WorkspaceMenu() {
                     style={({ pressed }) => [
                       styles.option,
                       {
-                        backgroundColor: selected ? colors.secondary : colors.card,
+                        backgroundColor: selected ? colors.accent : colors.card,
                         borderColor: selected ? colors.primary : colors.border,
                         opacity: pressed || switching ? 0.75 : 1,
                       },
@@ -134,7 +142,50 @@ function WorkspaceMenu() {
                     {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} /> : null}
                   </Pressable>
                 );
-              })}
+              }) : null}
+              {role === "rider" ? (
+                <>
+                  <Small color={colors.mutedForeground}>DELIVERY RECORDS</Small>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: pathname.includes("/delivered") }}
+                    onPress={() => openRiderPage("/(rider)/delivered")}
+                    style={({ pressed }) => [
+                      styles.option,
+                      {
+                        backgroundColor: pathname.includes("/delivered") ? colors.accent : colors.card,
+                        borderColor: pathname.includes("/delivered") ? colors.primary : colors.border,
+                        opacity: pressed ? 0.75 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={21} color={colors.statusGood} />
+                    <View style={styles.optionText}>
+                      <Body>Delivered</Body>
+                      <Small>Completed deliveries</Small>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: pathname.includes("/failed-attempts") }}
+                    onPress={() => openRiderPage("/(rider)/failed-attempts")}
+                    style={({ pressed }) => [
+                      styles.option,
+                      {
+                        backgroundColor: pathname.includes("/failed-attempts") ? colors.accent : colors.card,
+                        borderColor: pathname.includes("/failed-attempts") ? colors.primary : colors.border,
+                        opacity: pressed ? 0.75 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="alert-circle-outline" size={21} color={colors.statusWarn} />
+                    <View style={styles.optionText}>
+                      <Body>Failed Attempt</Body>
+                      <Small>Unsuccessful delivery attempts</Small>
+                    </View>
+                  </Pressable>
+                </>
+              ) : null}
               {switchError ? <Small color={colors.destructive}>{switchError}</Small> : null}
             </View>
           </SafeAreaView>
@@ -152,15 +203,17 @@ const styles = StyleSheet.create({
     maxWidth: "88%",
     flex: 1,
     borderRightWidth: StyleSheet.hairlineWidth,
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
     padding: Space.page,
-    gap: Space.page,
+    gap: Space.unit * 2,
     elevation: 12,
   },
   brand: { paddingBottom: Space.page, borderBottomWidth: StyleSheet.hairlineWidth, gap: 5 },
   brandLine: { flexDirection: "row", alignItems: "center", gap: Space.unit },
-  options: { gap: Space.unit },
+  options: { gap: Space.unit * 0.75 },
   option: {
-    minHeight: 66,
+    minHeight: Space.minTouch,
     borderWidth: 1,
     borderRadius: Space.radius,
     paddingHorizontal: Space.card,
@@ -171,10 +224,10 @@ const styles = StyleSheet.create({
   },
   optionText: { flex: 1, gap: 2 },
   trigger: {
-    width: 42,
-    height: 42,
+    width: 46,
+    height: 46,
     borderWidth: 1,
-    borderRadius: Space.radius,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -81,9 +81,21 @@ export default function RiderHandInScreen() {
       }
     >
       <ScreenHeader
-        title="Hand in at hub"
-        subtitle="Scan everything you collected, then submit as one batch."
+        title="Hand in"
+        subtitle="Return collected parcels to your hub."
       />
+
+      <Panel style={styles.batchSummary}>
+        <View style={styles.flex}>
+          <Label color={colors.primary}>RETURN BATCH</Label>
+          <Body>{plural(queue.length, "parcel")} queued</Body>
+          <Small>Scan or enter every label before submitting.</Small>
+        </View>
+        <View style={[styles.queueCount, { backgroundColor: `${colors.primary}1F` }]}>
+          <Mono color={colors.primary}>{String(queue.length)}</Mono>
+          <Label>READY</Label>
+        </View>
+      </Panel>
 
       <Card>
         <Input
@@ -152,7 +164,7 @@ export default function RiderHandInScreen() {
         />
       ) : (
         <Section>
-          <Label>To hand in · {queue.length}</Label>
+          <Label>Queued for return · {queue.length}</Label>
           {queue.map((value) => {
             const refusal = result?.rejected.find((row) => row.awb === value);
             return (
@@ -191,4 +203,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   rejectRow: { flexDirection: "row", alignItems: "center", gap: Space.unit },
+  batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2 },
+  queueCount: { minWidth: 64, minHeight: 64, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2 },
 });

@@ -1102,6 +1102,8 @@ export interface TransitionGuards {
   podId?: string;
   /** Id of the trip whose sealed bags are departing. */
   tripId?: string;
+  /** Internal delivery-service authorization; never accepted from a route payload. */
+  riderRetryCaseId?: string;
 }
 
 export interface TransitionResult {
@@ -1169,7 +1171,12 @@ export async function transitionParcel(
     errors.illegalTransition(row!.awb, from, to, [...legalNext(from)]);
   }
 
-  if (!roleMayCommand(actor.role, to)) {
+  const authorizedRiderRetry =
+    actor.roles.includes("rider") &&
+    from === "DeliveryAttempted" &&
+    to === "OutForDelivery" &&
+    Boolean(guards.riderRetryCaseId);
+  if (!roleMayCommand(actor.role, to) && !authorizedRiderRetry) {
     errors.forbidden(`Role ${actor.role} may not move a parcel to ${to}.`, {
       awb: row!.awb,
       requiredRoles: [...TRANSITION_ROLES[to]],
@@ -1528,15 +1535,17 @@ export async function seedParcel(
  * Only failures that the reason code marks `countsAsAttempt` reach here: a
  * flood or a van breakdown is NatEx's failure, not the consignee's.
  */
-export async function incrementDeliveryAttempts(parcelId: string): Promise<number> {
-  const row = await getParcelById(parcelId);
-  if (!row) errors.notFound(`Parcel ${parcelId}`);
-  const next = row!.deliveryAttempts + 1;
-  await db
+export async function incrementDeliveryAttempts(
+  parcelId: string,
+  executor: DbTransaction | typeof db = db,
+): Promise<number> {
+  const [updated] = await executor
     .update(parcel)
-    .set({ deliveryAttempts: next, updatedAt: new Date() })
-    .where(eq(parcel.id, parcelId));
-  return next;
+    .set({ deliveryAttempts: sql`${parcel.deliveryAttempts} + 1`, updatedAt: new Date() })
+    .where(eq(parcel.id, parcelId))
+    .returning({ deliveryAttempts: parcel.deliveryAttempts });
+  if (!updated) errors.notFound(`Parcel ${parcelId}`);
+  return updated!.deliveryAttempts;
 }
 
 /**

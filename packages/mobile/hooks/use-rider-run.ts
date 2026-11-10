@@ -15,6 +15,13 @@ import {
   type OutboxSnapshot,
 } from "../lib/outbox";
 import { getSession } from "../lib/session";
+import {
+  assignmentNeedsRefresh,
+  resolveStopView,
+  type RiderAssignment,
+  type StopView,
+} from "../lib/rider-run-reconcile";
+export type { StopView } from "../lib/rider-run-reconcile";
 
 /**
  * The rider's run, readable with no signal.
@@ -125,13 +132,16 @@ export function useOutboxDriver(currentRun: Run | null | undefined): void {
     void loadOutbox().then(() => drain());
     const timer = setInterval(() => void drain(), 20_000);
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") void drain();
+      if (state === "active") {
+        void queryClient.invalidateQueries({ queryKey: riderRunKey });
+        void drain();
+      }
     });
     return () => {
       clearInterval(timer);
       sub.remove();
     };
-  }, []);
+  }, [queryClient]);
 
   const lastSuccess = snap.lastSuccessAt;
   React.useEffect(() => {
@@ -142,22 +152,33 @@ export function useOutboxDriver(currentRun: Run | null | undefined): void {
 
   const assigned = snap.assignment;
   const heldId = currentRun?.runsheet.id ?? null;
+  const previousAssignment = React.useRef<RiderAssignment | null>(null);
   React.useEffect(() => {
-    if (!assigned && !heldId) return;
-    if (assigned?.runsheetId !== heldId) {
+    const previous = previousAssignment.current;
+    if (assignmentNeedsRefresh(assigned, previous, heldId)) {
       void queryClient.invalidateQueries({ queryKey: riderRunKey });
     }
-  }, [assigned, heldId, queryClient]);
-}
+    previousAssignment.current = assigned;
+  }, [assigned, assigned?.runsheetId, assigned?.revision, heldId, queryClient]);
 
-export type StopView =
-  | "todo"
-  | "queued_delivered"
-  | "queued_failed"
-  | "delivered"
-  | "failed"
-  | "removed"
-  | "problem";
+  // A conflict can be returned without a successful sync timestamp. Refresh
+  // anyway so a server-delivered parcel is reconciled out of the active queue.
+  const settledSignature = snap.entries
+    .filter((entry) => entry.state !== "pending")
+    .map((entry) => `${entry.clientOpId}:${entry.state}`)
+    .join("|");
+  const previousSettledSignature = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (previousSettledSignature.current === null) {
+      previousSettledSignature.current = settledSignature;
+      return;
+    }
+    if (previousSettledSignature.current !== settledSignature) {
+      previousSettledSignature.current = settledSignature;
+      void queryClient.invalidateQueries({ queryKey: riderRunKey });
+    }
+  }, [settledSignature, queryClient]);
+}
 
 /**
  * What the rider should see for one stop: the server's state, unless this
@@ -168,19 +189,5 @@ export function stopView(stop: RunStop, entries: OutboxEntry[]): {
   view: StopView;
   entry: OutboxEntry | null;
 } {
-  const entry = latestFor(entries, stop.awb);
-  if (entry?.state === "pending") {
-    return { view: entry.kind === "delivery.deliver" ? "queued_delivered" : "queued_failed", entry };
-  }
-  if (entry && (entry.state === "rejected" || entry.state === "conflict")) {
-    return { view: "problem", entry };
-  }
-  if (entry && stop.state === "pending" && (entry.state === "applied" || entry.state === "duplicate")) {
-    // The server took it; this copy of the run just predates the refresh.
-    return { view: entry.kind === "delivery.deliver" ? "delivered" : "failed", entry };
-  }
-  if (stop.state === "delivered") return { view: "delivered", entry };
-  if (stop.state === "failed") return { view: "failed", entry };
-  if (stop.state === "removed") return { view: "removed", entry };
-  return { view: "todo", entry };
+  return resolveStopView(stop, latestFor(entries, stop.awb));
 }

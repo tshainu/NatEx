@@ -15,18 +15,18 @@ import { Platform } from "react-native";
  * design.md that mean exactly the same thing in both places.
  */
 
-/** The ink shell + emerald accent from design.md "Colour". */
+/** The field-ready ink shell + emerald accent from design.md "Colour". */
 const ink = {
-  ink900: "#0A1626",
-  ink800: "#0F2033",
-  ink700: "#16304A",
-  ink600: "#1E4266",
+  ink900: "#071522",
+  ink800: "#0E2235",
+  ink700: "#153149",
+  ink600: "#244961",
   brand: "#10B981",
   brandInk: "#047857",
   /** Text on a filled emerald surface (buttons, selected chips). */
-  onBrand: "#022C22",
-  textHi: "#F4F7FB",
-  textLo: "#8FA3B8",
+  onBrand: "#052A20",
+  textHi: "#F6F9FC",
+  textLo: "#A5B7C8",
 } as const;
 
 /**
@@ -52,15 +52,14 @@ const dark = {
   foreground: ink.textHi,
   card: ink.ink700,
   cardForeground: ink.textHi,
-  /** Raised-but-quieter surface: sheet headers, table header rows. */
   surface: ink.ink800,
   primary: ink.brand,
   primaryForeground: ink.onBrand,
-  secondary: ink.ink800,
+  secondary: "#163149",
   secondaryForeground: ink.textHi,
-  muted: ink.ink800,
+  muted: "#10273A",
   mutedForeground: ink.textLo,
-  accent: ink.ink700,
+  accent: "#18364C",
   accentForeground: ink.textHi,
   border: ink.ink600,
   destructive: status.statusWarn,
@@ -75,20 +74,20 @@ const dark = {
  * identical in both schemes; only the ink shell inverts.
  */
 const light = {
-  background: "#F7F8FA",
-  foreground: "#0C1B2A",
+  background: "#F3F7FA",
+  foreground: "#102235",
   card: "#FFFFFF",
-  cardForeground: "#0C1B2A",
-  surface: "#EEF1F5",
-  primary: ink.brand,
-  primaryForeground: ink.onBrand,
-  secondary: "#EEF1F5",
-  secondaryForeground: "#0C1B2A",
-  muted: "#EEF1F5",
-  mutedForeground: "#5C6B7D",
-  accent: "#EEF1F5",
-  accentForeground: "#0C1B2A",
-  border: "#E3E7ED",
+  cardForeground: "#102235",
+  surface: "#E9F0F4",
+  primary: ink.brandInk,
+  primaryForeground: "#FFFFFF",
+  secondary: "#E7EEF3",
+  secondaryForeground: "#102235",
+  muted: "#E9F0F4",
+  mutedForeground: "#576E81",
+  accent: "#DDF4EA",
+  accentForeground: "#075C45",
+  border: "#D8E3EA",
   destructive: status.statusWarn,
   success: status.statusGood,
   warning: status.statusWarn,
@@ -176,9 +175,9 @@ export const Fonts = {
 /** Nothing below 14px on mobile (design.md), except the 11px uppercase label. */
 export const Type = {
   awb: 20,
-  display: 24,
-  title: 18,
-  body: 15,
+  display: 27,
+  title: 19,
+  body: 16,
   small: 14,
   label: 11,
 } as const;
@@ -186,13 +185,13 @@ export const Type = {
 /** 8px base grid, and the thumb-first sizes design.md pins down. */
 export const Space = {
   unit: 8,
-  page: 20,
-  card: 16,
+  page: 18,
+  card: 14,
   /** Full-width primary action pinned to the bottom of the screen. */
   primaryButtonHeight: 56,
   /** Nothing tappable smaller than this. */
   minTouch: 48,
-  radius: 12,
+  radius: 18,
   radiusPill: 999,
 } as const;
 

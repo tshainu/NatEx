@@ -55,7 +55,9 @@ export default function StopScreen() {
   const stop = run?.items.find((i) => i.awb === awb) ?? null;
   const { view, entry } = stop ? stopView(stop, box.entries) : { view: null, entry: null };
   const dispatched = run?.runsheet.status === "dispatched";
-  const actionable = !!stop && view === "todo" && dispatched && stop.status === "OutForDelivery";
+  const serverDelivered = !!stop && (stop.status === "Delivered" || stop.state === "delivered");
+  const actionable =
+    !!stop && !serverDelivered && view === "todo" && dispatched && stop.status === "OutForDelivery";
 
   const history = useQuery({
     ...orpc.delivery.history.queryOptions({ input: { awb } }),
@@ -76,8 +78,8 @@ export default function StopScreen() {
     );
   }
 
-  if (mode === "deliver") return <DeliverForm stop={stop} onCancel={() => setMode("view")} />;
-  if (mode === "fail") return <FailForm stop={stop} onCancel={() => setMode("view")} />;
+  if (mode === "deliver" && actionable) return <DeliverForm stop={stop} onCancel={() => setMode("view")} />;
+  if (mode === "fail" && actionable) return <FailForm stop={stop} onCancel={() => setMode("view")} />;
 
   const footer = actionable ? (
     <>
@@ -95,11 +97,18 @@ export default function StopScreen() {
         subtitle={`Stop ${stop.seq} · ${awb}`}
         right={<StatusPill status={stop.status} />}
       />
-      <SyncStrip />
+      <SyncStrip resolvedDeliveredAwbs={serverDelivered ? new Set([stop.awb]) : undefined} />
 
-      <EntryNotice entry={entry} />
+      {serverDelivered && (!entry || entry.state === "applied" || entry.state === "duplicate") ? (
+        <Panel style={{ borderColor: colors.statusGood }}>
+          <Title color={colors.statusGood}>Already delivered</Title>
+          <Small>The server confirms this parcel is delivered. No further delivery action is available.</Small>
+        </Panel>
+      ) : null}
 
-      {!dispatched ? (
+      <EntryNotice entry={entry} serverDelivered={serverDelivered} />
+
+      {!serverDelivered && !dispatched ? (
         <Panel style={{ borderColor: colors.statusMoving }}>
           <Small>This run is not dispatched yet — the stop opens once the hub sends it out.</Small>
         </Panel>
@@ -196,9 +205,33 @@ function podLabel(): string {
 }
 
 /** The phone's own record for this stop, if it has one worth showing. */
-function EntryNotice({ entry }: { entry: OutboxEntry | null }) {
+function EntryNotice({
+  entry,
+  serverDelivered = false,
+}: {
+  entry: OutboxEntry | null;
+  serverDelivered?: boolean;
+}) {
   const colors = useColors();
   if (!entry) return null;
+  if (
+    serverDelivered &&
+    (entry.state === "pending" || entry.state === "rejected" || entry.state === "conflict")
+  ) {
+    const note =
+      entry.state === "pending"
+        ? "A record from this phone is still queued to sync. Do not create another delivery record."
+        : entry.state === "conflict"
+          ? "The duplicate update was not applied and is retained for Ops review. Do not retry it."
+          : "The server rejected this additional record. Keep the parcel in completed status and ask Ops if follow-up is needed.";
+    return (
+      <Panel style={{ borderColor: colors.statusGood }}>
+        <Title color={colors.statusGood}>Already delivered on the server</Title>
+        <Small>{note}</Small>
+        {entry.error ? <Small color={colors.mutedForeground}>Server response: {entry.error}</Small> : null}
+      </Panel>
+    );
+  }
   if (entry.state === "pending") {
     return (
       <Panel style={{ borderColor: colors.statusMoving }}>

@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -66,6 +67,7 @@ export function Button({
         style={({ pressed }) => [
           styles.base,
           variant === "primary" ? styles.primarySize : styles.secondarySize,
+          variant === "primary" ? styles.primaryLift : null,
           {
             backgroundColor: tone.bg,
             borderColor: tone.border,
@@ -99,7 +101,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: Space.unit,
     borderWidth: 1,
-    borderRadius: Space.radius,
+    borderRadius: Space.radius - 2,
   },
   primarySize: {
     height: Space.primaryButtonHeight,
@@ -111,9 +113,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.card,
     paddingVertical: Space.unit,
   },
+  primaryLift: {
+    ...Platform.select({
+      web: { boxShadow: "0px 4px 8px rgba(0,0,0,0.16)" },
+      default: {
+        elevation: 3,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.16,
+        shadowRadius: 8,
+      },
+    }),
+  },
   title: {
     fontFamily: Fonts.bodyMedium,
     fontSize: Type.body,
+    letterSpacing: 0.1,
   },
   hint: { marginTop: 6, textAlign: "center" },
 });

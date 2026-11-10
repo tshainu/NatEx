@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { Body, Label, Mono, Small, Title } from "./text";
@@ -42,7 +42,7 @@ export function Card({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+      style={({ pressed }) => [{ opacity: pressed ? 0.86 : 1 }]}
     >
       {body}
     </Pressable>
@@ -107,7 +107,7 @@ export function StatRow({ children }: { children: React.ReactNode }) {
 export function Empty({ title, detail }: { title: string; detail?: string }) {
   return (
     <Panel style={styles.empty}>
-      <Body>{title}</Body>
+      <Title>{title}</Title>
       {detail ? <Small style={styles.emptyDetail}>{detail}</Small> : null}
     </Panel>
   );
@@ -118,13 +118,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: Space.radius,
     padding: Space.card,
-    gap: Space.unit,
+    gap: Space.unit * 0.75,
+    ...Platform.select({
+      web: { boxShadow: "0px 3px 10px rgba(0,0,0,0.08)" },
+      default: {
+        elevation: 2,
+        shadowColor: "#000000",
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+      },
+    }),
   },
   panel: {
     borderWidth: 1,
     borderRadius: Space.radius,
     padding: Space.card,
-    gap: 6,
+    gap: Space.unit * 0.75,
   },
   field: { gap: 4 },
   stat: {
@@ -132,14 +142,15 @@ const styles = StyleSheet.create({
     flexBasis: "30%",
     borderWidth: 1,
     borderRadius: Space.radius,
-    padding: Space.unit * 1.5,
-    gap: 4,
+    padding: Space.card,
+    gap: 6,
+    minHeight: 88,
   },
   statRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Space.unit,
   },
-  empty: { alignItems: "center", paddingVertical: Space.page },
-  emptyDetail: { textAlign: "center" },
+  empty: { alignItems: "flex-start", paddingVertical: Space.page, paddingHorizontal: Space.card },
+  emptyDetail: { textAlign: "left" },
 });

@@ -12,12 +12,19 @@ import { Label, Small } from "./text";
  * One line that answers "is my work safe?" — the question a rider asks every
  * time the signal bar drops. design.md: state is a word, never a bare dot.
  */
-export function SyncStrip() {
+const NO_DELIVERED_AWBS: ReadonlySet<string> = new Set();
+
+export function SyncStrip({
+  resolvedDeliveredAwbs = NO_DELIVERED_AWBS,
+}: {
+  resolvedDeliveredAwbs?: ReadonlySet<string>;
+}) {
   const colors = useColors();
   const box = useOutbox();
   const pending = box.entries.filter((e) => e.state === "pending").length;
   const rejected = box.entries.filter((e) => e.state === "rejected").length;
-  const conflicts = box.entries.filter((e) => e.state === "conflict").length;
+  const conflicts = box.entries.filter((e) => e.state === "conflict" && !resolvedDeliveredAwbs.has(e.awb)).length;
+  const deliveredConflicts = box.entries.filter((e) => e.state === "conflict" && resolvedDeliveredAwbs.has(e.awb)).length;
 
   const tone = conflicts > 0
     ? colors.statusWarn
@@ -29,6 +36,7 @@ export function SyncStrip() {
   const issueHeadlines = [
     conflicts > 0 ? `${plural(conflicts, "record")} ${conflicts === 1 ? "needs" : "need"} ops` : null,
     rejected > 0 ? `${plural(rejected, "record")} rejected · review Deliveries` : null,
+    deliveredConflicts > 0 ? `${plural(deliveredConflicts, "delivered record")} · Ops notified` : null,
   ].filter((value): value is string => value !== null);
   const headline = box.draining
     ? "Syncing…"
@@ -46,6 +54,7 @@ export function SyncStrip() {
     : box.lastDrainAt
       ? "Not synced yet this session"
       : "Checking connection…";
+  const actionTitle = box.draining ? "…" : pending > 0 ? "Sync now" : "Refresh";
 
   return (
     <View
@@ -56,9 +65,11 @@ export function SyncStrip() {
         name={
           box.offline
             ? "cloud-offline-outline"
-            : conflicts > 0 || rejected > 0
-              ? "alert-circle-outline"
-              : pending > 0
+              : conflicts > 0 || rejected > 0
+                ? "alert-circle-outline"
+                : deliveredConflicts > 0
+                  ? "checkmark-done-circle-outline"
+                : pending > 0
                 ? "cloud-upload-outline"
                 : "cloud-done-outline"
         }
@@ -71,12 +82,12 @@ export function SyncStrip() {
       </View>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Sync now"
+        accessibilityLabel={pending > 0 ? "Sync now" : "Refresh run status"}
         disabled={box.draining}
         onPress={() => void drain()}
         style={styles.action}
       >
-        <Label color={colors.primary}>{box.draining ? "…" : "Sync now"}</Label>
+        <Label color={colors.primary}>{actionTitle}</Label>
       </Pressable>
     </View>
   );
@@ -90,7 +101,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: Space.radius,
     paddingHorizontal: Space.unit * 1.5,
-    paddingVertical: Space.unit,
+    paddingVertical: Space.unit * 1.25,
   },
   flex: { flex: 1, gap: 2 },
   action: {

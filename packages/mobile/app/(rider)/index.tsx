@@ -5,7 +5,7 @@ import { apiMessage, orpc } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { date, plural } from "../../lib/format";
 import { Screen, ScreenHeader, Section } from "../../components/natex/screen";
-import { Card, Empty, Panel, Stat, StatRow } from "../../components/natex/card";
+import { Card, Empty, Panel } from "../../components/natex/card";
 import { Badge, LifecyclePill } from "../../components/natex/pill";
 import { Body, Label, Mono, Small, Title } from "../../components/natex/text";
 import { Space } from "../../constants/theme";
@@ -34,20 +34,24 @@ export default function RiderTodayScreen() {
       onRefresh={() => void today.refetch()}
     >
       <ScreenHeader
-        title="Today's pickups"
+        title="Pickups"
         subtitle={`${user?.name ?? "Rider"} · ${data ? date(data.pickupDate) : "—"}`}
       />
 
       {data ? (
-        <StatRow>
-          <Stat label="Manifests" value={data.totals.manifests} />
-          <Stat label="Expected" value={data.totals.expected} />
-          <Stat
-            label="Still open"
-            value={data.totals.pending}
-            color={data.totals.pending > 0 ? colors.statusMoving : colors.statusGood}
-          />
-        </StatRow>
+        <Panel style={styles.overview}>
+          <View style={styles.summaryText}>
+            <Label color={colors.primary}>TODAY'S COLLECTION</Label>
+            <Title>{plural(data.totals.manifests, "pickup stop")}</Title>
+            <Small>{data.totals.expected} labels declared · {date(data.pickupDate)}</Small>
+          </View>
+          <View style={[styles.pendingCount, { backgroundColor: `${colors.primary}1F` }]}>
+            <Mono color={data.totals.pending > 0 ? colors.primary : colors.statusGood}>
+              {String(data.totals.pending)}
+            </Mono>
+            <Label>TO SCAN</Label>
+          </View>
+        </Panel>
       ) : null}
 
       {today.isError ? (
@@ -69,13 +73,20 @@ export default function RiderTodayScreen() {
       ) : null}
 
       <Section>
-        {manifests.map((row) => {
+        {manifests.map((row, index) => {
           const pending = row.expectedCount - row.scannedCount;
           return (
             <Link key={row.id} href={`/(rider)/manifest/${row.id}`} asChild>
-              <Card accessibilityLabel={`Open pickup for ${row.merchantName}`} onPress={() => {}}>
+              <Card
+                accessibilityLabel={`Open pickup for ${row.merchantName}`}
+                onPress={() => {}}
+                style={index === 0 ? { borderColor: colors.primary, borderWidth: 2 } : undefined}
+              >
                 <View style={styles.cardTop}>
                   <View style={styles.flex}>
+                    <Label color={index === 0 ? colors.primary : colors.mutedForeground}>
+                      {index === 0 ? "NEXT PICKUP" : `PICKUP ${index + 1}`}
+                    </Label>
                     <Title>{row.merchantName}</Title>
                     <Mono color={colors.mutedForeground}>{row.code}</Mono>
                     {row.assignmentSource === "merchant_default" ? (
@@ -112,6 +123,9 @@ export default function RiderTodayScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  overview: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Space.unit * 2 },
+  summaryText: { flex: 1, gap: 4 },
+  pendingCount: { minWidth: 64, minHeight: 64, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.unit },
   cardBottom: {
     flexDirection: "row",

@@ -165,6 +165,45 @@ export const deliveryAttempt = sqliteTable(
 );
 
 /**
+ * Durable 72-hour Rider retry window. Attempts remain append-only in
+ * delivery_attempt; this row is only the mutable authorization/escalation
+ * state and the current accountable assignment for one parcel.
+ */
+export const deliveryRetryCase = sqliteTable(
+  "delivery_retry_case",
+  {
+    id: text("id").primaryKey(),
+    parcelId: text("parcel_id").notNull(),
+    awb: text("awb").notNull(),
+    firstAttemptId: text("first_attempt_id").notNull(),
+    latestAttemptId: text("latest_attempt_id").notNull(),
+    /** Null only for durable NDR/RTO recovery when Ops recorded a failure off-run. */
+    activeRiderId: text("active_rider_id"),
+    runsheetId: text("runsheet_id"),
+    runsheetItemId: text("runsheet_item_id"),
+    lastReasonCode: text("last_reason_code").notNull(),
+    lastReasonLabel: text("last_reason_label").notNull(),
+    reasonAllowsReattempt: integer("reason_allows_reattempt", { mode: "boolean" }).notNull(),
+    reasonTriggersRto: integer("reason_triggers_rto", { mode: "boolean" }).notNull(),
+    reasonNotifyConsignee: integer("reason_notify_consignee", { mode: "boolean" }).notNull(),
+    /** open | out_for_delivery | escalating | escalated | resolved | rto */
+    state: text("state").notNull().default("open"),
+    firstFailureAt: integer("first_failure_at", { mode: "timestamp" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    escalatingAt: integer("escalating_at", { mode: "timestamp" }),
+    escalatedAt: integer("escalated_at", { mode: "timestamp" }),
+    resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [
+    unique("delivery_retry_case_parcel_unique").on(t.parcelId),
+    index("delivery_retry_case_state_expiry_idx").on(t.state, t.expiresAt),
+    index("delivery_retry_case_rider_idx").on(t.activeRiderId, t.state),
+  ],
+);
+
+/**
  * Proof of delivery. §6: "Delivered requires POD: signature or OTP or photo,
  * configurable per merchant." A Delivered transition without a row here cannot
  * happen — modules/delivery/service.ts writes the POD first and refuses the

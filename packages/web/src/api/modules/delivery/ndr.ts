@@ -315,7 +315,7 @@ export async function ndrCounts(scope: Principal) {
  */
 export async function openOrUpdateNdr(params: {
   parcel: ParcelRow;
-  reason: ReasonCodeRow;
+  reason: Pick<ReasonCodeRow, "code" | "label">;
   attempts: number;
   actor: Principal;
 }): Promise<{ ndr: NdrRow; isNew: boolean }> {
