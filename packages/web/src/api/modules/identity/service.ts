@@ -114,12 +114,13 @@ export async function getUserByUsername(username: string): Promise<(IdentityUser
   return row ? ({ ...toIdentityUser(row), passwordHash: row.passwordHash ?? null }) : null;
 }
 
-/** Fixed demo login: this phone always signs in with this code, no MFA. Admin role. */
+/** Development/test-only demo admin identity; production always uses real OTP and MFA. */
 const DEMO_PHONE = "+94711336666";
 const DEMO_CODE = "121212";
 const DEMO_USERNAME = "demo";
 
 async function ensureDemoAccount(): Promise<void> {
+  if (!isDevelopment()) throw new Error("Demo account provisioning is only available in development or tests.");
   const [existing] = await db.select().from(user).where(eq(user.phone, DEMO_PHONE));
   if (existing) {
     // Rows predating username/password sign-in get the demo credentials
@@ -168,12 +169,13 @@ export async function requestOtp(phoneInput: string): Promise<{
   devCode?: string;
 }> {
   const phone = normaliseLkPhone(phoneInput);
-  if (phone === DEMO_PHONE) await ensureDemoAccount();
+  const isDemoLogin = isDevelopment() && phone === DEMO_PHONE;
+  if (isDemoLogin) await ensureDemoAccount();
   const account = await getUserByPhone(phone);
   if (!account) errors.notFound("Account for that phone number");
   if (account!.status !== "active") errors.forbidden("This account is suspended.");
 
-  const code = phone === DEMO_PHONE ? DEMO_CODE : sixDigitCode();
+  const code = isDemoLogin ? DEMO_CODE : sixDigitCode();
   const challengeId = prefixedId("otp");
   await db.insert(otpChallenge).values({
     id: challengeId,
@@ -190,7 +192,7 @@ export async function requestOtp(phoneInput: string): Promise<{
 
   await db.update(otpChallenge).set({ smsRef: sms.gatewayRef }).where(eq(otpChallenge.id, challengeId));
 
-  const exposeCode = phone === DEMO_PHONE || (isDevelopment() && sms.state !== "sent");
+  const exposeCode = isDevelopment() && (isDemoLogin || sms.state !== "sent");
   return {
     challengeId,
     expiresInSeconds: OTP_TTL_SECONDS,
@@ -438,7 +440,7 @@ export async function verifyOtp(params: {
   await bindDevice(account!, deviceId);
 
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
-  if (account!.phone === DEMO_PHONE) {
+  if (isDevelopment() && account!.phone === DEMO_PHONE) {
     return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
   }
   const { level, devCode } = await signInLevel(account!);
@@ -497,8 +499,14 @@ export async function loginWithPassword(params: {
   deviceId?: string | null;
   context?: MobileSessionRequest | null;
 }): Promise<Session> {
-  if (normaliseUsername(params.username) === DEMO_USERNAME) await ensureDemoAccount();
-  const account = await getUserByUsername(params.username);
+  const username = normaliseUsername(params.username);
+  if (username === DEMO_USERNAME) {
+    // Never expose the well-known demo credential alias in production, even if
+    // a legacy demo row remains in the database.
+    if (!isDevelopment()) errors.unauthenticated("Incorrect username or password.");
+    await ensureDemoAccount();
+  }
+  const account = await getUserByUsername(username);
   // One message for every failure — no account enumeration.
   const bad = () => errors.unauthenticated("Incorrect username or password.");
   if (!account || !account.passwordHash) bad();
@@ -509,7 +517,7 @@ export async function loginWithPassword(params: {
   const deviceId = params.deviceId ?? null;
   await bindDevice(account!, deviceId);
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
-  if (account!.phone === DEMO_PHONE) {
+  if (isDevelopment() && account!.phone === DEMO_PHONE) {
     return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
   }
   const { level, devCode } = await signInLevel(account!);
