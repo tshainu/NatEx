@@ -58,8 +58,14 @@ function authGuard(opts: { allowPendingMfa: boolean }) {
       });
     }
     // One active device per rider (PROJECT.md §5): a token minted for a device
-    // that is no longer the bound one is refused.
-    if (roles.includes("rider") && claims!.deviceId && user!.deviceId !== claims!.deviceId) {
+    // that is no longer the bound one is refused on mobile field sessions only.
+    // Ops/Admin browser sessions on a multi-role identity use a separate device.
+    if (
+      scope?.kind === "mobile" &&
+      roles.includes("rider") &&
+      claims!.deviceId &&
+      user!.deviceId !== claims!.deviceId
+    ) {
       errors.forbidden("This device is no longer the active device for this rider.", {
         boundDeviceId: user!.deviceId,
       });

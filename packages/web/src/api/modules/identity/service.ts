@@ -437,9 +437,8 @@ export async function verifyOtp(params: {
   if (!account) errors.notFound("Account");
 
   const deviceId = params.deviceId ?? null;
-  await bindDevice(account!, deviceId);
-
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
+  await bindDevice(account!, deviceId, scope);
   if (isDevelopment() && account!.phone === DEMO_PHONE) {
     return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
   }
@@ -456,7 +455,10 @@ export async function verifyOtp(params: {
  * re-binds it, the previous device's refresh tokens are revoked, and the
  * re-bind is audited.
  */
-async function bindDevice(account: IdentityUser, deviceId: string | null): Promise<void> {
+async function bindDevice(account: IdentityUser, deviceId: string | null, scope: SessionScope | null): Promise<void> {
+  // A browser login for a multi-role identity must not steal the Rider handset
+  // binding or revoke its mobile refresh tokens.
+  if (account.roles.includes("rider") && scope?.kind !== "mobile") return;
   if (account.roles.includes("rider") && deviceId && account.deviceId !== deviceId) {
     const previous = account.deviceId;
     await db.update(user).set({ deviceId }).where(eq(user.id, account.id));
@@ -515,8 +517,8 @@ export async function loginWithPassword(params: {
   if (!ok) bad();
 
   const deviceId = params.deviceId ?? null;
-  await bindDevice(account!, deviceId);
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
+  await bindDevice(account!, deviceId, scope);
   if (isDevelopment() && account!.phone === DEMO_PHONE) {
     return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
   }

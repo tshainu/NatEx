@@ -302,6 +302,7 @@ export default function OpsInbound() {
                 >
                   <Input
                     value={seal}
+                    required
                     onChange={(e) => setSeal(e.target.value.toUpperCase())}
                     placeholder="SL-004821"
                     className="font-mono"
@@ -334,13 +335,13 @@ export default function OpsInbound() {
                 </Field>
 
                 <Button
-                  disabled={releasedBy.trim().length < 2 || !detail.canReceive}
+                  disabled={!seal.trim() || releasedBy.trim().length < 2 || !detail.canReceive}
                   pending={receive.isPending}
                   onClick={() =>
                     receive.mutate({
                       bagId: detail.bag.id,
                       scannedAwbs: scanned,
-                      sealNumber: seal.trim() || null,
+                      sealNumber: seal.trim(),
                       releasedByName: releasedBy.trim(),
                       receivedByName: receivedBy.trim() || null,
                     })

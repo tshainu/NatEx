@@ -54,7 +54,7 @@ export default function ReceiveScreen() {
       client.transport.bagReceive({
         bagId,
         scannedAwbs: queue,
-        sealNumber: seal.trim() || null,
+        sealNumber: seal.trim(),
         releasedByName: releasedBy.trim(),
         receivedByName: receivedBy.trim() || null,
       }),
@@ -102,14 +102,21 @@ export default function ReceiveScreen() {
       </>
     );
   } else if (step === "confirm") {
-    const ready = releasedBy.trim().length >= 2;
+    const sealEntered = seal.trim().length > 0;
+    const ready = sealEntered && releasedBy.trim().length >= 2;
     footer = (
       <>
         <Button
           title={`Receive ${plural(queue.length, "parcel")}`}
           loading={receive.isPending}
           disabled={!ready}
-          hint={ready ? undefined : "Name the person releasing the bag first"}
+          hint={
+            ready
+              ? undefined
+              : sealEntered
+                ? "Name the person releasing the bag first"
+                : "Enter the physical seal number before recording receipt"
+          }
           onPress={() => receive.mutate()}
         />
         <Button title="Back to scanning" variant="ghost" onPress={() => setStep("scan")} />
@@ -273,7 +280,7 @@ export default function ReceiveScreen() {
               value={seal}
               onChangeText={setSeal}
               placeholder="SL-000000"
-              hint="Read it off the physical seal. Leave blank only if the bag arrived with no seal — that is itself an exception."
+              hint="Read it off the physical seal. A seal number is required to record receipt; if there is no physical seal, contact Ops before proceeding."
             />
             <Input
               label="Released by (driver or origin clerk)"

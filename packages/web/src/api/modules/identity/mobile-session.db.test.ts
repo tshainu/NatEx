@@ -7,7 +7,7 @@ import { base } from "../../__core/app";
 import { withAuth, requireRole } from "../../middleware/auth";
 import { hashSecret, fingerprint, verifyAccessToken } from "../../shared/auth";
 import { seal } from "../../shared/secret-box";
-import { listMobileWorkspaces, loginWithPassword, rotateRefresh, switchMobileWorkspace, verifyOtp } from "./service";
+import { completeMfaSignIn, listMobileWorkspaces, loginWithPassword, rotateRefresh, switchMobileWorkspace, verifyOtp } from "./service";
 
 if (!process.env.DATABASE_URL?.startsWith("file:/tmp/")) {
   throw new Error("mobile-session.db.test.ts must run on a disposable file:/tmp database, never production");
@@ -119,5 +119,55 @@ describe("mobile MFA exemption is a signed least-privilege field session", () =>
     await db.update(user).set({ roles: JSON.stringify(["ops"]), role: "ops" }).where(eq(user.id, userId));
     await expect(clientFor(mobile.accessToken).field()).rejects.toThrow();
     await expect(rotateRefresh(mobile.refreshToken)).rejects.toThrow();
+  });
+
+  test("Ops web sessions do not rebind the assigned Rider mobile device", async () => {
+    await db.update(user).set({
+      role: "ops",
+      roles: JSON.stringify(["ops", "transport", "rider"]),
+      status: "active",
+    }).where(eq(user.id, userId));
+
+    const rider = await loginWithPassword({
+      username,
+      password,
+      deviceId,
+      context: { client: "mobile", role: "rider" },
+    });
+
+    const otpWebDeviceId = `web-otp-${run}`;
+    const otpChallengeId = `otp-web-${run}`;
+    await db.insert(otpChallenge).values({
+      id: otpChallengeId,
+      phone,
+      codeHash: await hashSecret("123456"),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const pendingOtpWeb = await verifyOtp({
+      challengeId: otpChallengeId,
+      code: "123456",
+      deviceId: otpWebDeviceId,
+    });
+    expect(pendingOtpWeb.scope).toBeNull();
+    const otpWeb = await completeMfaSignIn(userId, otpWebDeviceId);
+
+    const passwordWebDeviceId = `web-password-${run}`;
+    const pendingPasswordWeb = await loginWithPassword({
+      username,
+      password,
+      deviceId: passwordWebDeviceId,
+    });
+    expect(pendingPasswordWeb.scope).toBeNull();
+    const passwordWeb = await completeMfaSignIn(userId, passwordWebDeviceId);
+
+    const [account] = await db.select().from(user).where(eq(user.id, userId));
+    expect(account?.deviceId).toBe(deviceId);
+    await expect(clientFor(otpWeb.accessToken).ops()).resolves.toBe("forbidden back-office result");
+    await expect(clientFor(passwordWeb.accessToken).ops()).resolves.toBe("forbidden back-office result");
+    await expect(clientFor(rider.accessToken).field()).resolves.toMatchObject({ role: "rider" });
+
+    await db.update(user).set({ deviceId: `replacement-${run}` }).where(eq(user.id, userId));
+    await expect(clientFor(rider.accessToken).field()).rejects.toThrow("This device is no longer the active device for this rider.");
+    await expect(clientFor(otpWeb.accessToken).ops()).resolves.toBe("forbidden back-office result");
   });
 });

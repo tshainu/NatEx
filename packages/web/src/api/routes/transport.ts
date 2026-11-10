@@ -318,7 +318,7 @@ export const bagReceive = transportProc
     z.object({
       bagId: z.string().min(1),
       scannedAwbs: z.array(awb).max(300),
-      sealNumber: z.string().max(32).nullish(),
+      sealNumber: z.string().trim().min(1).max(32),
       releasedByName: z.string().min(2).max(120),
       receivedByName: z.string().max(120).nullish(),
       ...geo,

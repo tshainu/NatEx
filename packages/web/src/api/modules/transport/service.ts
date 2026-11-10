@@ -1252,7 +1252,7 @@ export async function receiveBag(
   input: {
     bagId: string;
     scannedAwbs: string[];
-    sealNumber?: string | null;
+    sealNumber: string;
     releasedByName: string;
     receivedByName?: string | null;
     clientId?: string | null;
@@ -1261,6 +1261,10 @@ export async function receiveBag(
   },
   actor: Principal,
 ): Promise<ReceiveBagResult> {
+  if (typeof input.sealNumber !== "string" || !input.sealNumber.trim()) {
+    errors.badRequest("A bag seal number is required before recording receipt.");
+  }
+
   const [row] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!row) errors.notFound("Bag");
   if (!isGlobalScope(actor.role) && row!.destHubId !== actor.branchId) {
@@ -1282,9 +1286,9 @@ export async function receiveBag(
   let exceptionsRaised = 0;
 
   // ── Party-one evidence: the seal the origin hub applied.
-  const presented = input.sealNumber?.trim().toUpperCase() ?? null;
-  const sealMatched = presented !== null && presented === row!.sealNumber;
-  if (presented !== null && !sealMatched) {
+  const presented = input.sealNumber.trim().toUpperCase();
+  const sealMatched = presented === row!.sealNumber;
+  if (!sealMatched) {
     await raiseException({
       kind: "seal_mismatch",
       severity: "high",
