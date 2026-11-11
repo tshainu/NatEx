@@ -8,6 +8,7 @@ import { deliveryAttempt, deliveryOtp, deliveryPod, runsheet, runsheetItem } fro
 import { freightCharge, freightEntry, freightReconciliation } from "../../database/schema/freight";
 import { rateBand, rateCard, rateCardVersion, rateSlab, rateSurcharge } from "../../database/schema/merchants";
 import { hashSecret, type Principal } from "../../shared/auth";
+import { addDays, colomboToday } from "../../shared/time";
 import { prefixedId } from "../../shared/ulid";
 import { createBranch, createUser } from "../identity/service";
 import { createRetailCounterBooking, getParcelById, transitionParcel } from "../parcels/service";
@@ -58,6 +59,7 @@ const bookingInput = (requestId: string, payer: "sender" | "recipient") => ({
   senderAddress: "10 Test Road, Colombo",
   payer,
   paymentMethod: payer === "sender" ? "cash" as const : undefined,
+  cashReceivedCents: payer === "sender" ? 5_000 : null,
   consigneeName: "Counter Recipient Test",
   consigneePhone: "+94770000002",
   destAddress: "22 Sample Lane, Colombo, Western Province",
@@ -199,7 +201,11 @@ describe("retail customer freight remains separate from COD", () => {
       rateCardVersionId: quotedVersionId,
     }, OPS)).rejects.toThrow("changed after the price was quoted");
     testRateCardVersionId = nextVersionId;
-    const booked = await createRetailCounterBooking(bookingInput(`freight-sender-${RUN}`, "sender"), OPS);
+    const booked = await createRetailCounterBooking({
+      ...bookingInput(`freight-sender-${RUN}`, "sender"),
+      discountCents: 250,
+      cashReceivedCents: 5_000,
+    }, OPS);
 
     expect(booked.parcel.merchantId).toBeNull();
     expect(booked.parcel.codAmountCents).toBe(0);
@@ -207,12 +213,13 @@ describe("retail customer freight remains separate from COD", () => {
     expect(booked.parcel.declaredValueCents).toBeNull();
     expect(booked.parcel.status).toBe("AtOriginHub");
     expect(booked.freightCharge.payer).toBe("sender");
-    expect(booked.freightCharge.amountCents).toBe(4_250);
+    expect(booked.freightCharge.amountCents).toBe(4_000);
     expect(booked.freightCharge.pricingBasis).toBe("rate_card");
-    const savedPricing = JSON.parse(booked.freightCharge.pricingSnapshotJson!) as { band: string; originDistrict: string; destinationDistrict: string; totalCents: number; version: { id: string } };
-    expect(savedPricing).toMatchObject({ band: "local", originDistrict: "Colombo", destinationDistrict: "Colombo", totalCents: 4_250, version: { id: testRateCardVersionId } });
+    const savedPricing = JSON.parse(booked.freightCharge.pricingSnapshotJson!) as { band: string; originDistrict: string; destinationDistrict: string; totalCents: number; discountCents: number; chargedCents: number; cashReceivedCents: number; changeCents: number; version: { id: string } };
+    expect(savedPricing).toMatchObject({ band: "local", originDistrict: "Colombo", destinationDistrict: "Colombo", totalCents: 4_250, discountCents: 250, chargedCents: 4_000, cashReceivedCents: 5_000, changeCents: 1_000, version: { id: testRateCardVersionId } });
     expect(booked.paidReceipt?.entryType).toBe("collection");
     expect(booked.paidReceipt?.paymentMethod).toBe("cash");
+    expect(booked.paidReceipt?.amountCents).toBe(4_000);
     expect(booked.paidReceipt?.code.startsWith("RCP")).toBe(true);
     expect(await collectionForParcel(booked.parcel.id)).toBeNull();
     expect(await bookingSmsForAwb(booked.parcel.awb)).toHaveLength(0);
@@ -224,6 +231,22 @@ describe("retail customer freight remains separate from COD", () => {
     });
     const bySender = await pageCounterBookings(OPS, { search: "Counter Sender Test", page: 1, pageSize: 20 });
     expect(bySender.rows.some((row) => row.parcel.id === booked.parcel.id)).toBe(true);
+    const today = colomboToday();
+    const bookedToday = await pageCounterBookings(OPS, { search: booked.parcel.awb, startDate: today, endDate: today, page: 1, pageSize: 20 });
+    expect(bookedToday.rows.some((row) => row.parcel.id === booked.parcel.id)).toBe(true);
+    const bookedYesterday = await pageCounterBookings(OPS, { search: booked.parcel.awb, startDate: addDays(today, -1), endDate: addDays(today, -1), page: 1, pageSize: 20 });
+    expect(bookedYesterday.rows.some((row) => row.parcel.id === booked.parcel.id)).toBe(false);
+    await expect(pageCounterBookings(OPS, { endDate: "2026-02-31", page: 1, pageSize: 20 }))
+      .rejects.toThrow("Invalid Counter history calendar date");
+    await expect(createRetailCounterBooking({
+      ...bookingInput(`freight-short-cash-${RUN}`, "sender"),
+      discountCents: 250,
+      cashReceivedCents: 3_999,
+    }, OPS)).rejects.toThrow("Cash received must cover the discounted courier charge");
+    await expect(createRetailCounterBooking({
+      ...bookingInput(`freight-no-tender-${RUN}`, "sender"),
+      cashReceivedCents: null,
+    }, OPS)).rejects.toThrow("Enter the cash amount received");
     const otherBranch = await pageCounterBookings({ ...OPS, branchId: `${branchId}-other` }, { page: 1, pageSize: 20 });
     expect(otherBranch.rows).toHaveLength(0);
     const chargeRegister = await pageFreightCharges(FINANCE, { page: 1, pageSize: 100 });
@@ -373,8 +396,9 @@ describe("retail customer freight remains separate from COD", () => {
     expect(pod).toMatchObject({
       receiverPhone,
       receiverNicLast4: "0002",
-      otpVerified: true,
-      otpChallengeId,
+      method: "signature",
+      otpVerified: false,
+      otpChallengeId: null,
     });
     expect(pod && "receiverNic" in pod).toBe(false);
     const counterHistory = await pageCounterBookings(OPS, { search: booked.parcel.awb, page: 1, pageSize: 10 });

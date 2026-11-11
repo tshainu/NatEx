@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Printer, RotateCcw, Sear
 import { client, orpc, apiMessage } from "@/lib/api";
 import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { addressPartsFromLegacy, formatAddress, isCompleteAddress, EMPTY_ADDRESS, provinceForDistrict, type AddressParts } from "@/lib/address";
-import { money } from "@/lib/format";
+import { colomboToday, money } from "@/lib/format";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,6 +17,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { FreightReceipt } from "@/components/natex/freight-receipt";
 import { renderFreightReceiptDocument } from "./freight-receipt-print";
 import { openCounterReceiptWindow, closeCounterReceiptWindow, printCounterReceiptWindow, type ReceiptPrintWindow } from "./counter-print";
+import { counterHistoryDateRange, type CounterHistoryDatePreset } from "./counter-history-date";
 
 interface FormState {
   branchId: string;
@@ -33,6 +34,8 @@ interface FormState {
   payer: "sender" | "recipient";
   paymentMethod: "cash" | "bank_transfer" | "qr" | "card";
   externalReference: string;
+  discount: string;
+  cashReceived: string;
   consigneeName: string;
   consigneePhone: string;
   destAddress: AddressParts;
@@ -53,6 +56,8 @@ const empty = (branchId: string): FormState => ({
   payer: "sender",
   paymentMethod: "cash",
   externalReference: "",
+  discount: "",
+  cashReceived: "",
   consigneeName: "",
   consigneePhone: "",
   destAddress: { ...EMPTY_ADDRESS },
@@ -112,6 +117,10 @@ export default function RetailFreightCounter() {
   const [activeTab, setActiveTab] = React.useState<CounterTab>("booking");
   const [historyTerm, setHistoryTerm] = React.useState("");
   const [historySearch, setHistorySearch] = React.useState("");
+  const [historyBranchId, setHistoryBranchId] = React.useState("");
+  const [historyDatePreset, setHistoryDatePreset] = React.useState<CounterHistoryDatePreset>("all");
+  const [historyCustomStart, setHistoryCustomStart] = React.useState("");
+  const [historyCustomEnd, setHistoryCustomEnd] = React.useState("");
   const [historySort, setHistorySort] = React.useState<HistorySort>({ key: "booked", direction: "desc" });
   const [selectedHistoryId, setSelectedHistoryId] = React.useState<string | null>(null);
   const [printNotice, setPrintNotice] = React.useState<string | null>(null);
@@ -151,6 +160,12 @@ export default function RetailFreightCounter() {
     return () => window.clearTimeout(timer);
   }, [historyTerm]);
 
+  const historyDateRange = historyDatePreset === "custom"
+    ? { startDate: historyCustomStart || undefined, endDate: historyCustomEnd || undefined }
+    : counterHistoryDateRange(historyDatePreset, colomboToday());
+  const historyCustomRangeInvalid = Boolean(historyCustomStart && historyCustomEnd && historyCustomStart > historyCustomEnd);
+  const historyDateFilterReady = historyDatePreset !== "custom" || Boolean(historyCustomStart && historyCustomEnd && !historyCustomRangeInvalid);
+
   const set = <K extends keyof FormState>(key: K) => (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => setForm((previous) => ({ ...previous, [key]: event.target.value }));
@@ -186,6 +201,34 @@ export default function RetailFreightCounter() {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const discountResult = rupeesToCents(form.discount);
+  const discountAmountCents = "cents" in discountResult ? discountResult.cents : null;
+  const discountError = "error" in discountResult
+    ? discountResult.error
+    : priceQuote.data && discountResult.cents >= priceQuote.data.totalCents
+      ? "Discount must be less than the rate-card charge."
+      : null;
+  const discountedChargeCents = priceQuote.data && discountAmountCents !== null
+    ? Math.max(0, priceQuote.data.totalCents - discountAmountCents)
+    : priceQuote.data?.totalCents ?? null;
+  const cashCollectionRequired = form.payer === "sender" && form.paymentMethod === "cash";
+  const cashReceivedResult = form.cashReceived.trim() ? rupeesToCents(form.cashReceived) : null;
+  const cashReceivedCents = cashReceivedResult && "cents" in cashReceivedResult ? cashReceivedResult.cents : null;
+  const cashShortCents = cashReceivedCents !== null && discountedChargeCents !== null
+    ? Math.max(0, discountedChargeCents - cashReceivedCents)
+    : null;
+  const changeDueCents = cashReceivedCents !== null && discountedChargeCents !== null
+    ? Math.max(0, cashReceivedCents - discountedChargeCents)
+    : null;
+  const cashReceivedError = !cashCollectionRequired
+    ? null
+    : cashReceivedResult && "error" in cashReceivedResult
+      ? cashReceivedResult.error
+      : cashReceivedCents === null
+        ? "Enter the cash amount received."
+        : cashShortCents !== null && cashShortCents > 0
+          ? `Cash is short by ${money(cashShortCents)}.`
+          : null;
   const senderAddressProvided = Object.values(form.senderAddress).some((part) => part.trim().length > 0);
   const enteredAwb = form.awb.trim().toUpperCase();
   const completeAwbFormat = /^NX\d{10}$/.test(enteredAwb);
@@ -222,16 +265,18 @@ export default function RetailFreightCounter() {
   const historyQuery = useQuery({
     ...orpc.freight.counterHistory.queryOptions({
       input: {
-        branchId: canChooseBranch ? form.branchId || undefined : undefined,
+        branchId: canChooseBranch ? historyBranchId || undefined : undefined,
         search: historySearch || undefined,
+        startDate: historyDateRange.startDate,
+        endDate: historyDateRange.endDate,
         page: 1,
         pageSize: 50,
       },
     }),
-    enabled: activeTab === "history" && (canChooseBranch || Boolean(session?.user.branchId)),
+    enabled: activeTab === "history" && historyDateFilterReady && (canChooseBranch || Boolean(session?.user.branchId)),
     staleTime: 15_000,
   });
-  const historyRows = React.useMemo(() => historyQuery.data?.rows ?? [], [historyQuery.data]);
+  const historyRows = React.useMemo(() => historyDateFilterReady ? historyQuery.data?.rows ?? [] : [], [historyDateFilterReady, historyQuery.data]);
   const sortedHistoryRows = React.useMemo(() => sortCounterHistory(historyRows, historySort), [historyRows, historySort]);
   const selectedHistory = historyRows.find((row) => row.freightCharge.id === selectedHistoryId) ?? null;
   const historyHeader = (label: string, key: HistorySortKey) => {
@@ -283,6 +328,8 @@ export default function RetailFreightCounter() {
       senderAddress: senderAddressProvided ? formatAddress(form.senderAddress) : null,
       payer: form.payer,
       paymentMethod: form.payer === "sender" ? form.paymentMethod : undefined,
+      discountCents: discountAmountCents ?? 0,
+      cashReceivedCents: cashCollectionRequired ? cashReceivedCents : null,
       externalReference: form.payer === "sender" && form.paymentMethod !== "cash" ? form.externalReference.trim() : null,
       consigneeName: form.consigneeName.trim(),
       consigneePhone: form.consigneePhone.trim(),
@@ -318,6 +365,7 @@ export default function RetailFreightCounter() {
   const valid = Boolean(
     form.branchId && "grams" in weight && weight.grams > 0 &&
     dimensionsValid && !weightLimitError && priceQuote.data && priceQuote.data.totalCents > 0 && !priceQuote.isFetching && !priceQuote.isError &&
+    discountAmountCents !== null && !discountError && discountedChargeCents !== null && discountedChargeCents > 0 && !cashReceivedError &&
     (!declared || "cents" in declared) &&
     form.description.trim().length >= 3 && form.description.trim().length <= 500 &&
     (!form.awb.trim() || (completeAwbFormat && awbCheck.data?.valid && !awbCheck.isFetching && !awbCheck.isError)) &&
@@ -469,10 +517,20 @@ export default function RetailFreightCounter() {
                       <p className="mt-1 border-t border-border pt-1 text-muted-foreground">{priceQuote.data.originDistrict} → {priceQuote.data.destinationDistrict}</p>
                     </div>
                   ) : null}
+                  <Field label="Discount (Rs.)" hint="Optional amount deducted from the rate-card courier charge." error={discountError}>
+                    <Input value={form.discount} onChange={set("discount")} inputMode="decimal" placeholder="0.00" aria-invalid={Boolean(discountError)} />
+                  </Field>
+                  {priceQuote.data ? (
+                    <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px]">
+                      <p className="flex justify-between gap-3"><span>Rate-card charge</span><span className="font-mono">{money(priceQuote.data.totalCents)}</span></p>
+                      {discountAmountCents !== null && discountAmountCents > 0 ? <p className="flex justify-between gap-3 text-muted-foreground"><span>Discount</span><span className="font-mono">−{money(discountAmountCents)}</span></p> : null}
+                      <p className="mt-1 flex justify-between gap-3 border-t border-border pt-1 font-semibold"><span>{form.payer === "sender" ? "Amount payable now" : "Amount due at delivery"}</span><span className="font-mono">{money(discountedChargeCents)}</span></p>
+                    </div>
+                  ) : null}
                   {!canQuote && selectedBranch && !selectedBranch.counterRateCardId ? <p className="text-xs text-status-warn">Ask an Admin to assign an approved Counter rate card to this branch in Administration → Branches.</p> : null}
                   {!canQuote && (lengthCm !== null || widthCm !== null || heightCm !== null) && !dimensionsValid ? <p className="text-xs text-status-warn">Dimensions must be positive whole centimetres.</p> : null}
                   <Field label="Who pays courier charges?">
-                    <Select value={form.payer} onChange={(event) => setForm((previous) => ({ ...previous, payer: event.target.value as FormState["payer"] }))}>
+                    <Select value={form.payer} onChange={(event) => setForm((previous) => ({ ...previous, payer: event.target.value as FormState["payer"], cashReceived: "" }))}>
                       <option value="sender">Sender pays at counter now</option>
                       <option value="recipient">Recipient pays the Rider at delivery</option>
                     </Select>
@@ -480,11 +538,22 @@ export default function RetailFreightCounter() {
                   {form.payer === "sender" ? (
                     <>
                       <Field label="Payment method">
-                        <Select value={form.paymentMethod} onChange={set("paymentMethod")}>
+                        <Select value={form.paymentMethod} onChange={(event) => setForm((previous) => ({ ...previous, paymentMethod: event.target.value as FormState["paymentMethod"], cashReceived: "" }))}>
                           <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="qr">QR payment</option><option value="card">Card</option>
                         </Select>
                       </Field>
                       {form.paymentMethod !== "cash" ? <Field label="Payment reference"><Input value={form.externalReference} onChange={set("externalReference")} required placeholder="Bank / QR / card reference" /></Field> : null}
+                      {cashCollectionRequired ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Field label="Cash received from customer (Rs.)" hint="Enter the amount handed over; the balance is calculated below." error={cashReceivedError}>
+                            <Input value={form.cashReceived} onChange={set("cashReceived")} inputMode="decimal" placeholder="0.00" aria-invalid={Boolean(cashReceivedError)} />
+                          </Field>
+                          <div className="flex min-h-16 flex-col justify-center rounded-md border border-border bg-muted/30 px-3 py-2" aria-live="polite">
+                            <span className="text-[12px] text-muted-foreground">{cashShortCents !== null && cashShortCents > 0 ? "Still to collect" : "Change to return"}</span>
+                            <span className="font-mono text-sm font-semibold">{cashShortCents !== null && cashShortCents > 0 ? money(cashShortCents) : changeDueCents !== null ? money(changeDueCents) : "—"}</span>
+                          </div>
+                        </div>
+                      ) : null}
                       <Badge variant="brand">Payment receipt is created with the booking</Badge>
                     </>
                   ) : (
@@ -504,18 +573,52 @@ export default function RetailFreightCounter() {
       ) : (
         <section aria-label="Counter booking history" className="space-y-4">
           <Card title="Counter booking history" description="Search by tracking number, sender name, or sender/receiver phone number. Click a column title to sort the latest 50 shown; search to find older bookings. Select a row’s document action to view and print it again.">
-            <Field label="Search history">
-              <Input value={historyTerm} onChange={(event) => { setHistoryTerm(event.target.value); setSelectedHistoryId(null); }} placeholder="tracking number, sender, or receiver phone" />
-            </Field>
-            {canChooseBranch ? (
-              <Field label="Branch / hub" hint="Admins can filter Counter bookings by location." className="mt-3">
-                <Select value={form.branchId} onChange={set("branchId")}>
-                  <option value="">All locations</option>
-                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}{branch.type ? ` · ${branch.type}` : ""}</option>)}
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Search history" className="min-w-0">
+                <Input value={historyTerm} onChange={(event) => { setHistoryTerm(event.target.value); setSelectedHistoryId(null); }} placeholder="tracking number, sender, or receiver phone" />
+              </Field>
+              {canChooseBranch ? (
+                <Field label="Branch / hub" hint="Admins can filter Counter bookings by location." className="min-w-0">
+                  <Select value={historyBranchId} onChange={(event) => { setHistoryBranchId(event.target.value); setSelectedHistoryId(null); }}>
+                    <option value="">All locations</option>
+                    {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}{branch.type ? ` · ${branch.type}` : ""}</option>)}
+                  </Select>
+                </Field>
+              ) : (
+                <div className="min-w-0">
+                  <p className="mb-1 text-[13px] font-medium">Branch / hub</p>
+                  <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Showing bookings for {session?.user.branchName ?? "your assigned branch / hub"} only.</p>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Field label="Date filter" className="min-w-0">
+                <Select value={historyDatePreset} onChange={(event) => { setHistoryDatePreset(event.target.value as CounterHistoryDatePreset); setSelectedHistoryId(null); }}>
+                  <option value="all">All dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="this_week">This week</option>
+                  <option value="this_month">This month</option>
+                  <option value="this_year">This year</option>
+                  <option value="custom">Custom date range</option>
                 </Select>
               </Field>
-            ) : <p className="mt-3 text-xs text-muted-foreground">Showing bookings for {session?.user.branchName ?? "your assigned branch / hub"} only.</p>}
+              {historyDatePreset === "custom" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="From date">
+                    <Input type="date" value={historyCustomStart} onChange={(event) => { setHistoryCustomStart(event.target.value); setSelectedHistoryId(null); }} />
+                  </Field>
+                  <Field label="To date">
+                    <Input type="date" value={historyCustomEnd} onChange={(event) => { setHistoryCustomEnd(event.target.value); setSelectedHistoryId(null); }} />
+                  </Field>
+                </div>
+              ) : null}
+            </div>
+            {historyDatePreset === "custom" && !historyDateFilterReady ? (
+              <p className="mt-2 text-xs text-status-warn">{historyCustomRangeInvalid ? "The start date must be on or before the end date." : "Choose both dates to load Counter bookings for a custom range."}</p>
+            ) : null}
           </Card>
+          {historyDateFilterReady ? (
           <DataTable
             columns={historyColumns}
             rows={sortedHistoryRows}
@@ -523,11 +626,12 @@ export default function RetailFreightCounter() {
             loading={historyQuery.isLoading}
             error={historyQuery.isError ? apiMessage(historyQuery.error, "Counter history could not be loaded.") : null}
             emptyTitle="No Counter bookings found"
-            emptyDescription="No bookings match this search in the selected location. Try a different tracking number, sender, or phone number."
+            emptyDescription="No bookings match the selected search, branch / hub, or date filter."
             dense
             tableClassName="min-w-[1380px]"
           />
-          {historyQuery.data && historyQuery.data.total > historyRows.length ? (
+          ) : null}
+          {historyDateFilterReady && historyQuery.data && historyQuery.data.total > historyRows.length ? (
             <p className="text-xs text-muted-foreground">Showing the latest {historyRows.length} of {historyQuery.data.total}. Narrow your search to find older bookings.</p>
           ) : null}
         </section>

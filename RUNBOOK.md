@@ -367,7 +367,13 @@ tamper checks remain. The 2026-11-05 pre-release drills restored Production's 16
   quotes use the `local` band when origin and destination districts match, and
   `outstation` otherwise. The branch address must include its structured
   district/province. A missing or incomplete card blocks Counter booking;
-  booking snapshots the displayed card version and calculated charge. This
+  booking snapshots the displayed card version, full rate-card quote, any
+  discount and the resulting net charge. For sender-paid cash, the cashier
+  enters the amount received; underpayment blocks acceptance and change is
+  calculated, stored with the receipt snapshot, and shown on reprints. The
+  freight ledger records the net charge after change, not the cash tendered.
+  Counter History supports branch/hub and Colombo-date filters: today,
+  yesterday, week-to-date, month-to-date, year-to-date, or a custom range. This
   setting does not change Merchant booking prices or COD. Merchant card
   assignment currently supports rate quotes; merchant parcel booking does not
   automatically create a freight charge from that quote.

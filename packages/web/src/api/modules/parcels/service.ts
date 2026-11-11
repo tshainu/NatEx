@@ -878,6 +878,8 @@ export interface RetailCounterBookingInput {
   payer: "sender" | "recipient";
   paymentMethod?: "cash" | "bank_transfer" | "qr" | "card";
   externalReference?: string | null;
+  discountCents?: number;
+  cashReceivedCents?: number | null;
   consigneeName: string;
   consigneePhone: string;
   destAddress: string;
@@ -932,6 +934,20 @@ export async function createRetailCounterBooking(
       errors.badRequest("Enter the bank, QR or card payment reference.");
     }
   }
+  const discountCents = input.discountCents ?? 0;
+  if (!Number.isSafeInteger(discountCents) || discountCents < 0) {
+    errors.badRequest("Discount must be a non-negative amount in whole cents.");
+  }
+  if (input.cashReceivedCents != null && (!Number.isSafeInteger(input.cashReceivedCents) || input.cashReceivedCents < 0 || input.cashReceivedCents > 10_000_000_000)) {
+    errors.badRequest("Cash received must be a non-negative amount in whole cents.");
+  }
+  const senderPaysCash = input.payer === "sender" && input.paymentMethod === "cash";
+  if (senderPaysCash && input.cashReceivedCents == null) {
+    errors.badRequest("Enter the cash amount received.");
+  }
+  if (!senderPaysCash && input.cashReceivedCents != null) {
+    errors.badRequest("Cash received is recorded only when the sender pays cash at the counter.");
+  }
   const branch = await identityService.requireActiveBranch(input.branchId);
 
   const suppliedAwb = input.awb?.trim().toUpperCase() || null;
@@ -979,6 +995,21 @@ export async function createRetailCounterBooking(
     if (priceQuote.version.id !== input.rateCardVersionId) {
       errors.conflict("The Counter rate card changed after the price was quoted. Refresh the quote and review the new amount.");
     }
+    if (discountCents >= priceQuote.totalCents) {
+      errors.badRequest("Discount must be less than the rate-card courier charge.");
+    }
+    const chargeAmountCents = priceQuote.totalCents - discountCents;
+    const cashReceivedCents = senderPaysCash ? input.cashReceivedCents! : null;
+    if (senderPaysCash && cashReceivedCents! < chargeAmountCents) {
+      errors.badRequest("Cash received must cover the discounted courier charge.", { amountDueCents: chargeAmountCents });
+    }
+    const pricingSnapshot = {
+      ...priceQuote,
+      discountCents,
+      chargedCents: chargeAmountCents,
+      cashReceivedCents,
+      changeCents: cashReceivedCents === null ? null : cashReceivedCents - chargeAmountCents,
+    };
     let created = false;
     for (let attempt = 0; attempt < 12 && !created; attempt += 1) {
       const awb = suppliedAwb ?? (await nextUnusedAwbForBooking(null, branch!.id)) ?? (await uniqueAwb());
@@ -1024,8 +1055,8 @@ export async function createRetailCounterBooking(
             branchId: branch!.id,
             branchName: branch!.name,
             payer: input.payer,
-            amountCents: priceQuote.totalCents,
-            pricingSnapshot: priceQuote,
+            amountCents: chargeAmountCents,
+            pricingSnapshot,
             senderName: input.senderName,
             senderPhone: input.senderPhone,
             senderAddress: input.senderAddress,

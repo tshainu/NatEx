@@ -36,6 +36,10 @@ type ReceiptPricingSnapshot = {
   destinationDistrict?: string;
   bandLabel?: string;
   roundedGrams?: number;
+  totalCents?: number;
+  discountCents?: number;
+  cashReceivedCents?: number | null;
+  changeCents?: number | null;
   lines?: Array<{ code: string; label: string; amountCents: number; detail?: string }>;
 };
 
@@ -61,6 +65,7 @@ export function FreightReceipt({ booking, duplicate = false, branch, receiptCont
   } catch {
     pricing = null;
   }
+  const discountCents = pricing?.discountCents ?? 0;
 
   return (
     <>
@@ -99,9 +104,17 @@ export function FreightReceipt({ booking, duplicate = false, branch, receiptCont
             {pricing ? <tr><td>Price band / weight</td><td className="right">{pricing.bandLabel} · {pricing.roundedGrams} g</td></tr> : null}
             {pricing?.lines?.map((line) => <tr key={line.code}><td>{line.label}</td><td className="right">{money(line.amountCents)}</td></tr>)}
             {pricing?.originDistrict && pricing.destinationDistrict ? <tr><td>Districts</td><td className="right">{pricing.originDistrict} → {pricing.destinationDistrict}</td></tr> : null}
-            <tr><th scope="row" className="text-left font-semibold">Courier charge</th><td className="right"><strong>{money(charge.amountCents)}</strong></td></tr>
+            {discountCents > 0 ? (
+              <>
+                <tr><td>Rate-card courier charge</td><td className="right">{money(pricing?.totalCents ?? charge.amountCents + discountCents)}</td></tr>
+                <tr><td>Discount</td><td className="right">−{money(discountCents)}</td></tr>
+              </>
+            ) : null}
+            <tr><th scope="row" className="text-left font-semibold">{discountCents > 0 ? "Courier charge after discount" : "Courier charge"}</th><td className="right"><strong>{money(charge.amountCents)}</strong></td></tr>
             <tr><td>Courier payer</td><td className="right">{charge.payer === "sender" ? "Sender — paid at counter" : receipt ? "Recipient — paid at delivery" : "Recipient — due at delivery"}</td></tr>
             <tr><td>Payment method</td><td className="right">{receipt ? receipt.paymentMethod.replaceAll("_", " ") : "Pay Rider at delivery"}</td></tr>
+            {typeof pricing?.cashReceivedCents === "number" ? <tr><td>Cash received</td><td className="right">{money(pricing.cashReceivedCents)}</td></tr> : null}
+            {typeof pricing?.cashReceivedCents === "number" ? <tr><td>Change returned</td><td className="right">{money(pricing.changeCents ?? 0)}</td></tr> : null}
             {receipt?.externalReference ? <tr><td>Payment reference</td><td className="right">{receipt.externalReference}</td></tr> : null}
             <tr><td>COD</td><td className="right">Rs. 0.00</td></tr>
           </tbody></table>

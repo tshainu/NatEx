@@ -24,6 +24,8 @@ const counterInput = z.object({
   payer: z.enum(["sender", "recipient"]),
   paymentMethod: paymentMethod.optional(),
   externalReference: z.string().trim().max(120).nullish(),
+  discountCents: z.number().int().min(0).max(10_000_000_000).default(0),
+  cashReceivedCents: z.number().int().min(0).max(10_000_000_000).nullish(),
   consigneeName: z.string().trim().min(2).max(160),
   consigneePhone: z.string().trim().min(9).max(24),
   destAddress: z.string().trim().min(4).max(1000),
@@ -33,6 +35,9 @@ const counterInput = z.object({
 }).superRefine((input, ctx) => {
   if (input.payer === "sender" && !input.paymentMethod) {
     ctx.addIssue({ code: "custom", path: ["paymentMethod"], message: "Select the sender's payment method." });
+  }
+  if (input.payer === "sender" && input.paymentMethod === "cash" && input.cashReceivedCents == null) {
+    ctx.addIssue({ code: "custom", path: ["cashReceivedCents"], message: "Enter the cash amount received." });
   }
   if (input.payer === "sender" && input.paymentMethod && input.paymentMethod !== "cash" && (input.externalReference?.length ?? 0) < 3) {
     ctx.addIssue({ code: "custom", path: ["externalReference"], message: "Enter the payment reference." });
@@ -79,8 +84,14 @@ export const counterHistory = opsProc
   .input(z.object({
     branchId: z.string().optional(),
     search: z.string().trim().max(100).optional(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     page: z.number().int().min(1).default(1),
     pageSize: z.number().int().min(1).max(100).default(50),
+  }).superRefine((input, ctx) => {
+    if (input.startDate && input.endDate && input.startDate > input.endDate) {
+      ctx.addIssue({ code: "custom", path: ["endDate"], message: "The end date must be on or after the start date." });
+    }
   }))
   .handler(({ input, context }) => ledger.pageCounterBookings(context.principal, input));
 

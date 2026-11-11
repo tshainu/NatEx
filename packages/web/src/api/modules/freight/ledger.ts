@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lt, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import {
@@ -308,10 +308,24 @@ export async function pageFreightCharges(
   };
 }
 
-/** Operations Counter history is pinned to the user's home branch. */
+function counterHistoryDayStart(value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) errors.badRequest("Counter history dates must use YYYY-MM-DD.");
+  const calendarDate = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== value) {
+    errors.badRequest(`Invalid Counter history calendar date: ${value}.`);
+  }
+  return new Date(`${value}T00:00:00+05:30`);
+}
+
+function nextCalendarDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day! + 1)).toISOString().slice(0, 10);
+}
+
+/** Operations Counter history is pinned to the user's home branch. Dates are inclusive Colombo calendar days. */
 export async function pageCounterBookings(
   scope: Principal,
-  input: { branchId?: string; search?: string; page: number; pageSize: number },
+  input: { branchId?: string; search?: string; startDate?: string; endDate?: string; page: number; pageSize: number },
 ) {
   if (scope.role !== "ops" && scope.role !== "admin") {
     errors.forbidden("Only Operations/Admin may view Counter booking history.");
@@ -319,6 +333,14 @@ export async function pageCounterBookings(
   const filters: SQL[] = [];
   if (scope.role !== "admin") filters.push(eq(freightCharge.branchId, scope.branchId));
   else if (input.branchId) filters.push(eq(freightCharge.branchId, input.branchId));
+  if (input.startDate && input.endDate && input.startDate > input.endDate) {
+    errors.badRequest("The end date must be on or after the start date.");
+  }
+  if (input.startDate) filters.push(gte(freightCharge.createdAt, counterHistoryDayStart(input.startDate)));
+  if (input.endDate) {
+    counterHistoryDayStart(input.endDate);
+    filters.push(lt(freightCharge.createdAt, counterHistoryDayStart(nextCalendarDate(input.endDate))));
+  }
   const term = input.search?.trim().replace(/[%_]/g, "");
   if (term) {
     filters.push(or(
