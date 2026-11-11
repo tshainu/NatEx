@@ -25,6 +25,7 @@ import OpsServiceability from "./pages/ops/serviceability";
 import OpsMerchants from "./pages/ops/merchants";
 import OpsRunsheets from "./pages/ops/runsheets";
 import OpsNdr from "./pages/ops/ndr";
+import OpsCodLedger from "./pages/ops/cod-ledger";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
 import AdminMerchantUsers from "./pages/admin/merchant-users";
@@ -155,6 +156,9 @@ function Routes() {
       </Portal>
       <Portal path="/ops/hub-receipt">
         <OpsHubReceipt />
+      </Portal>
+      <Portal path="/ops/cod">
+        <OpsCodLedger />
       </Portal>
 
       {/* Transport — Milestone 2: bagging, linehaul, hub-to-hub receipt, custody */}

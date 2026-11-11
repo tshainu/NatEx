@@ -20,8 +20,8 @@ export type FinanceOut<K extends keyof typeof client.finance> = Awaited<
 >;
 export type FinanceIn<K extends keyof typeof client.finance> = Parameters<(typeof client.finance)[K]>[0];
 
-export function useMerchantOptions() {
-  return useQuery({ ...orpc.merchants.options.queryOptions(), staleTime: 5 * 60_000 });
+export function useMerchantOptions(enabled = true) {
+  return useQuery({ ...orpc.merchants.options.queryOptions(), staleTime: 5 * 60_000, enabled });
 }
 
 export function useCurrentPeriod() {

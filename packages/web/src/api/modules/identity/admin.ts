@@ -16,6 +16,7 @@ import {
   requireActiveBranch,
   revokeAllSessions,
   rolesOf,
+  validateBranchParent,
   type IdentityUser,
 } from "./service";
 import { hashSecret } from "../../shared/auth";
@@ -244,10 +245,17 @@ export async function changeUserStatus(
  */
 export async function updateBranch(
   id: string,
-  patch: { name?: string; address?: string; phone?: string | null; latE6?: number | null; lngE6?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null },
+  patch: { name?: string; address?: string; phone?: string | null; latE6?: number | null; lngE6?: number | null; type?: "hub" | "branch"; parentHubId?: string | null; counterRateCardId?: string | null },
 ) {
   const [before] = await db.select().from(branch).where(eq(branch.id, id));
   if (!before) errors.notFound("Branch");
+  const nextType = (patch.type ?? before!.type) as "hub" | "branch";
+  const nextParentHubId = patch.parentHubId !== undefined ? patch.parentHubId : before!.parentHubId;
+  await validateBranchParent({ id, type: nextType, parentHubId: nextParentHubId });
+  if (before!.type === "hub" && nextType === "branch") {
+    const children = await db.select({ id: branch.id }).from(branch).where(eq(branch.parentHubId, id)).limit(1);
+    if (children.length) errors.badRequest("Reassign or clear every child branch before changing this hub to a branch.");
+  }
   const next: Partial<typeof branch.$inferInsert> = {};
   if (patch.name !== undefined) next.name = patch.name.trim();
   if (patch.address !== undefined) next.address = patch.address.trim();
@@ -259,6 +267,7 @@ export async function updateBranch(
   if (patch.latE6 !== undefined) next.lat = patch.latE6;
   if (patch.lngE6 !== undefined) next.lng = patch.lngE6;
   if (patch.type !== undefined) next.type = patch.type;
+  if (patch.parentHubId !== undefined) next.parentHubId = patch.parentHubId;
   if (patch.counterRateCardId !== undefined) next.counterRateCardId = patch.counterRateCardId;
   if (Object.keys(next).length === 0) return { before, after: before };
   const [after] = await db.update(branch).set(next).where(eq(branch.id, id)).returning();

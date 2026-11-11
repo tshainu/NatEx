@@ -54,8 +54,8 @@ export function useCanWriteMoney(): boolean {
   return role === "finance" || role === "admin";
 }
 
-export function useMerchantName(): (id: string | null | undefined) => string {
-  const options = useMerchantOptions();
+export function useMerchantName(enabled = true): (id: string | null | undefined) => string {
+  const options = useMerchantOptions(enabled);
   return React.useCallback(
     (id) => (id ? (options.data?.find((m) => m.id === id)?.name ?? id) : "—"),
     [options.data],

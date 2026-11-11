@@ -104,6 +104,7 @@ export const codEntry = sqliteTable(
     index("cod_entry_parcel_idx").on(t.parcelId),
     index("cod_entry_rider_idx").on(t.riderId),
     index("cod_entry_merchant_idx").on(t.merchantId),
+    index("cod_entry_branch_idx").on(t.branchId),
     index("cod_entry_deposit_idx").on(t.depositId),
     index("cod_entry_settlement_idx").on(t.settlementId),
     index("cod_entry_debit_idx").on(t.debitAccount),

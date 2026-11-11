@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 /**
  * MODULE: identity — owns branches, users, roles, sessions.
@@ -21,6 +21,8 @@ export const branch = sqliteTable("identity_branch", {
   lng: integer("lng_e6"),
   /** hub | branch */
   type: text("type").notNull(),
+  /** Admin-managed parent hub; assigned only to child branches. */
+  parentHubId: text("parent_hub_id").references((): AnySQLiteColumn => branch.id),
   /** Inactive branches remain available for historical reads, but not new work. */
   status: text("status").notNull().default("active"),
   /** Active, NatEx-approved rate card used for automatic walk-in Counter pricing. */
@@ -28,7 +30,7 @@ export const branch = sqliteTable("identity_branch", {
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
-});
+}, (t) => [index("identity_branch_parent_hub_idx").on(t.parentHubId)]);
 
 export const user = sqliteTable(
   "identity_user",

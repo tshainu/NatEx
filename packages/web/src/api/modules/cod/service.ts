@@ -844,11 +844,14 @@ export async function reverseEntry(input: {
 // ──────────────────────────────────────────────────────────────── read paths
 
 /** Live entries for one rider — reversed pairs excluded. */
-async function riderEntries(riderId: string): Promise<CodEntryRow[]> {
+async function riderEntries(riderId: string, branchIds?: string[]): Promise<CodEntryRow[]> {
   const rows = await db
     .select()
     .from(codEntry)
-    .where(eq(codEntry.riderId, riderId))
+    .where(and(
+      eq(codEntry.riderId, riderId),
+      branchIds ? (branchIds.length ? inArray(codEntry.branchId, branchIds) : sql`1 = 0`) : undefined,
+    ))
     .orderBy(asc(codEntry.seq));
   return liveEntries(rows);
 }
@@ -859,13 +862,13 @@ async function riderEntries(riderId: string): Promise<CodEntryRow[]> {
  * This is the number the cash ceiling is checked against and the number the
  * nightly job asserts, so both read the same definition.
  */
-export async function riderCashLiability(riderId: string): Promise<{
+export async function riderCashLiability(riderId: string, branchIds?: string[]): Promise<{
   riderId: string;
   liabilityCents: number;
   accountBalanceCents: number;
   asOf: Date;
 }> {
-  const rows = await riderEntries(riderId);
+  const rows = await riderEntries(riderId, branchIds);
   const table = balances(rows);
   return {
     riderId,
@@ -902,13 +905,13 @@ export async function checkCashCeiling(riderId: string): Promise<{
 }
 
 /**
- * Every rider the ledger has ever seen, with the cash they are holding now —
- * the finance desk's "who has our money" board (§8 checkpoint 1→2).
+ * Every rider represented by the selected ledger scope, with the cash they
+ * are holding now — Finance is network-wide; Ops is branch-scoped.
  *
  * Computed from this module's own entries only (§4): the rider's name is the
  * actor name on their latest collection, so no identity table is read.
  */
-export async function riderCashBoard(): Promise<
+export async function riderCashBoard(branchIds?: string[]): Promise<
   {
     riderId: string;
     riderName: string | null;
@@ -923,7 +926,12 @@ export async function riderCashBoard(): Promise<
   }[]
 > {
   const ceilingCents = await configValue(CONFIG_KEYS.RIDER_CASH_CEILING_CENTS);
-  const live = liveEntries(await db.select().from(codEntry).orderBy(asc(codEntry.seq)));
+  const scopedRows = await db
+    .select()
+    .from(codEntry)
+    .where(branchIds ? (branchIds.length ? inArray(codEntry.branchId, branchIds) : sql`1 = 0`) : undefined)
+    .orderBy(asc(codEntry.seq));
+  const live = liveEntries(scopedRows);
   const byRider = new Map<string, CodEntryRow[]>();
   for (const row of live) {
     if (!row.riderId) continue;
@@ -983,7 +991,7 @@ export async function assertDispatchAllowed(riderId: string, riderName?: string)
  * Read-only; the nightly job calls this and enqueues the escalation, so the
  * finance portal can show the same list without side effects.
  */
-export async function staleCollections(now: Date = new Date()): Promise<
+export async function staleCollections(now: Date = new Date(), branchIds?: string[]): Promise<
   {
     entryId: string;
     seq: number;
@@ -1005,6 +1013,7 @@ export async function staleCollections(now: Date = new Date()): Promise<
         isNull(codEntry.depositId),
         isNull(codEntry.reversedById),
         lt(codEntry.ts, cutoff),
+        branchIds ? (branchIds.length ? inArray(codEntry.branchId, branchIds) : sql`1 = 0`) : undefined,
       ),
     )
     .orderBy(asc(codEntry.ts));
@@ -1028,11 +1037,15 @@ export async function reconciliation(filter?: {
   riderId?: string;
   merchantId?: string;
   branchId?: string;
+  branchIds?: string[];
 }) {
   const conditions = [];
   if (filter?.riderId) conditions.push(eq(codEntry.riderId, filter.riderId));
   if (filter?.merchantId) conditions.push(eq(codEntry.merchantId, filter.merchantId));
   if (filter?.branchId) conditions.push(eq(codEntry.branchId, filter.branchId));
+  if (filter?.branchIds) {
+    conditions.push(filter.branchIds.length ? inArray(codEntry.branchId, filter.branchIds) : sql`1 = 0`);
+  }
 
   const rows = conditions.length
     ? await db.select().from(codEntry).where(and(...conditions))
@@ -1070,20 +1083,24 @@ export interface FlowDay {
 }
 
 /**
- * The four checkpoints per Asia/Colombo day — the finance flow chart.
+ * The four checkpoints per Asia/Colombo day — network-wide for Finance/Admin,
+ * and restricted to the authorized hub/branch set for Ops.
  *
  * Read from the ledger itself and passed through `liveEntries`, so a reversed
  * entry and its reversal both drop out exactly as they do in
  * `reconciliation()`. Every day of the window is returned, empty or not.
  */
-export async function dailyFlow(days: number, now: Date = new Date()): Promise<FlowDay[]> {
+export async function dailyFlow(days: number, now: Date = new Date(), branchIds?: string[]): Promise<FlowDay[]> {
   const span = Math.min(Math.max(Math.trunc(days), 1), 90);
   const first = addDays(colomboToday(now), -(span - 1));
   const since = new Date(`${first}T00:00:00+05:30`);
   const rows = await db
     .select()
     .from(codEntry)
-    .where(sql`${codEntry.ts} >= ${Math.floor(since.getTime() / 1000)}`);
+    .where(and(
+      sql`${codEntry.ts} >= ${Math.floor(since.getTime() / 1000)}`,
+      branchIds ? (branchIds.length ? inArray(codEntry.branchId, branchIds) : sql`1 = 0`) : undefined,
+    ));
 
   const byDay = new Map<string, FlowDay>();
   for (let i = 0; i < span; i += 1) {
@@ -1108,6 +1125,7 @@ export async function listEntries(input: {
   merchantId?: string;
   parcelId?: string;
   awb?: string;
+  branchIds?: string[];
   limit?: number;
   offset?: number;
 }): Promise<{ rows: CodEntryRow[]; total: number }> {
@@ -1117,6 +1135,9 @@ export async function listEntries(input: {
   if (input.merchantId) conditions.push(eq(codEntry.merchantId, input.merchantId));
   if (input.parcelId) conditions.push(eq(codEntry.parcelId, input.parcelId));
   if (input.awb) conditions.push(eq(codEntry.awb, input.awb));
+  if (input.branchIds) {
+    conditions.push(input.branchIds.length ? inArray(codEntry.branchId, input.branchIds) : sql`1 = 0`);
+  }
   const where = conditions.length ? and(...conditions) : undefined;
 
   const rows = await db
@@ -1138,6 +1159,7 @@ export async function listEntries(input: {
 /** Deposits awaiting a cashier's count, for the reconciliation screen. */
 export interface DepositFilter {
   branchId?: string;
+  branchIds?: string[];
   riderId?: string;
   status?: ("declared" | "verified" | "banked" | "rejected")[];
   limit?: number;
@@ -1147,6 +1169,9 @@ export interface DepositFilter {
 function depositWhere(input: DepositFilter) {
   const conditions = [];
   if (input.branchId) conditions.push(eq(codDeposit.branchId, input.branchId));
+  if (input.branchIds) {
+    conditions.push(input.branchIds.length ? inArray(codDeposit.branchId, input.branchIds) : sql`1 = 0`);
+  }
   if (input.riderId) conditions.push(eq(codDeposit.riderId, input.riderId));
   if (input.status?.length) conditions.push(inArray(codDeposit.status, input.status));
   return conditions.length ? and(...conditions) : undefined;
@@ -1188,7 +1213,7 @@ export async function collectionForParcel(parcelId: string): Promise<CodEntryRow
 }
 
 /** The collections a rider is still holding cash for — the deposit screen. */
-export async function undepositedCollections(riderId: string): Promise<CodEntryRow[]> {
+export async function undepositedCollections(riderId: string, branchIds?: string[]): Promise<CodEntryRow[]> {
   const rows = await db
     .select()
     .from(codEntry)
@@ -1198,6 +1223,7 @@ export async function undepositedCollections(riderId: string): Promise<CodEntryR
         eq(codEntry.type, "COLLECT"),
         isNull(codEntry.depositId),
         isNull(codEntry.reversedById),
+        branchIds ? (branchIds.length ? inArray(codEntry.branchId, branchIds) : sql`1 = 0`) : undefined,
       ),
     )
     .orderBy(asc(codEntry.ts));

@@ -626,6 +626,34 @@ export async function getBranch(id: string) {
   return row ?? null;
 }
 
+/** Branch IDs authorized for a hub-scoped COD read, derived only from identity data. */
+export async function codLedgerBranchScope(branchId: string): Promise<string[]> {
+  const assigned = await getBranch(branchId);
+  if (!assigned) errors.forbidden("Your assigned branch is unavailable; COD ledger access is blocked.");
+  if (assigned!.type !== "hub") return [assigned!.id];
+  const children = await db
+    .select({ id: branch.id })
+    .from(branch)
+    .where(eq(branch.parentHubId, assigned!.id));
+  return [assigned!.id, ...children.map((child) => child.id)];
+}
+
+/** Enforce valid Admin-managed hub/branch relationships at the identity boundary. */
+export async function validateBranchParent(input: {
+  id?: string;
+  type: "hub" | "branch";
+  parentHubId?: string | null;
+}): Promise<void> {
+  if (input.type === "hub" && input.parentHubId) {
+    errors.badRequest("A hub cannot be assigned to a parent hub.");
+  }
+  if (!input.parentHubId) return;
+  if (input.parentHubId === input.id) errors.badRequest("A branch cannot be its own parent hub.");
+  const parent = await getBranch(input.parentHubId);
+  if (!parent) errors.badRequest("The selected parent hub does not exist.");
+  if (parent!.type !== "hub") errors.badRequest("A branch can only be assigned to a location marked as a hub.");
+}
+
 /** Use for new assignments and bookings; getBranch remains unrestricted for history. */
 export async function requireActiveBranch(id: string) {
   const row = await getBranch(id);
@@ -780,9 +808,11 @@ export async function createBranch(input: {
   latE6?: number | null;
   lngE6?: number | null;
   type: "hub" | "branch";
+  parentHubId?: string | null;
 }) {
   const phoneProblem = receiptPhoneProblem(input.phone);
   if (phoneProblem) errors.badRequest(`Branch telephone: ${phoneProblem}`, { field: "phone" });
+  await validateBranchParent({ type: input.type, parentHubId: input.parentHubId });
   const [row] = await db
     .insert(branch)
     .values({
@@ -794,6 +824,7 @@ export async function createBranch(input: {
       lat: input.latE6 ?? null,
       lng: input.lngE6 ?? null,
       type: input.type,
+      parentHubId: input.parentHubId ?? null,
     })
     .returning();
   return row;

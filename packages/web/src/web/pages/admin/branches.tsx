@@ -29,6 +29,7 @@ interface BranchRow {
   lat: number | null;
   lng: number | null;
   type: string;
+  parentHubId: string | null;
   status: "active" | "inactive";
   counterRateCardId: string | null;
   createdAt: string | Date;
@@ -60,6 +61,16 @@ export default function AdminBranches() {
           {r.type === "hub" ? "Hub" : "Branch"}
         </Badge>
       ),
+    },
+    {
+      key: "parentHub",
+      header: "Parent hub",
+      cell: (r) => {
+        if (r.type === "hub") return <span className="text-muted-foreground">—</span>;
+        if (!r.parentHubId) return <span className="text-status-warn">Unassigned</span>;
+        const parent = branches.data?.find((candidate) => candidate.id === r.parentHubId);
+        return <span>{parent ? `${parent.code} · ${parent.name}` : r.parentHubId}</span>;
+      },
     },
     {
       key: "status",
@@ -133,9 +144,20 @@ export default function AdminBranches() {
         emptyDescription="At least one branch is required before a user or merchant can be created — every record is scoped to one."
         className="min-h-0 flex-1"
       />
-      {isAdmin ? <CreateBranchDialog open={creating} onOpenChange={setCreating} /> : null}
+      {isAdmin ? (
+        <CreateBranchDialog
+          open={creating}
+          onOpenChange={setCreating}
+          branches={(branches.data ?? []) as unknown as BranchRow[]}
+        />
+      ) : null}
       {isAdmin && editing ? (
-        <EditBranchDialog key={editing.id} branch={editing} onClose={() => setEditing(null)} />
+        <EditBranchDialog
+          key={editing.id}
+          branch={editing}
+          branches={(branches.data ?? []) as unknown as BranchRow[]}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
     </Page>
   );
@@ -144,9 +166,11 @@ export default function AdminBranches() {
 function CreateBranchDialog({
   open,
   onOpenChange,
+  branches,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  branches: BranchRow[];
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState({
@@ -157,6 +181,7 @@ function CreateBranchDialog({
     lat: "",
     lng: "",
     type: "branch" as "hub" | "branch",
+    parentHubId: "",
   });
   const [problem, setProblem] = React.useState<string | null>(null);
 
@@ -168,7 +193,7 @@ function CreateBranchDialog({
     ...orpc.identity.createBranch.mutationOptions(),
     onSuccess: () => {
       void queryClient.invalidateQueries();
-      setForm((f) => ({ ...f, code: "", name: "", address: { ...EMPTY_ADDRESS }, phone: "", lat: "", lng: "" }));
+      setForm((f) => ({ ...f, code: "", name: "", address: { ...EMPTY_ADDRESS }, phone: "", lat: "", lng: "", parentHubId: "" }));
       onOpenChange(false);
     },
     onError: (error) => setProblem(apiMessage(error, "This branch could not be created.")),
@@ -179,6 +204,7 @@ function CreateBranchDialog({
 
   const lat = Number(form.lat);
   const lng = Number(form.lng);
+  const hubs = branches.filter((row) => row.type === "hub");
   const coordsValid = (form.lat === "" || (Number.isFinite(lat) && lat >= -90 && lat <= 90)) &&
     (form.lng === "" || (Number.isFinite(lng) && lng >= -180 && lng <= 180));
   const phoneDigits = form.phone.replace(/\D/g, "");
@@ -213,6 +239,7 @@ function CreateBranchDialog({
                 lat: form.lat === "" ? null : lat,
                 lng: form.lng === "" ? null : lng,
                 type: form.type,
+                parentHubId: form.type === "branch" ? form.parentHubId || null : null,
               })
             }
           >
@@ -233,13 +260,25 @@ function CreateBranchDialog({
           <Field label="Type">
             <Select
               value={form.type}
-              onChange={(e) => set("type", e.target.value as "hub" | "branch")}
+              onChange={(e) => {
+                const nextType = e.target.value as "hub" | "branch";
+                set("type", nextType);
+                if (nextType === "hub") set("parentHubId", "");
+              }}
             >
               <option value="branch">Branch</option>
               <option value="hub">Hub</option>
             </Select>
           </Field>
         </div>
+        {form.type === "branch" ? (
+          <Field label="Parent hub" hint="Optional. Assign this branch to a hub so its Operations COD ledger can include this branch.">
+            <Select value={form.parentHubId} onChange={(e) => set("parentHubId", e.target.value)} aria-label="Parent hub">
+              <option value="">Not assigned to a hub</option>
+              {hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.code} — {hub.name}</option>)}
+            </Select>
+          </Field>
+        ) : null}
         <Field label="Name">
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
@@ -278,7 +317,7 @@ function CreateBranchDialog({
   );
 }
 
-function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () => void }) {
+function EditBranchDialog({ branch, branches, onClose }: { branch: BranchRow; branches: BranchRow[]; onClose: () => void }) {
   const queryClient = useQueryClient();
   const rateCards = useQuery(orpc.rateCards.list.queryOptions());
   const [name, setName] = React.useState(branch.name);
@@ -287,6 +326,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   const [lat, setLat] = React.useState(() => String(fromE6(branch.lat) ?? ""));
   const [lng, setLng] = React.useState(() => String(fromE6(branch.lng) ?? ""));
   const [type, setType] = React.useState(branch.type as "hub" | "branch");
+  const [parentHubId, setParentHubId] = React.useState(branch.parentHubId ?? "");
   const [counterRateCardId, setCounterRateCardId] = React.useState(branch.counterRateCardId ?? "");
   const [problem, setProblem] = React.useState<string | null>(null);
 
@@ -309,7 +349,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
 
   const latN = Number(lat);
   const lngN = Number(lng);
-  const patch: { id: string; name?: string; address?: string; phone?: string | null; lat?: number | null; lng?: number | null; type?: "hub" | "branch"; counterRateCardId?: string | null } = {
+  const patch: { id: string; name?: string; address?: string; phone?: string | null; lat?: number | null; lng?: number | null; type?: "hub" | "branch"; parentHubId?: string | null; counterRateCardId?: string | null } = {
     id: branch.id,
   };
   if (name.trim() !== branch.name) patch.name = name.trim();
@@ -321,6 +361,7 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
   if (lng === "" && branch.lng !== null) patch.lng = null;
   else if (lng !== "" && Number.isFinite(lngN) && toE6(lngN) !== branch.lng) patch.lng = lngN;
   if (type !== branch.type) patch.type = type;
+  if ((parentHubId || null) !== branch.parentHubId) patch.parentHubId = parentHubId || null;
   if (counterRateCardId !== (branch.counterRateCardId ?? "")) patch.counterRateCardId = counterRateCardId || null;
   const coordsValid = (lat === "" || (Number.isFinite(latN) && latN >= -90 && latN <= 90)) &&
     (lng === "" || (Number.isFinite(lngN) && lngN >= -180 && lngN <= 180));
@@ -376,12 +417,26 @@ function EditBranchDialog({ branch, onClose }: { branch: BranchRow; onClose: () 
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Type">
-            <Select value={type} onChange={(e) => setType(e.target.value as "hub" | "branch")}>
+            <Select value={type} onChange={(e) => {
+              const nextType = e.target.value as "hub" | "branch";
+              setType(nextType);
+              if (nextType === "hub") setParentHubId("");
+            }}>
               <option value="branch">Branch</option>
               <option value="hub">Hub</option>
             </Select>
           </Field>
         </div>
+        {type === "branch" ? (
+          <Field label="Parent hub" hint="Assign this branch to the hub whose Operations COD ledger should include it.">
+            <Select value={parentHubId} onChange={(e) => setParentHubId(e.target.value)} aria-label="Parent hub">
+              <option value="">Not assigned to a hub</option>
+              {branches.filter((candidate) => candidate.type === "hub" && candidate.id !== branch.id).map((hub) => (
+                <option key={hub.id} value={hub.id}>{hub.code} — {hub.name}</option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
         <AddressFields title="Branch address" value={address} onChange={setAddress} />
         <Field label="Branch / hub telephone" hint="Optional; clear it when the verified number is no longer current.">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className="font-mono" />

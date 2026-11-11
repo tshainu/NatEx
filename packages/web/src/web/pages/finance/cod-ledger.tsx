@@ -42,9 +42,13 @@ const TYPE_VARIANT: Record<string, "brand" | "warn" | "good" | "bad" | "muted" |
   REVERSAL: "bad",
 };
 
-export function LedgerTab() {
+export function LedgerTab({ branchScoped = false, readOnly = false }: { branchScoped?: boolean; readOnly?: boolean } = {}) {
   const canWrite = useCanWriteMoney();
-  const merchantName = useMerchantName();
+  const merchantName = useMerchantName(!branchScoped);
+  const displayMerchantName = React.useCallback(
+    (id: string | null | undefined) => branchScoped ? id ?? "—" : merchantName(id),
+    [branchScoped, merchantName],
+  );
   const [type, setType] = React.useState<"" | EntryType>("");
   const [merchantId, setMerchantId] = React.useState("");
   const [awb, setAwb] = React.useState("");
@@ -124,9 +128,11 @@ export function LedgerTab() {
                 ))}
               </Select>
             </Field>
-            <Field label="Merchant" className="w-[220px]">
-              <MerchantSelect value={merchantId} onChange={setMerchantId} allLabel="All merchants" />
-            </Field>
+            {!branchScoped ? (
+              <Field label="Merchant" className="w-[220px]">
+                <MerchantSelect value={merchantId} onChange={setMerchantId} allLabel="All merchants" />
+              </Field>
+            ) : null}
             <Field label="Tracking number" className="w-[180px]">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -180,7 +186,12 @@ export function LedgerTab() {
           </>
         }
       />
-      <EntryDrawer entry={open} canWrite={canWrite} merchantName={merchantName} onClose={() => setOpen(null)} />
+        <EntryDrawer
+          entry={open}
+          canWrite={!readOnly && !branchScoped && canWrite}
+          merchantName={displayMerchantName}
+          onClose={() => setOpen(null)}
+        />
     </div>
   );
 }

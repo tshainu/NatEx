@@ -34,6 +34,7 @@ const OPS: PortalConfig = {
     { label: "Parcels", to: "/ops/parcels" },
     { label: "Book a parcel", to: "/ops/book" },
     { label: "Customer counter booking", to: "/ops/freight-counter" },
+    { label: "COD collections", to: "/ops/cod" },
     { label: "Pickup manifests", to: "/ops/manifests" },
     { label: "Hub receipt", to: "/ops/hub-receipt" },
     // §8 NDR/SLA queue + the RTO register. Ops-and-admin: closing an NDR and

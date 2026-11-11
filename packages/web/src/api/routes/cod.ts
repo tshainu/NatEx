@@ -2,6 +2,7 @@ import { z } from "zod";
 import { authedProc, deskProc, financeProc, mutate } from "../middleware/pipeline";
 import { requireRole } from "../middleware/auth";
 import * as service from "../modules/cod/service";
+import * as identityService from "../modules/identity/service";
 import * as alerts from "../modules/cod/alerts";
 import { COD_ENTRY_TYPES } from "../modules/cod/accounts";
 import * as config from "../modules/cod/config";
@@ -50,6 +51,15 @@ function assertRiderSelf(principal: { role: string; userId: string }, riderId: s
   if (principal.role === "rider" && principal.userId !== riderId) errors.forbidden(message);
 }
 
+async function opsCodBranchScope(principal: { branchId?: string | null }, requestedBranchId?: string) {
+  if (!principal.branchId) errors.forbidden("This operations account is not assigned to a branch.");
+  const allowed = await identityService.codLedgerBranchScope(principal.branchId!);
+  if (requestedBranchId && !allowed.includes(requestedBranchId)) {
+    errors.forbidden("The requested branch is outside your Admin-assigned COD scope.");
+  }
+  return requestedBranchId ? [requestedBranchId] : allowed;
+}
+
 // ────────────────────────────────────────────────────────────── the ledger
 
 /**
@@ -64,32 +74,38 @@ export const entries = ledgerReadProc
       type: z.array(entryType).optional(),
       riderId: z.string().optional(),
       merchantId: z.string().optional(),
+      branchId: z.string().optional(),
       parcelId: z.string().optional(),
       awb: z.string().optional(),
       limit: z.number().int().min(1).max(500).default(100),
       offset: z.number().int().min(0).default(0),
     }),
   )
-  .handler(({ input, context }) => {
+  .handler(async ({ input, context }) => {
     const { principal } = context;
+    const { branchId, ...filters } = input;
     if (principal.role === "merchant") {
       if (!principal.merchantId) errors.forbidden("This account is not linked to a merchant.");
-      if (input.merchantId && input.merchantId !== principal.merchantId) {
+      if (filters.merchantId && filters.merchantId !== principal.merchantId) {
         errors.forbidden("A merchant can only read its own ledger entries.");
       }
-      return service.listEntries({ ...input, merchantId: principal.merchantId ?? undefined });
+      return service.listEntries({ ...filters, merchantId: principal.merchantId ?? undefined });
     }
     if (principal.role === "rider") {
-      assertRiderSelf(principal, input.riderId ?? principal.userId, "A rider can only read their own ledger entries.");
-      return service.listEntries({ ...input, riderId: principal.userId });
+      assertRiderSelf(principal, filters.riderId ?? principal.userId, "A rider can only read their own ledger entries.");
+      return service.listEntries({ ...filters, riderId: principal.userId });
     }
-    return service.listEntries(input);
+    if (principal.role === "ops") {
+      const branchIds = await opsCodBranchScope(principal, branchId);
+      return service.listEntries({ ...filters, branchIds });
+    }
+    return service.listEntries({ ...filters, branchIds: branchId ? [branchId] : undefined });
   });
 
 /**
  * Four-way reconciliation (§8's "collected vs deposited vs banked vs settled").
- * Staff only: it is a network-wide aggregate, and there is no meaningful
- * per-merchant version of a rider's cash position.
+ * Finance/Admin receive the network aggregate; Ops receives only its
+ * Admin-assigned hub and child-branch scope.
  */
 export const reconciliation = deskProc
   .input(
@@ -99,48 +115,65 @@ export const reconciliation = deskProc
       branchId: z.string().optional(),
     }),
   )
-  .handler(({ input }) => service.reconciliation(input));
+  .handler(async ({ input, context }) => {
+    if (context.principal.role === "ops") {
+      const branchIds = await opsCodBranchScope(context.principal, input.branchId);
+      return service.reconciliation({ ...input, branchIds });
+    }
+    return service.reconciliation(input.branchId ? { ...input, branchIds: [input.branchId] } : input);
+  });
 
 /**
- * The four checkpoints per day over a window — the finance flow chart. Same
- * audience as `reconciliation`: a network-wide aggregate, staff desks only.
+ * The four checkpoints per day over a window. Finance/Admin see the network;
+ * Operations is pinned to the assigned hub plus Admin-assigned branches.
  */
 export const dailyFlow = deskProc
   .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
-  .handler(({ input }) => service.dailyFlow(input.days));
+  .handler(async ({ input, context }) => {
+    const branchIds = context.principal.role === "ops" ? await opsCodBranchScope(context.principal) : undefined;
+    return service.dailyFlow(input.days, new Date(), branchIds);
+  });
 
 /** One rider's cash-in-hand — the §8 invariant, per rider, to the cent. */
 export const riderCash = riderCashReadProc
   .input(z.object({ riderId: z.string().min(1) }))
-  .handler(({ input, context }) => {
+  .handler(async ({ input, context }) => {
     assertRiderSelf(context.principal, input.riderId, "A rider can only read their own cash liability.");
-    return service.riderCashLiability(input.riderId);
+    const branchIds = context.principal.role === "ops" ? await opsCodBranchScope(context.principal) : undefined;
+    return service.riderCashLiability(input.riderId, branchIds);
   });
 
 /**
  * What a rider is still carrying. The rider app's own screen, so a rider may
  * read it for themselves and nobody else; staff may read any.
  */
-/** All riders' cash positions, largest first — finance is global scope (§5). */
+/** Rider cash positions, largest first — Finance is global; Ops is branch-scoped. */
 export const riderCashBoard = deskProc
   .input(z.object({}))
-  .handler(() => service.riderCashBoard());
+  .handler(async ({ context }) => {
+    const branchIds = context.principal.role === "ops" ? await opsCodBranchScope(context.principal) : undefined;
+    return service.riderCashBoard(branchIds);
+  });
 
 export const myUndeposited = riderCashReadProc
   .input(z.object({ riderId: z.string().optional() }))
-  .handler(({ input, context }) => {
+  .handler(async ({ input, context }) => {
     const { principal } = context;
     const target = principal.role === "rider" ? principal.userId : (input.riderId ?? principal.userId);
     if (principal.role === "rider" && input.riderId && input.riderId !== principal.userId) {
       errors.forbidden("A rider can only see their own undeposited collections.");
     }
-    return service.undepositedCollections(target);
+    const branchIds = principal.role === "ops" ? await opsCodBranchScope(principal) : undefined;
+    return service.undepositedCollections(target, branchIds);
   });
 
 /** Collected and not deposited past the §8 window — the escalation list. */
 export const stale = deskProc
   .input(z.object({}))
-  .handler(() => service.staleCollections());
+  .handler(async ({ context }) => {
+    const branchIds = context.principal.role === "ops" ? await opsCodBranchScope(context.principal) : undefined;
+    return service.staleCollections(new Date(), branchIds);
+  });
 
 /**
  * Whether this rider may take more parcels. Called by dispatch before assigning
@@ -148,8 +181,15 @@ export const stale = deskProc
  */
 export const cashCeiling = riderCashReadProc
   .input(z.object({ riderId: z.string().min(1) }))
-  .handler(({ input, context }) => {
+  .handler(async ({ input, context }) => {
     assertRiderSelf(context.principal, input.riderId, "A rider can only check their own cash ceiling.");
+    if (context.principal.role === "ops") {
+      const branchIds = await opsCodBranchScope(context.principal);
+      const rider = await identityService.getUserById(input.riderId);
+      if (!rider || !rider.roles.includes("rider") || !branchIds.includes(rider.branchId)) {
+        errors.forbidden("Operations can check the cash ceiling only for a rider assigned within their COD scope.");
+      }
+    }
     return service.checkCashCeiling(input.riderId);
   });
 
@@ -164,7 +204,13 @@ export const deposits = deskProc
       limit: z.number().int().min(1).max(200).default(50),
     }),
   )
-  .handler(({ input }) => service.listDeposits(input));
+  .handler(async ({ input, context }) => {
+    if (context.principal.role === "ops") {
+      const branchIds = await opsCodBranchScope(context.principal, input.branchId);
+      return service.listDeposits({ ...input, branchId: undefined, branchIds });
+    }
+    return service.listDeposits({ ...input, branchIds: input.branchId ? [input.branchId] : undefined });
+  });
 
 /** The deposit register, paged server-side (§11). */
 export const depositPage = deskProc
@@ -177,17 +223,23 @@ export const depositPage = deskProc
       pageSize: z.number().int().min(1).max(200).default(25),
     }),
   )
-  .handler(async ({ input }) => ({
-    ...(await service.depositPage({
-      branchId: input.branchId,
-      riderId: input.riderId,
-      status: input.status,
-      limit: input.pageSize,
-      offset: (input.page - 1) * input.pageSize,
-    })),
-    page: input.page,
-    pageSize: input.pageSize,
-  }));
+  .handler(async ({ input, context }) => {
+    const scopedInput = context.principal.role === "ops"
+      ? { ...input, branchId: undefined, branchIds: await opsCodBranchScope(context.principal, input.branchId) }
+      : { ...input, branchIds: input.branchId ? [input.branchId] : undefined };
+    return {
+      ...(await service.depositPage({
+        branchId: scopedInput.branchId,
+        branchIds: scopedInput.branchIds,
+        riderId: scopedInput.riderId,
+        status: scopedInput.status,
+        limit: input.pageSize,
+        offset: (input.page - 1) * input.pageSize,
+      })),
+      page: input.page,
+      pageSize: input.pageSize,
+    };
+  });
 
 /**
  * §8 checkpoint 2 — the rider declares what they are handing over.

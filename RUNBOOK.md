@@ -452,6 +452,21 @@ readiness failure means: check DB status at Turso first, then the worker
 - **A break is a money incident:** freeze settlement approvals for the affected
   merchants (place a hold), then reconcile from Finance → COD ledger →
   *Reconciliation* tab.
+- **Hub COD view:** Operations → *COD collections* is read-only. Its server scope is
+  the signed-in user's assigned hub plus only branches whose **Parent hub** is
+  explicitly set by Admin under Administration → Branches. An Ops account assigned
+  directly to a branch sees only that branch. Browser-supplied branch filters can
+  narrow, never widen, the server-derived scope. Branches without a parent-hub
+  assignment are not included under any hub; assign them deliberately in Admin.
+- The Ops view includes only ledger entries with a recorded branch attribution.
+  Network settlement lines with no branch attribution remain in Finance and are
+  excluded rather than guessed or backfilled from a rider's current assignment.
+  Ops has no settlement, reversal, or correction controls; those remain Finance/Admin.
+- The Parent hub field and COD branch index are database-schema changes. Their
+  release is held by the auto-deployer. Back up and review the migration first;
+  only then use the documented operator command `sudo natex-deploy --with-schema`
+  to apply it to Production and Demo and verify both readiness endpoints. Never
+  use `--with-schema` as an ordinary code-only deploy.
 - Because it is in-process, **it only runs while the web server is up**. If the
   server is down at 23:00, the run happens at the next tick after restart
   (same day only). Uptime Kuma's push monitor (section 5) is how a missed night

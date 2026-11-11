@@ -13,7 +13,7 @@ const { createClient } = await import("@libsql/client");
 const setup = createClient({ url: process.env.DATABASE_URL });
 await setup.execute(`CREATE TABLE identity_branch (
  id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL, phone TEXT,
- lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+ lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, parent_hub_id TEXT REFERENCES identity_branch(id), status TEXT NOT NULL DEFAULT 'active',
  counter_rate_card_id TEXT, created_at INTEGER NOT NULL
 )`);
 await setup.execute(`CREATE TABLE identity_user (id TEXT PRIMARY KEY, branch_id TEXT, role TEXT, roles TEXT, username TEXT, password_hash TEXT, name TEXT, phone TEXT, device_id TEXT, status TEXT, merchant_id TEXT, created_at INTEGER)`);
@@ -37,6 +37,28 @@ describe("branch status and optional coordinates (isolated SQLite)", () => {
     const row = await identity.createBranch({ code: "B01", name: "No GPS branch", address: "Main Street, Colombo", type: "branch" });
     branchId = row!.id;
     expect(row!.lat).toBeNull(); expect(row!.lng).toBeNull(); expect(row!.status).toBe("active");
+  });
+  test("Admin-managed hub assignments resolve exact scope and reject invalid parent links", async () => {
+    const hub = await identity.createBranch({ code: "SCOPEH", name: "Scope hub", address: "Hub Road, Colombo", type: "hub" });
+    const child = await identity.createBranch({ code: "SCOPEC", name: "Scope child", address: "Child Road, Colombo", type: "branch", parentHubId: hub!.id });
+    const otherHub = await identity.createBranch({ code: "SCOPEH2", name: "Other scope hub", address: "Other Road, Jaffna", type: "hub" });
+    const otherChild = await identity.createBranch({ code: "SCOPEC2", name: "Other scope child", address: "Other Child Road, Jaffna", type: "branch", parentHubId: otherHub!.id });
+
+    const hubScope = await identity.codLedgerBranchScope(hub!.id);
+    expect(hubScope).toContain(hub!.id);
+    expect(hubScope).toContain(child!.id);
+    expect(hubScope).not.toContain(otherChild!.id);
+    expect(await identity.codLedgerBranchScope(child!.id)).toEqual([child!.id]);
+    await expect(identity.createBranch({ code: "SCOPEBAD", name: "Invalid child", address: "Bad Road", type: "branch", parentHubId: "missing-hub" })).rejects.toThrow("does not exist");
+    await expect(identity.createBranch({ code: "SCOPEBAD2", name: "Invalid child", address: "Bad Road", type: "branch", parentHubId: child!.id })).rejects.toThrow("marked as a hub");
+    await expect(identity.createBranch({ code: "SCOPEBAD3", name: "Invalid hub", address: "Bad Road", type: "hub", parentHubId: hub!.id })).rejects.toThrow("cannot be assigned");
+    await expect(admin.updateBranch(hub!.id, { type: "branch" })).rejects.toThrow("child branch");
+
+    await admin.updateBranch(child!.id, { parentHubId: null });
+    expect(await identity.codLedgerBranchScope(hub!.id)).toEqual([hub!.id]);
+    await admin.updateBranch(hub!.id, { type: "branch" });
+    await setup.execute({ sql: "DELETE FROM identity_branch WHERE id IN (?, ?)", args: [child!.id, otherChild!.id] });
+    await setup.execute({ sql: "DELETE FROM identity_branch WHERE id IN (?, ?)", args: [hub!.id, otherHub!.id] });
   });
   test("stores an optional branch telephone and validates edits without inventing one", async () => {
     const withPhone = await identity.createBranch({ code: "P01", name: "Receipt phone branch", address: "Phone Street, Colombo", phone: "011 234 5678", type: "branch" });

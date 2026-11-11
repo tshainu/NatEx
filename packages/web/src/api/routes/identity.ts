@@ -266,6 +266,7 @@ export const createBranch = adminProc
       lat: z.number().min(-90).max(90).nullable().optional(),
       lng: z.number().min(-180).max(180).nullable().optional(),
       type: z.enum(["hub", "branch"]),
+      parentHubId: z.string().min(1).nullable().optional(),
     }),
   )
   .handler(({ input, context }) =>
@@ -288,6 +289,7 @@ export const createBranch = adminProc
           latE6: input.lat == null ? null : toE6(input.lat),
           lngE6: input.lng == null ? null : toE6(input.lng),
           type: input.type,
+          parentHubId: input.parentHubId,
         }),
     ),
   );

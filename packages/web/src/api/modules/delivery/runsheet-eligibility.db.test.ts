@@ -18,7 +18,7 @@ const setup = createClient({ url: databaseUrl });
 for (const statement of [
   `CREATE TABLE identity_branch (
     id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL, phone TEXT,
-    lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+    lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, parent_hub_id TEXT REFERENCES identity_branch(id), status TEXT NOT NULL DEFAULT 'active',
     counter_rate_card_id TEXT, created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE identity_user (
