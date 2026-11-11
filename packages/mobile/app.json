@@ -11,8 +11,8 @@
     "android": {
       "package": "com.natex.rider",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "foregroundImage": "./assets/nx-official-icon.png",
+        "backgroundColor": "#0758F4"
       }
     },
     "ios": {

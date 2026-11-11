@@ -229,7 +229,26 @@ export function DeliveryOutcomeList({ outcome }: { outcome: DeliveryOutcome }) {
                 <TableCell width={130} title="ATTEMPT" />
                 <TableCell width={196} title="RUN / RESULT" last />
               </View>
-              {rows.map((row, index) => (
+              {rows.map((row, index) => {
+                const retryEnabled = outcome === "failed"
+                  && row.canReattempt === true
+                  && Boolean(row.retryCaseId)
+                  && !row.isLocal
+                  && !pendingAwbs.has(row.awb)
+                  && !retryMutation.isPending;
+                const retryUnavailableReason = retryMutation.isPending
+                  ? retryMutation.variables?.awb === row.awb
+                    ? "A re-attempt is being started for this parcel."
+                    : "Wait for the current re-attempt request to finish."
+                  : row.isLocal
+                  ? "Sync this failed attempt before starting a re-attempt."
+                  : pendingAwbs.has(row.awb)
+                    ? "Wait for the current delivery update to sync before retrying."
+                    : row.retryBlockedReason
+                      ?? (row.canReattempt && !row.retryCaseId
+                        ? "The re-attempt record is not available yet."
+                        : "This attempt cannot be re-attempted under the current policy.");
+                return (
                 <View
                   key={row.key}
                   style={[styles.tableRow, { borderBottomColor: colors.border, backgroundColor: index % 2 ? colors.surface : colors.card }]}
@@ -242,27 +261,30 @@ export function DeliveryOutcomeList({ outcome }: { outcome: DeliveryOutcome }) {
                     <Badge tone={tone}>{outcome === "delivered" ? "Delivered" : "Failed"}</Badge>
                     {row.isLocal ? <Small color={colors.statusMoving}>Waiting to sync</Small> : <Small>{row.runsheetCode}</Small>}
                     {row.reasonLabel ? <Small numberOfLines={2}>{row.reasonLabel}</Small> : null}
-                    {outcome === "failed" && row.canReattempt && row.retryCaseId && !pendingAwbs.has(row.awb) ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Re-attempt delivery ${row.awb}`}
-                        disabled={retryMutation.isPending}
-                        onPress={() => retryMutation.mutate({ retryCaseId: row.retryCaseId!, awb: row.awb })}
-                        style={({ pressed }) => [styles.retryButton, { backgroundColor: colors.accent, opacity: pressed || retryMutation.isPending ? 0.65 : 1 }]}
-                      >
-                        <Ionicons name="repeat" size={14} color={colors.primary} />
-                        <Label color={colors.primary}>Re-Attempt</Label>
-                      </Pressable>
-                    ) : null}
-                    {outcome === "failed" && !row.isLocal && !row.canReattempt && row.retryBlockedReason ? (
-                      <Small color={colors.muted} numberOfLines={2}>{row.retryBlockedReason}</Small>
-                    ) : null}
-                    {outcome === "failed" && row.retryUntil && row.canReattempt ? (
-                      <Small color={colors.statusMoving}>Until {dateTime(row.retryUntil)}</Small>
+                    {outcome === "failed" ? (
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Re-attempt delivery ${row.awb}`}
+                          accessibilityHint={retryEnabled ? "Opens the delivery screen for this failed parcel." : retryUnavailableReason}
+                          accessibilityState={{ disabled: !retryEnabled }}
+                          disabled={!retryEnabled}
+                          onPress={() => {
+                            if (row.retryCaseId) retryMutation.mutate({ retryCaseId: row.retryCaseId, awb: row.awb });
+                          }}
+                          style={({ pressed }) => [styles.retryButton, { backgroundColor: retryEnabled ? colors.accent : colors.surface, borderColor: colors.border, opacity: pressed ? 0.65 : 1 }]}
+                        >
+                          <Ionicons name="repeat" size={14} color={retryEnabled ? colors.primary : colors.mutedForeground} />
+                          <Label color={retryEnabled ? colors.primary : colors.mutedForeground}>Re-Attempt</Label>
+                        </Pressable>
+                        {!retryEnabled ? <Small color={colors.muted} numberOfLines={2}>{retryUnavailableReason}</Small> : null}
+                        {row.retryUntil && row.canReattempt ? <Small color={colors.statusMoving}>Until {dateTime(row.retryUntil)}</Small> : null}
+                      </>
                     ) : null}
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </View>
           </ScrollView>
         </View>
