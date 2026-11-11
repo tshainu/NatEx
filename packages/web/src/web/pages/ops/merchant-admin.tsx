@@ -24,6 +24,45 @@ import { staffOnboardingPrefill, type StaffOnboardingRequest } from "./staff-onb
 
 type Pod = "signature" | "otp" | "photo";
 
+// Central Bank of Sri Lanka licensed-bank lists (as at 31 May 2026).
+const COMMERCIAL_BANKS = [
+  "Amana Bank PLC",
+  "Bank of Ceylon",
+  "Bank of China Limited",
+  "Cargills Bank PLC",
+  "Citibank, N.A.",
+  "Commercial Bank of Ceylon PLC",
+  "Deutsche Bank AG, Colombo Branch",
+  "DFCC Bank PLC",
+  "Habib Bank Ltd",
+  "Hatton National Bank PLC",
+  "Indian Bank",
+  "Indian Overseas Bank",
+  "MCB Bank Ltd",
+  "National Development Bank PLC",
+  "Nations Trust Bank PLC",
+  "Pan Asia Banking Corporation PLC",
+  "People's Bank",
+  "Public Bank Berhad",
+  "Sampath Bank PLC",
+  "Seylan Bank PLC",
+  "Standard Chartered Bank",
+  "State Bank of India",
+  "The Hongkong & Shanghai Banking Corporation Ltd (HSBC)",
+  "Union Bank of Colombo PLC",
+] as const;
+
+const SPECIALISED_BANKS = [
+  "Housing Development Finance Corporation Bank of Sri Lanka (HDFC)",
+  "National Savings Bank",
+  "Pradeshiya Sanwardhana Bank",
+  "Sanasa Development Bank PLC",
+  "Sri Lanka Savings Bank Ltd",
+  "State Mortgage & Investment Bank",
+] as const;
+
+const OTHER_BANK = "__other_bank__";
+
 export interface EditableMerchant {
   id: string;
   branchId: string;
@@ -276,6 +315,11 @@ export function OnboardMerchantDialog({
   const [withPasswordLogin, setWithPasswordLogin] = React.useState(true);
   const [portalUsername, setPortalUsername] = React.useState("");
   const [portalPassword, setPortalPassword] = React.useState("");
+  const [payoutBeneficiary, setPayoutBeneficiary] = React.useState("");
+  const [payoutBank, setPayoutBank] = React.useState("");
+  const [otherBank, setOtherBank] = React.useState("");
+  const [payoutBranch, setPayoutBranch] = React.useState("");
+  const [payoutAccount, setPayoutAccount] = React.useState("");
   const [problem, setProblem] = React.useState<string | null>(null);
   const submitting = React.useRef(false);
   const set = <K extends keyof MerchantForm>(key: K, value: MerchantForm[K]) => setForm((f) => ({ ...f, [key]: value }));
@@ -284,6 +328,11 @@ export function OnboardMerchantDialog({
       if (submitting.current) return;
       setPortalPassword("");
       setPortalUsername("");
+      setPayoutBeneficiary("");
+      setPayoutBank("");
+      setOtherBank("");
+      setPayoutBranch("");
+      setPayoutAccount("");
       setProblem(null);
     }
     onOpenChange(next);
@@ -300,6 +349,11 @@ export function OnboardMerchantDialog({
     setWithPasswordLogin(true);
     setPortalUsername("");
     setPortalPassword("");
+    setPayoutBeneficiary("");
+    setPayoutBank("");
+    setOtherBank("");
+    setPayoutBranch("");
+    setPayoutAccount("");
     setProblem(null);
   }, [open, blank, registrationRequest?.id, registrationRequest?.contactName, registrationRequest?.phone, staffRequest?.id, staffRequest?.contactName, staffRequest?.contactPhone]);
 
@@ -322,6 +376,11 @@ export function OnboardMerchantDialog({
       setWithPasswordLogin(true);
       setPortalUsername("");
       setPortalPassword("");
+      setPayoutBeneficiary("");
+      setPayoutBank("");
+      setOtherBank("");
+      setPayoutBranch("");
+      setPayoutAccount("");
       onDone(merchantId);
   };
   const failOnboarding = (error: unknown) => {
@@ -347,6 +406,16 @@ export function OnboardMerchantDialog({
     (portalName.trim().length >= 2 &&
       portalPhone.trim().length >= 9 &&
       (!withPasswordLogin || (portalUsername.trim().length >= 2 && portalPassword.length >= 8)));
+  const selectedBank = payoutBank === OTHER_BANK ? otherBank.trim() : payoutBank;
+  const payoutTouched = Boolean(
+    payoutBeneficiary.trim() || payoutBank || otherBank.trim() || payoutBranch.trim() || payoutAccount.trim(),
+  );
+  const payoutOk = !payoutTouched || (
+    payoutBeneficiary.trim().length >= 2 &&
+    selectedBank.length >= 2 &&
+    payoutBranch.trim().length >= 2 &&
+    /^[0-9][0-9 -]{3,40}$/.test(payoutAccount.trim())
+  );
   const saving = onboard.isPending || approve.isPending;
 
   return (
@@ -364,12 +433,24 @@ export function OnboardMerchantDialog({
             Cancel
           </Button>
           <Button
-            disabled={!formValid(form) || !portalOk || saving}
+            disabled={!formValid(form) || !portalOk || !payoutOk || saving}
             pending={saving}
             onClick={() => {
               if (submitting.current) return;
+              if (!payoutOk) {
+                setProblem("Complete all bank payout fields or leave them blank.");
+                return;
+              }
               submitting.current = true;
               setProblem(null);
+              const payoutDetails = payoutTouched
+                ? {
+                    beneficiaryName: payoutBeneficiary.trim(),
+                    bankName: selectedBank,
+                    branchName: payoutBranch.trim(),
+                    accountNumber: payoutAccount.trim(),
+                  }
+                : undefined;
               const details = {
                 name: form.name.trim(),
                 pickupRiderId: form.pickupRiderId || null,
@@ -380,6 +461,7 @@ export function OnboardMerchantDialog({
                 codEnabled: form.codEnabled,
                 podPolicy: form.podPolicy,
                 rateCardId: rateCardId || null,
+                ...(payoutDetails ? { payoutDetails } : {}),
                 portalUser: withPortal
                   ? {
                       name: portalName.trim(),
@@ -449,6 +531,54 @@ export function OnboardMerchantDialog({
             ))}
           </Select>
         </Field>
+        <section aria-labelledby="merchant-payout-heading" className="flex flex-col gap-3 rounded-md border border-border p-3">
+          <div>
+            <h3 id="merchant-payout-heading" className="label-xs">Bank payout details <span className="font-normal text-muted-foreground">(optional)</span></h3>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Admin only. Enter these during onboarding if the merchant is ready to receive COD settlements. New details remain unverified until Finance checks a bank document.
+            </p>
+          </div>
+          <Field label="Account holder name (exactly as shown by the bank)">
+            <Input value={payoutBeneficiary} onChange={(e) => setPayoutBeneficiary(e.target.value)} autoComplete="off" />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Bank name">
+              <Select value={payoutBank} onChange={(e) => setPayoutBank(e.target.value)}>
+                <option value="">Select a Sri Lankan bank</option>
+                <optgroup label="Licensed commercial banks">
+                  {COMMERCIAL_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                </optgroup>
+                <optgroup label="Licensed specialised banks">
+                  {SPECIALISED_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                </optgroup>
+                <option value={OTHER_BANK}>Other — enter bank name</option>
+              </Select>
+            </Field>
+            <Field label="Bank branch">
+              <Input value={payoutBranch} onChange={(e) => setPayoutBranch(e.target.value)} autoComplete="off" />
+            </Field>
+          </div>
+          {payoutBank === OTHER_BANK ? (
+            <Field label="Other bank name">
+              <Input value={otherBank} onChange={(e) => setOtherBank(e.target.value)} autoComplete="off" />
+            </Field>
+          ) : null}
+          <Field label="Bank account number" hint="Digits only, with optional spaces or hyphens. This value is never shown back in full in audit records.">
+            <Input
+              value={payoutAccount}
+              onChange={(e) => setPayoutAccount(e.target.value)}
+              className="font-mono"
+              inputMode="numeric"
+              autoComplete="off"
+              aria-invalid={payoutTouched && !/^[0-9][0-9 -]{3,40}$/.test(payoutAccount.trim()) || undefined}
+            />
+          </Field>
+          {payoutTouched && !payoutOk ? (
+            <p role="alert" className="text-[12px] text-status-warn">
+              Complete the account holder, bank, bank branch and valid account number, or leave all payout fields blank.
+            </p>
+          ) : null}
+        </section>
         {chosen?.placeholder ? <PlaceholderWarning /> : null}
         <div className="flex flex-col gap-3 rounded-md border border-border p-3">
           <label className="flex items-center gap-2 text-[13px] font-medium">

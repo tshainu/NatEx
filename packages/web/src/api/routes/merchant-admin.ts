@@ -18,6 +18,12 @@ import { normaliseLkPhone } from "../shared/sms";
  */
 
 const pod = z.enum(["signature", "otp", "photo"]);
+const payoutDetails = z.object({
+  beneficiaryName: z.string().trim().min(2).max(200),
+  bankName: z.string().trim().min(2).max(200),
+  branchName: z.string().trim().min(2).max(200),
+  accountNumber: z.string().trim().regex(/^[0-9][0-9 -]{3,40}$/, "Enter a valid bank account number."),
+}).optional();
 
 export const registrationRequests = adminProc
   .input(z.object({
@@ -97,6 +103,7 @@ export const onboard = adminProc
       codEnabled: z.boolean().default(true),
       podPolicy: pod.default("signature"),
       rateCardId: z.string().min(1).nullish(),
+      payoutDetails,
       registrationRequestId: z.string().min(1).max(100).optional(),
       portalUser: z
         .object({
@@ -149,6 +156,7 @@ const staffApprovalInputSchema = z.object({
   codEnabled: z.boolean().default(true),
   podPolicy: pod.default("signature"),
   rateCardId: z.string().min(1).nullish(),
+  payoutDetails,
   portalUser: z.object({
     name: z.string().trim().min(2).max(120),
     phone: z.string().min(9).max(20),

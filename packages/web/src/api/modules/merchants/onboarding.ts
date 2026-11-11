@@ -5,6 +5,7 @@ import { errors } from "../../shared/errors";
 import { writeAudit } from "../../shared/audit";
 import { enqueue } from "../../shared/outbox";
 import { createUser } from "../identity/service";
+import { setMerchantPayout } from "../cod/settlement";
 import { assignRateCard } from "./rate-cards";
 import {
   convertRegistrationRequest,
@@ -16,6 +17,12 @@ import {
 
 export interface OnboardMerchantInput extends CreateMerchantInput {
   rateCardId?: string | null;
+  payoutDetails?: {
+    beneficiaryName: string;
+    bankName: string;
+    branchName: string;
+    accountNumber: string;
+  };
   registrationRequestId?: string;
   portalUser?: {
     name: string;
@@ -51,6 +58,15 @@ async function createOnboardedMerchant(
     actor,
     executor,
   );
+  if (input.payoutDetails) {
+    await setMerchantPayout({
+      merchantId: created.id,
+      ...input.payoutDetails,
+      verified: false,
+      note: "Entered during Admin onboarding; not yet verified against a bank document.",
+      actor,
+    }, executor);
+  }
   const rate = input.rateCardId ? await assignRateCard(created.id, input.rateCardId, executor) : null;
   const portal = input.portalUser
     ? await createUser({
@@ -117,7 +133,7 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>): Promise<T> {
   throw new Error("Unreachable registration transaction retry state.");
 }
 
-/** Registration conversions are all-or-nothing; ordinary onboarding keeps its existing write path. */
+/** Merchant creation, optional payout data, portal user, rate card, and conversion are committed together. */
 export async function onboardMerchant(input: OnboardMerchantInput, actor: Principal) {
   if (actor.role !== "admin") errors.forbidden("Only an admin can onboard a merchant.");
   if (input.registrationRequestId) {
@@ -125,7 +141,7 @@ export async function onboardMerchant(input: OnboardMerchantInput, actor: Princi
       withSqliteBusyRetry(() => db.transaction((tx) => createOnboardedMerchant(input, actor, tx))),
     );
   }
-  return createOnboardedMerchant(input, actor, db);
+  return withSqliteBusyRetry(() => db.transaction((tx) => createOnboardedMerchant(input, actor, tx)));
 }
 
 /** Convert an internal Operations request only after Admin's final modal save. */

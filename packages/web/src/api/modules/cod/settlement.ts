@@ -36,6 +36,7 @@
 
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../../database";
+import type { DbTransaction } from "../../database/transaction";
 import {
   codEntry,
   codHold,
@@ -152,8 +153,11 @@ function mintSettlementCode(periodEnd: string): string {
 
 // ──────────────────────────────────────────────────── where the money goes
 
-export async function getMerchantPayout(merchantId: string): Promise<MerchantPayoutRow | null> {
-  const [row] = await db
+export async function getMerchantPayout(
+  merchantId: string,
+  executor: DbTransaction | typeof db = db,
+): Promise<MerchantPayoutRow | null> {
+  const [row] = await executor
     .select()
     .from(codMerchantPayout)
     .where(eq(codMerchantPayout.merchantId, merchantId));
@@ -176,7 +180,10 @@ export async function setMerchantPayout(input: {
   verified?: boolean;
   note?: string | null;
   actor?: Principal | null;
-}): Promise<MerchantPayoutRow> {
+}, executor: DbTransaction | typeof db = db): Promise<MerchantPayoutRow> {
+  if (input.actor?.role !== "admin" && input.actor?.role !== "finance") {
+    errors.forbidden("Only Admin or Finance can record merchant payout details.");
+  }
   for (const [field, value] of Object.entries({
     beneficiaryName: input.beneficiaryName,
     bankName: input.bankName,
@@ -197,7 +204,7 @@ export async function setMerchantPayout(input: {
     }
   }
 
-  const before = await getMerchantPayout(input.merchantId);
+  const before = await getMerchantPayout(input.merchantId, executor);
   const values = {
     merchantId: input.merchantId,
     beneficiaryName: input.beneficiaryName.trim(),
@@ -213,12 +220,12 @@ export async function setMerchantPayout(input: {
   };
 
   if (before) {
-    await db
+    await executor
       .update(codMerchantPayout)
       .set(values)
       .where(eq(codMerchantPayout.merchantId, input.merchantId));
   } else {
-    await db.insert(codMerchantPayout).values(values);
+    await executor.insert(codMerchantPayout).values(values);
   }
 
   await writeAudit({
@@ -228,9 +235,9 @@ export async function setMerchantPayout(input: {
     actor: input.actor,
     before: before ? { bankName: before.bankName, account: mask(before.accountNumber) } : null,
     after: { bankName: values.bankName, account: mask(values.accountNumber) },
-  });
+  }, executor);
 
-  return (await getMerchantPayout(input.merchantId))!;
+  return (await getMerchantPayout(input.merchantId, executor))!;
 }
 
 function mask(account: string): string {

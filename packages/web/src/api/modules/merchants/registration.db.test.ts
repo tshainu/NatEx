@@ -21,6 +21,11 @@ const ddl = [
     contact_phone TEXT NOT NULL, rate_card_id TEXT, cod_enabled INTEGER NOT NULL DEFAULT 1,
     pod_policy TEXT NOT NULL DEFAULT 'signature', status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE cod_merchant_payout (
+    merchant_id TEXT PRIMARY KEY, beneficiary_name TEXT NOT NULL, bank_name TEXT NOT NULL, branch_name TEXT NOT NULL,
+    account_number TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, note TEXT, updated_at INTEGER NOT NULL,
+    updated_by_name TEXT
+  )`,
   `CREATE TABLE merchants_onboarding_request (
     id TEXT PRIMARY KEY, branch_id TEXT NOT NULL, name TEXT NOT NULL, pickup_rider_id TEXT, vat_no TEXT,
     address TEXT NOT NULL, lat_e6 INTEGER, lng_e6 INTEGER, contact_name TEXT NOT NULL, contact_phone TEXT NOT NULL,
@@ -81,6 +86,7 @@ for (const statement of ddl) await setupClient.execute(statement);
 const { call } = await import("@orpc/server");
 const { db } = await import("../../database");
 const { branch, user } = await import("../../database/schema/identity");
+const { codMerchantPayout } = await import("../../database/schema/cod");
 const { merchant } = await import("../../database/schema/merchants");
 const { auditLog, outbox, smsLog } = await import("../../database/schema/shared");
 const { registrationInputSchema, submitRegistration } = await import("../../routes/merchants");
@@ -251,10 +257,30 @@ describe("merchant registration backend (isolated SQLite)", () => {
 
     const onboarded = await onboardMerchant(onboardingInput(request.id, {
       rateCardId: `rtc_${RUN}`,
+      payoutDetails: {
+        beneficiaryName: "Test Merchant Business",
+        bankName: "Bank of Ceylon",
+        branchName: "Colombo Main",
+        accountNumber: "123456789012",
+      },
       portalUser: { name: "Test portal account", phone: testPhone() },
     }), ACTOR);
     expect(onboarded.merchant.rateCardId).toBe(`rtc_${RUN}`);
     expect(onboarded.portalUser?.id).toBeTruthy();
+    expect(await db.select().from(codMerchantPayout)).toContainEqual(expect.objectContaining({
+      merchantId: onboarded.merchant.id,
+      beneficiaryName: "Test Merchant Business",
+      bankName: "Bank of Ceylon",
+      branchName: "Colombo Main",
+      accountNumber: "123456789012",
+      verified: false,
+      updatedByName: ACTOR.name,
+    }));
+    const payoutAudit = (await db.select().from(auditLog)).find((row) =>
+      row.entity === "cod_merchant_payout" && row.entityId === onboarded.merchant.id,
+    );
+    expect(JSON.parse(payoutAudit!.afterJson!)).toEqual({ bankName: "Bank of Ceylon", account: "****9012" });
+    expect(JSON.stringify(payoutAudit)).not.toContain("123456789012");
     const converted = await merchantsService.getRegistrationRequest(request.id);
     expect(converted).toMatchObject({
       status: "converted",
@@ -577,9 +603,16 @@ describe("merchant registration backend (isolated SQLite)", () => {
       codEnabled: request.codEnabled,
       podPolicy: "signature",
       rateCardId: `rtc_${RUN}`,
+      payoutDetails: {
+        beneficiaryName: "Audit Rollback Beneficiary",
+        bankName: "People's Bank",
+        branchName: "Colombo Fort",
+        accountNumber: "987654321098",
+      },
       portalUser: { name: "Audit merchant portal", phone: testPhone() },
     };
     const merchantCount = (await db.select().from(merchant)).length;
+    const payoutCount = (await db.select().from(codMerchantPayout)).length;
     const userCount = (await db.select().from(user)).length;
     const auditCount = (await db.select().from(auditLog)).length;
     await setupClient.execute(`CREATE TRIGGER fail_onboarding_audit BEFORE INSERT ON shared_audit_log
@@ -588,6 +621,7 @@ describe("merchant registration backend (isolated SQLite)", () => {
     try {
       await expect(approveStaffOnboardingRequest(approval, ACTOR, "req_audit_rollback")).rejects.toThrow("shared_audit_log");
       expect((await db.select().from(merchant)).length).toBe(merchantCount);
+      expect((await db.select().from(codMerchantPayout)).length).toBe(payoutCount);
       expect((await db.select().from(user)).length).toBe(userCount);
       expect((await db.select().from(auditLog)).length).toBe(auditCount);
       expect(await merchantsService.getStaffOnboardingRequest(request.id, ACTOR)).toMatchObject({
@@ -598,6 +632,12 @@ describe("merchant registration backend (isolated SQLite)", () => {
     }
     const result = await approveStaffOnboardingRequest(approval, ACTOR, "req_audit_recovered");
     expect(result.staffRequest.status).toBe("approved");
+    expect(await db.select().from(codMerchantPayout)).toContainEqual(expect.objectContaining({
+      merchantId: result.merchant.id,
+      bankName: "People's Bank",
+      accountNumber: "987654321098",
+      verified: false,
+    }));
     const audits = (await db.select().from(auditLog)).filter((row) => row.entityId === request.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ requestId: "req_audit_recovered", actorId: ACTOR.userId });
