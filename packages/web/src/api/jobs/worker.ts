@@ -3,13 +3,14 @@ import { db } from "../database";
 import { smsLog } from "../database/schema/shared";
 import { claimBatch, markDone, markFailed } from "../shared/outbox";
 import { sendSms } from "../shared/sms";
+import { open as openSecret } from "../shared/secret-box";
 import {
+  buildMerchantOnboardingSms,
   buildRescheduleSms,
   containsTrackingMaterial,
   isSmsDisabled,
   MERCHANT_REGISTRATION_ACCEPTED_SMS,
   MERCHANT_REGISTRATION_RECEIPT_SMS,
-  MERCHANT_ONBOARDING_WELCOME_SMS,
 } from "../shared/sms-policy";
 import * as deliveryNdrService from "../modules/delivery/ndr";
 import * as deliveryRetryService from "../modules/delivery/service";
@@ -17,6 +18,8 @@ import * as notifications from "../modules/notifications/service";
 import type { NotifyInput } from "../modules/notifications/service";
 import * as alerts from "../modules/cod/alerts";
 import * as merchantsService from "../modules/merchants/service";
+import * as identityAdmin from "../modules/identity/admin";
+import * as awbBatchService from "../modules/parcels/awb-batches";
 
 /**
  * Outbox drain (PROJECT.md §4 — "every background job runs off the outbox
@@ -56,10 +59,18 @@ export async function dispatchQueuedSms(p: SmsSendPayload, sender: typeof sendSm
 interface MerchantRegistrationSmsPayload {
   registrationRequestId: string;
   stage: "receipt" | "confirmation";
+  onboarding?: MerchantOnboardingSmsPayload;
+}
+
+interface MerchantOnboardingSmsPayload {
+  username: string | null;
+  allocation: { awbStart: string; awbEnd: string; labelCount: number } | null;
+  sealedCredential?: string;
 }
 
 interface MerchantWelcomeSmsPayload {
   merchantId: string;
+  onboarding?: MerchantOnboardingSmsPayload;
 }
 
 interface RescheduleSmsPayload {
@@ -128,11 +139,14 @@ export async function dispatchMerchantRegistrationSms(
   payload: MerchantRegistrationSmsPayload,
   sender: typeof sendSms = sendSms,
 ): Promise<void> {
+  const allowedKeys = new Set(["registrationRequestId", "stage", "onboarding"]);
   if (
     !payload ||
     typeof payload.registrationRequestId !== "string" ||
     !["receipt", "confirmation"].includes(payload.stage) ||
-    Object.keys(payload).sort().join(",") !== "registrationRequestId,stage"
+    Object.keys(payload).some((key) => !allowedKeys.has(key)) ||
+    (payload.onboarding !== undefined && !isMerchantOnboardingSmsPayload(payload.onboarding)) ||
+    (payload.stage === "receipt" && payload.onboarding !== undefined)
   ) {
     throw new Error("Invalid merchant registration SMS job payload.");
   }
@@ -150,16 +164,73 @@ export async function dispatchMerchantRegistrationSms(
     return;
   }
 
-  const body = payload.stage === "receipt"
-    ? MERCHANT_REGISTRATION_RECEIPT_SMS
-    : MERCHANT_REGISTRATION_ACCEPTED_SMS;
-  const result = await sender({ to: request.phone, body, purpose: "merchant_registration" });
+  let result: Awaited<ReturnType<typeof sendSms>>;
+  try {
+    const onboardingCopy = payload.stage === "confirmation" && request.merchantId
+      ? await merchantOnboardingSms(request.merchantId, payload.onboarding)
+      : null;
+    const body = payload.stage === "receipt"
+      ? MERCHANT_REGISTRATION_RECEIPT_SMS
+      : onboardingCopy?.copy.body ?? MERCHANT_REGISTRATION_ACCEPTED_SMS;
+    result = await sender({
+      to: onboardingCopy?.hasCredential ? onboardingCopy.recipientPhone! : request.phone,
+      body,
+      ...(onboardingCopy?.hasCredential ? { sensitiveLogBody: onboardingCopy.copy.logBody } : {}),
+      purpose: "merchant_registration",
+    });
+  } catch (error) {
+    await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, "failed");
+    throw error;
+  }
   const state = result.state === "sent" ? "sent" : "failed";
   await merchantsService.setRegistrationSmsState(payload.registrationRequestId, payload.stage, state);
   if (state === "failed") throw new Error("Merchant registration SMS delivery failed.");
 }
 
-/** Fixed-copy onboarding notice; credentials are never included in the job or SMS. */
+function isMerchantOnboardingSmsPayload(value: unknown): value is MerchantOnboardingSmsPayload {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const data = value as Record<string, unknown>;
+  if (Object.keys(data).some((key) => !["username", "allocation", "sealedCredential"].includes(key))) return false;
+  if (!(typeof data.username === "string" || data.username === null)) return false;
+  if (data.allocation !== null && data.allocation !== undefined) {
+    const allocation = data.allocation as Record<string, unknown>;
+    if (!allocation || typeof allocation !== "object" || Array.isArray(allocation) ||
+      Object.keys(allocation).sort().join(",") !== "awbEnd,awbStart,labelCount" ||
+      typeof allocation.awbStart !== "string" || typeof allocation.awbEnd !== "string" ||
+      typeof allocation.labelCount !== "number") return false;
+  }
+  return data.sealedCredential === undefined ||
+    (typeof data.sealedCredential === "string" && data.sealedCredential.length <= 500 && data.sealedCredential.startsWith("v1."));
+}
+
+async function merchantOnboardingSms(merchantId: string, queued?: MerchantOnboardingSmsPayload) {
+  const [users, allocation] = await Promise.all([
+    identityAdmin.usersForMerchant(merchantId),
+    awbBatchService.latestMerchantAwbAllocation(merchantId),
+  ]);
+  const activeUsers = users
+    .filter((candidate) => candidate.status === "active")
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const targetUser = queued?.username !== undefined
+    ? activeUsers.find((candidate) => candidate.username === queued.username)
+    : activeUsers.find((candidate) => candidate.username) ?? activeUsers[0];
+  if (queued?.sealedCredential && !targetUser) {
+    throw new Error("Merchant portal account for welcome SMS was not found.");
+  }
+  const password = queued?.sealedCredential ? await openSecret(queued.sealedCredential) : null;
+  const username = queued?.username !== undefined ? queued.username : targetUser?.username ?? null;
+  const selectedAllocation = queued?.allocation !== undefined
+    ? queued.allocation
+    : allocation;
+  const copy = buildMerchantOnboardingSms({ username, password, allocation: selectedAllocation });
+  return {
+    copy,
+    recipientPhone: targetUser?.phone ?? null,
+    hasCredential: Boolean(password),
+  };
+}
+
+/** Bounded-format onboarding notice; any temporary password is decrypted only for this delivery. */
 export async function dispatchMerchantWelcomeSms(
   payload: MerchantWelcomeSmsPayload,
   sender: typeof sendSms = sendSms,
@@ -168,7 +239,8 @@ export async function dispatchMerchantWelcomeSms(
     !payload ||
     typeof payload.merchantId !== "string" ||
     payload.merchantId.length === 0 ||
-    Object.keys(payload).sort().join(",") !== "merchantId"
+    Object.keys(payload).some((key) => !["merchantId", "onboarding"].includes(key)) ||
+    (payload.onboarding !== undefined && !isMerchantOnboardingSmsPayload(payload.onboarding))
   ) {
     throw new Error("Invalid merchant welcome SMS job payload.");
   }
@@ -177,9 +249,11 @@ export async function dispatchMerchantWelcomeSms(
   if (!merchant) throw new Error("Merchant for welcome SMS was not found.");
   if (process.env.NODE_ENV !== "production" || isSmsDisabled()) return;
 
+  const onboardingCopy = await merchantOnboardingSms(merchant.id, payload.onboarding);
   const result = await sender({
-    to: merchant.contactPhone,
-    body: MERCHANT_ONBOARDING_WELCOME_SMS,
+    to: onboardingCopy.hasCredential ? onboardingCopy.recipientPhone! : merchant.contactPhone,
+    body: onboardingCopy.copy.body,
+    ...(onboardingCopy.hasCredential ? { sensitiveLogBody: onboardingCopy.copy.logBody } : {}),
     purpose: "merchant_registration",
   });
   if (result.state === "failed") throw new Error("Merchant onboarding welcome SMS delivery failed.");
@@ -304,7 +378,7 @@ export async function drainOnce(): Promise<{ claimed: number; done: number; fail
   for (const job of batch) {
     try {
       await handle(job.topic, job.payloadJson);
-      await markDone(job.id);
+      await markDone(job.id, job.topic === "merchant_registration.sms" || job.topic === "merchant_welcome.sms");
       done += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

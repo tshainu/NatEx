@@ -170,12 +170,24 @@ onboarding dialog. Staff complete the pickup address, branch, rate card and any 
 Saving atomically creates the merchant and links/converts the request. Converted requests cannot
 be onboarded a second time, and their original application remains available for reference.
 
-Production registration queues only the owner-approved receipt and acceptance messages from sender `NatEx`.
-The acceptance message is queued only after successful onboarding. The SMS uses the submitted
-applicant number, not an arbitrary replacement contact number chosen during onboarding. Gateway
-acceptance is not proof of handset delivery. Demo must keep `SMS_DISABLE_ALL=true`; never send a
-real test SMS as part of a release check. Registration jobs are also independently disabled outside
-Production, so Demo applications do not contact applicants.
+Production registration queues the owner-approved receipt and Admin confirmation messages from
+sender `NatEx`. The receipt goes to the submitted applicant number. The confirmation is queued only
+after successful onboarding; when a portal password is set, it goes to that portal user's phone and
+contains the submitted username/password and assigned tracking range. Otherwise it uses the original
+applicant number (for a public request) or merchant contact phone. Gateway acceptance is not proof of
+handset delivery. Demo must keep `SMS_DISABLE_ALL=true`; never send a real test SMS as part of a
+release check. Registration jobs are also independently disabled outside Production, so Demo
+applications do not contact applicants.
+
+During Admin onboarding, an optional dropdown can assign one planned, unused tracking-number batch
+to the new merchant in the same database transaction as the merchant and portal login. The
+welcome SMS includes the active login username, the temporary password entered by Admin, and the
+assigned tracking-number range. The temporary password is authenticated-encrypted in the outbox,
+removed from completed onboarding jobs, redacted in internal SMS logs, and sent to the portal user's
+phone only over HTTPS; the SMS gateway and recipient necessarily receive the message in clear text.
+Production must have `MFA_ENCRYPTION_KEY` configured, and the gateway URL must use HTTPS for these
+credential-bearing messages. Demo must continue to suppress all SMS. If no batch is selected, no
+range is claimed or included in the welcome SMS.
 
 The standalone website remains a static hosting package; no DB tokens or gateway secrets belong
 in it. Its hosting CSP must allow the NatEx API origin in `connect-src`. Upload compiled assets first

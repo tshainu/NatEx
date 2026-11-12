@@ -88,10 +88,15 @@ export async function claimBatch(limit = 10) {
   return claimed;
 }
 
-export async function markDone(id: string): Promise<void> {
+export async function markDone(id: string, clearPayload = false): Promise<void> {
   await db
     .update(outbox)
-    .set({ state: "done", processedAt: new Date(), lastError: null })
+    .set({
+      state: "done",
+      processedAt: new Date(),
+      lastError: null,
+      ...(clearPayload ? { payloadJson: "{}" } : {}),
+    })
     .where(eq(outbox.id, id));
 }
 

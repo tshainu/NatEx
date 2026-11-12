@@ -254,6 +254,7 @@ export async function assignAwbBatch(
   assigneeId: string,
   actor: Principal,
 ) {
+  if (actor.role !== "admin") errors.forbidden("Only an admin can assign a tracking number batch.");
   await ensureSeriesNumbers();
   let assigneeName: string;
   if (assigneeType === "merchant") {
@@ -268,7 +269,29 @@ export async function assignAwbBatch(
     assigneeName = location!.name;
   }
 
-  return db.transaction(async (tx) => {
+  return db.transaction((tx) => assignAwbBatchInTransaction(batchId, assigneeType, assigneeId, assigneeName, actor, tx));
+}
+
+/** Assign a batch to a merchant created in the caller's onboarding transaction. */
+export async function assignAwbBatchToNewMerchant(
+  batchId: string,
+  merchantOwner: { id: string; name: string; status: string },
+  actor: Principal,
+  executor: DbTransaction,
+) {
+  if (actor.role !== "admin") errors.forbidden("Only an admin can assign a tracking number batch.");
+  if (merchantOwner.status !== "active") errors.conflict("A tracking number batch can only be assigned to an active merchant.");
+  return assignAwbBatchInTransaction(batchId, "merchant", merchantOwner.id, merchantOwner.name, actor, executor);
+}
+
+async function assignAwbBatchInTransaction(
+  batchId: string,
+  assigneeType: AwbAssigneeType,
+  assigneeId: string,
+  assigneeName: string,
+  actor: Principal,
+  tx: DbTransaction,
+) {
     const [batch] = await tx.select().from(awbBatch).where(eq(awbBatch.id, batchId)).limit(1);
     if (!batch) errors.notFound("tracking number batch");
     if (batch!.assignmentStatus !== "planned") {
@@ -307,7 +330,28 @@ export async function assignAwbBatch(
       .limit(1);
     if (!series) throw new Error("The tracking number series number is missing.");
     return { ...saved!, seriesNumber: series.seriesNumber, ...assignmentFor(saved!), usedCount: 0, retiredCount: 0, unusedCount: saved!.labelCount, status: "assigned" as const };
-  });
+}
+
+/** Latest merchant-owned range for a welcome SMS; never returns credentials. */
+export async function latestMerchantAwbAllocation(merchantId: string) {
+  const [row] = await db
+    .select({
+      batchId: awbBatch.id,
+      seriesNumber: awbBatchSeries.seriesNumber,
+      awbStart: awbBatch.awbStart,
+      awbEnd: awbBatch.awbEnd,
+      labelCount: awbBatch.labelCount,
+    })
+    .from(awbBatch)
+    .innerJoin(awbBatchSeries, eq(awbBatchSeries.batchId, awbBatch.id))
+    .where(and(
+      eq(awbBatch.assignmentStatus, "assigned"),
+      eq(awbBatch.assigneeType, "merchant"),
+      eq(awbBatch.assigneeId, merchantId),
+    ))
+    .orderBy(desc(awbBatch.assignedAt), desc(awbBatch.createdAt))
+    .limit(1);
+  return row ?? null;
 }
 
 /** Lock and recheck a reserved tracking number inside its booking transaction. */

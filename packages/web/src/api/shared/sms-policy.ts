@@ -14,15 +14,107 @@ export const MERCHANT_REGISTRATION_ACCEPTED_SMS =
   "Congratulations! You have been successfully registered as a Merchant. Keep your login details confidential. Passwords are never sent by SMS; contact NatEx if you need help.";
 export const MERCHANT_ONBOARDING_WELCOME_SMS = MERCHANT_REGISTRATION_ACCEPTED_SMS;
 
+export interface MerchantOnboardingSmsDetails {
+  username?: string | null;
+  password?: string | null;
+  allocation?: { awbStart: string; awbEnd: string; labelCount: number } | null;
+}
+
+export interface MerchantOnboardingSmsCopy {
+  body: string;
+  logBody: string;
+}
+
+/** Build the approved welcome SMS and a separate copy that never exposes its password in internal logs. */
+export function buildMerchantOnboardingSms(details: MerchantOnboardingSmsDetails): MerchantOnboardingSmsCopy {
+  const username = details.username?.trim().toLowerCase() ?? "";
+  if (username && !/^[a-z0-9._-]{2,60}$/.test(username)) {
+    throw new Error("Merchant welcome SMS requires a valid username.");
+  }
+  const password = details.password ?? "";
+  if (password && (password.length < 8 || password.length > 200 || password === "[REDACTED]" || /[\u0000-\u001f\u007f]/.test(password) || password.includes(". "))) {
+    throw new Error("Merchant welcome SMS requires a valid single-line temporary password.");
+  }
+  const allocation = details.allocation ?? null;
+  if (allocation) {
+    if (!/^NX\d{10}$/.test(allocation.awbStart) || !/^NX\d{10}$/.test(allocation.awbEnd) ||
+      !Number.isInteger(allocation.labelCount) || allocation.labelCount < 1 || allocation.labelCount > 50_000 ||
+      BigInt(allocation.awbEnd.slice(2)) - BigInt(allocation.awbStart.slice(2)) + 1n !== BigInt(allocation.labelCount)) {
+      throw new Error("Merchant welcome SMS requires a valid contiguous tracking-number allocation.");
+    }
+  }
+
+  const login = username ? `Your app login username: ${username}.` : "Sign in with your registered phone number.";
+  const passwordLine = password
+    ? `Your password is ${password}.`
+    : "Your password will be shared securely by your Admin.";
+  const tracking = allocation
+    ? ` Your tracking-number series: ${allocation.awbStart}-${allocation.awbEnd}.`
+    : "";
+  const intro = "Congratulations! You have been approved as a merchant, and your account is active now.";
+  const body = `${intro} ${login} ${passwordLine}${tracking} Keep login details confidential.`;
+  const logBody = `${intro} ${login} ${password ? "Your password is [REDACTED]." : passwordLine}${tracking} Keep login details confidential.`;
+  assertMerchantRegistrationSms(body);
+  assertMerchantRegistrationSms(logBody);
+  return { body, logBody };
+}
+
 /** Merchant registration/onboarding SMS is limited to exact approved literal copies. */
 export function assertMerchantRegistrationSms(body: string): void {
+  const dynamicWelcome = body.match(/^Congratulations! You have been approved as a merchant, and your account is active now\. (?:Your app login username: ([a-z0-9._-]{2,60})\.|Sign in with your registered phone number\.) (?:Your password is (.{8,200}?)\.|Your password will be shared securely by your Admin\.)(?: Your tracking-number series: (NX\d{10})-(NX\d{10})\.)? Keep login details confidential\.$/);
+  const hasValidAllocation = !dynamicWelcome?.[3] || (
+    dynamicWelcome[4] !== undefined &&
+    BigInt(dynamicWelcome[4].slice(2)) >= BigInt(dynamicWelcome[3].slice(2)) &&
+    BigInt(dynamicWelcome[4].slice(2)) - BigInt(dynamicWelcome[3].slice(2)) < 50_000n
+  );
+  const hasValidPassword = !dynamicWelcome?.[2] || (
+    Boolean(dynamicWelcome[1]) && dynamicWelcome[2].length <= 200 &&
+    !dynamicWelcome[2].includes(". ")
+  );
+  const isSingleLine = !/[\u0000-\u001f\u007f]/.test(body);
   if (
     body !== MERCHANT_REGISTRATION_RECEIPT_SMS &&
     body !== MERCHANT_REGISTRATION_ACCEPTED_SMS &&
-    body !== MERCHANT_ONBOARDING_WELCOME_SMS
+    body !== MERCHANT_ONBOARDING_WELCOME_SMS &&
+    (!dynamicWelcome || !hasValidAllocation || !hasValidPassword || !isSingleLine || body.length > 320)
   ) {
     throw new Error("Merchant-registration SMS must match an approved fixed template.");
   }
+}
+
+/** True only for an approved onboarding template containing an actual password value. */
+export function hasMerchantOnboardingPassword(body: string): boolean {
+  assertMerchantRegistrationSms(body);
+  if (body.includes("Your password is [REDACTED].")) {
+    throw new Error("The redaction marker cannot be sent as an onboarding password.");
+  }
+  return body.includes("Your password is ");
+}
+
+/** Return the exact approved onboarding body with only its password value redacted. */
+export function redactMerchantOnboardingPassword(body: string): string {
+  assertMerchantRegistrationSms(body);
+  const passwordPrefix = "Your password is ";
+  const prefixIndex = body.indexOf(passwordPrefix);
+  if (prefixIndex < 0) return body;
+  const valueStart = prefixIndex + passwordPrefix.length;
+  const finalMarker = " Keep login details confidential.";
+  const finalStart = body.lastIndexOf(finalMarker);
+  if (finalStart < valueStart) return body;
+  const beforeFinal = body.slice(0, finalStart);
+  const trackingMarker = " Your tracking-number series: ";
+  const trackingStart = beforeFinal.lastIndexOf(trackingMarker);
+  let valueEnd: number;
+  if (trackingStart >= valueStart) {
+    if (!/^ Your tracking-number series: NX\d{10}-NX\d{10}\.$/.test(beforeFinal.slice(trackingStart))) return body;
+    valueEnd = trackingStart - 1;
+  } else {
+    valueEnd = beforeFinal.length - 1;
+  }
+  if (valueEnd <= valueStart) return body;
+  const value = body.slice(valueStart, valueEnd);
+  if (value.length > 200 || value.includes(". ")) return body;
+  return `${body.slice(0, valueStart)}[REDACTED]${body.slice(valueEnd)}`;
 }
 
 /** True when an SMS body contains a tracking number, tracking placeholder, or link. */

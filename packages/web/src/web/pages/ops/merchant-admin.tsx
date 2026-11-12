@@ -296,6 +296,11 @@ export function OnboardMerchantDialog({
 }) {
   const queryClient = useQueryClient();
   const cards = useRateCards();
+  const trackingBatches = useQuery({
+    ...orpc.awbBatches.plannedMerchantBatches.queryOptions(),
+    enabled: open,
+    staleTime: 30_000,
+  });
   const blank = React.useMemo<MerchantForm>(() => ({
     ...(staffRequest
       ? staffOnboardingPrefill(staffRequest)
@@ -315,6 +320,7 @@ export function OnboardMerchantDialog({
   const [withPasswordLogin, setWithPasswordLogin] = React.useState(true);
   const [portalUsername, setPortalUsername] = React.useState("");
   const [portalPassword, setPortalPassword] = React.useState("");
+  const [trackingBatchId, setTrackingBatchId] = React.useState("");
   const [payoutBeneficiary, setPayoutBeneficiary] = React.useState("");
   const [payoutBank, setPayoutBank] = React.useState("");
   const [otherBank, setOtherBank] = React.useState("");
@@ -328,6 +334,7 @@ export function OnboardMerchantDialog({
       if (submitting.current) return;
       setPortalPassword("");
       setPortalUsername("");
+      setTrackingBatchId("");
       setPayoutBeneficiary("");
       setPayoutBank("");
       setOtherBank("");
@@ -349,6 +356,7 @@ export function OnboardMerchantDialog({
     setWithPasswordLogin(true);
     setPortalUsername("");
     setPortalPassword("");
+    setTrackingBatchId("");
     setPayoutBeneficiary("");
     setPayoutBank("");
     setOtherBank("");
@@ -376,6 +384,7 @@ export function OnboardMerchantDialog({
       setWithPasswordLogin(true);
       setPortalUsername("");
       setPortalPassword("");
+      setTrackingBatchId("");
       setPayoutBeneficiary("");
       setPayoutBank("");
       setOtherBank("");
@@ -461,6 +470,7 @@ export function OnboardMerchantDialog({
                 codEnabled: form.codEnabled,
                 podPolicy: form.podPolicy,
                 rateCardId: rateCardId || null,
+                ...(trackingBatchId ? { trackingBatchId } : {}),
                 ...(payoutDetails ? { payoutDetails } : {}),
                 portalUser: withPortal
                   ? {
@@ -641,6 +651,33 @@ export function OnboardMerchantDialog({
             </div>
           ) : null}
         </div>
+        <Field
+          label="Tracking-number allocation"
+          hint="Optional. Select an unassigned, planned series to issue to this merchant during onboarding."
+        >
+          <Select
+            value={trackingBatchId}
+            disabled={trackingBatches.isLoading || Boolean(trackingBatches.error)}
+            onChange={(event) => setTrackingBatchId(event.target.value)}
+          >
+            <option value="">No tracking series assigned now</option>
+            {(trackingBatches.data ?? []).map((batch) => (
+              <option key={batch.id} value={batch.id}>
+                {batch.awbStart} - {batch.awbEnd} · {batch.labelCount.toLocaleString()} numbers · {batch.batchCode}
+              </option>
+            ))}
+          </Select>
+          {trackingBatches.error ? (
+            <span role="alert" className="text-[12px] text-status-warn">
+              Planned tracking batches could not be loaded. Refresh before selecting an allocation.
+            </span>
+          ) : null}
+          {!trackingBatches.isLoading && !trackingBatches.error && (trackingBatches.data?.length ?? 0) === 0 ? (
+            <span className="text-[12px] text-muted-foreground">
+              No planned batches are available. Generate a tracking-number batch first if this merchant needs one now.
+            </span>
+          ) : null}
+        </Field>
         {problem ? <ErrorNote>{problem}</ErrorNote> : null}
       </div>
     </Dialog>

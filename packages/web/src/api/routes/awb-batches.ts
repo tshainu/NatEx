@@ -15,6 +15,15 @@ export const list = adminProc.handler(async ({ context }) => {
   return { batches, merchants, locations };
 });
 
+export const plannedMerchantBatches = adminProc.handler(async () => {
+  const batches = await awbBatchService.listAwbBatches();
+  return batches
+    .filter((batch) => batch.status === "planned" && batch.unusedCount > 0)
+    .map(({ id, seriesNumber, batchCode, awbStart, awbEnd, labelCount, unusedCount }) => ({
+      id, seriesNumber, batchCode, awbStart, awbEnd, labelCount, unusedCount,
+    }));
+});
+
 export const generate = adminProc
   .input(z.object({
     count: z.number().int().min(1).max(awbBatchService.MAX_BATCHES_PER_GENERATION),
@@ -107,4 +116,4 @@ export const checkBranch = opsProc
     return awbBatchService.checkBranchAwb(input.branchId, input.awb);
   });
 
-export const awbBatches = { list, generate, assign, retire, labels, check, checkMany, checkBranch };
+export const awbBatches = { list, plannedMerchantBatches, generate, assign, retire, labels, check, checkMany, checkBranch };

@@ -5,6 +5,7 @@ import {
   assertRescheduleSms,
   assertMerchantRegistrationSms,
   assertPodSmsHasNoTrackingMaterial,
+  buildMerchantOnboardingSms,
   buildRescheduleSms,
   containsTrackingMaterial,
   MERCHANT_ONBOARDING_WELCOME_SMS,
@@ -63,17 +64,40 @@ describe("customer SMS tracking-material policy", () => {
     expect(() => assertArrivalNoticeSms("NX800002000\nsecond line")).toThrow("single-line message");
   });
 
-  test("accepts only exact approved merchant-registration and onboarding SMS copies", () => {
+  test("accepts fixed registration copy and the bounded username/password/range welcome template", () => {
     expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_RECEIPT_SMS)).not.toThrow();
     expect(() => assertMerchantRegistrationSms(MERCHANT_REGISTRATION_ACCEPTED_SMS)).not.toThrow();
     expect(() => assertMerchantRegistrationSms(MERCHANT_ONBOARDING_WELCOME_SMS)).not.toThrow();
     expect(MERCHANT_ONBOARDING_WELCOME_SMS).toContain("Congratulations!");
-    expect(MERCHANT_ONBOARDING_WELCOME_SMS).toContain("Passwords are never sent by SMS");
     expect(MERCHANT_ONBOARDING_WELCOME_SMS).not.toMatch(/password\s*[:=]/i);
+    const dynamic = buildMerchantOnboardingSms({
+      username: "RoyalFabric",
+      password: "Abc@@122",
+      allocation: { awbStart: "NX8000000000", awbEnd: "NX8000000999", labelCount: 1_000 },
+    });
+    expect(dynamic.body).toBe(
+      "Congratulations! You have been approved as a merchant, and your account is active now. Your app login username: royalfabric. Your password is Abc@@122. Your tracking-number series: NX8000000000-NX8000000999. Keep login details confidential.",
+    );
+    expect(dynamic.logBody).toBe(
+      "Congratulations! You have been approved as a merchant, and your account is active now. Your app login username: royalfabric. Your password is [REDACTED]. Your tracking-number series: NX8000000000-NX8000000999. Keep login details confidential.",
+    );
+    expect(dynamic.body.length).toBeLessThanOrEqual(320);
+    expect(() => assertMerchantRegistrationSms(dynamic.body)).not.toThrow();
+    expect(() => assertMerchantRegistrationSms(dynamic.logBody)).not.toThrow();
+    expect(dynamic.logBody).not.toContain("Abc@@122");
+    expect(() => buildMerchantOnboardingSms({ username: "royalfabric", password: "bad\npassword" })).toThrow("single-line temporary password");
+    expect(() => buildMerchantOnboardingSms({ username: "royalfabric", password: "short7" })).toThrow("single-line temporary password");
+    expect(() => buildMerchantOnboardingSms({ username: "royalfabric", password: "[REDACTED]" })).toThrow("single-line temporary password");
+    expect(() => buildMerchantOnboardingSms({ username: "royalfabric", password: "x".repeat(200), allocation: { awbStart: "NX8000000000", awbEnd: "NX8000000999", labelCount: 1_000 } })).toThrow("approved fixed template");
+    expect(() => buildMerchantOnboardingSms({ username: "bad user" })).toThrow("valid username");
+    expect(() => buildMerchantOnboardingSms({
+      allocation: { awbStart: "NX8000000000", awbEnd: "NX8000000500", labelCount: 1_000 },
+    })).toThrow("valid contiguous tracking-number allocation");
     for (const body of [
       `${MERCHANT_REGISTRATION_RECEIPT_SMS} NX2610020001`,
       MERCHANT_REGISTRATION_RECEIPT_SMS.replace("review.", "review!"),
       "Your application was received.",
+      "Congratulations! Your merchant account is active. Login username: alice. Password: Secret123. Tracking numbers issued: NX8000000000-NX8000000999 (1,000 numbers). Keep your login details confidential.",
     ]) {
       expect(() => assertMerchantRegistrationSms(body)).toThrow("Merchant-registration SMS must match an approved fixed template.");
     }

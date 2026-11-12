@@ -379,7 +379,11 @@ export async function claimRegistrationSms(id: string, stage: RegistrationSmsSta
     .update(merchantRegistrationRequest)
     .set(stage === "receipt" ? { receiptSmsState: "sending" } : { confirmationSmsState: "sending" })
     .where(and(...conditions))
-    .returning({ id: merchantRegistrationRequest.id, phone: merchantRegistrationRequest.phone });
+    .returning({
+      id: merchantRegistrationRequest.id,
+      phone: merchantRegistrationRequest.phone,
+      merchantId: merchantRegistrationRequest.merchantId,
+    });
   return row ?? null;
 }
 
@@ -400,6 +404,11 @@ export async function convertRegistrationRequest(
   merchantId: string,
   executor: DbTransaction | typeof db = db,
   now = new Date(),
+  onboarding?: {
+    username: string | null;
+    allocation: { awbStart: string; awbEnd: string; labelCount: number } | null;
+    sealedCredential?: string;
+  },
 ): Promise<void> {
   const [updated] = await executor
     .update(merchantRegistrationRequest)
@@ -407,7 +416,11 @@ export async function convertRegistrationRequest(
     .where(and(eq(merchantRegistrationRequest.id, id), eq(merchantRegistrationRequest.status, "new")))
     .returning({ id: merchantRegistrationRequest.id });
   if (!updated) errors.conflict("This registration request has already been converted or is unavailable.");
-  await enqueue("merchant_registration.sms", { registrationRequestId: id, stage: "confirmation" }, executor);
+  await enqueue("merchant_registration.sms", {
+    registrationRequestId: id,
+    stage: "confirmation",
+    ...(onboarding ? { onboarding } : {}),
+  }, executor);
 }
 
 export async function setMerchantStatus(

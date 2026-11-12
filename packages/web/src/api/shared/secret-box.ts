@@ -1,6 +1,6 @@
 /**
- * Authenticated encryption for secrets that must be recoverable — today only
- * the TOTP shared secret (a code cannot be verified against a hash).
+ * Authenticated encryption for secrets that must be recoverable, such as the
+ * TOTP shared secret and a short-lived onboarding password waiting for SMS delivery.
  *
  * AES-256-GCM, 96-bit random IV, key = SHA-256(MFA_ENCRYPTION_KEY). Output is
  * `v1.<iv b64url>.<ciphertext+tag b64url>` so the scheme can be rotated later.

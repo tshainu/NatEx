@@ -7,6 +7,8 @@ import {
   assertRescheduleSms,
   assertDeliveryFailureSms,
   assertMerchantRegistrationSms,
+  hasMerchantOnboardingPassword,
+  redactMerchantOnboardingPassword,
   assertPodSmsHasNoTrackingMaterial,
   isSmsDisabled,
   NATEX_SMS_SENDER_ID,
@@ -28,6 +30,8 @@ import {
 export interface SendSmsInput {
   to: string;
   body: string;
+  /** Approved redacted copy used only for internal logging of sensitive onboarding credentials. */
+  sensitiveLogBody?: string;
   /** OTP, POD, delivery updates, two fixed registration messages, or the fixed reschedule notice. */
   purpose: "otp" | "pod" | "delivery_failure" | "arrival_notice" | "merchant_registration" | "reschedule";
 }
@@ -73,10 +77,31 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     throw new Error("Unsupported SMS purpose.");
   }
   const body = removeLeadingNatExPrefix(input.body);
+  const sensitiveLogBody = input.sensitiveLogBody === undefined
+    ? body
+    : removeLeadingNatExPrefix(input.sensitiveLogBody);
+  if (input.sensitiveLogBody !== undefined && input.purpose !== "merchant_registration") {
+    throw new Error("A redacted SMS log body is supported only for merchant onboarding messages.");
+  }
   if (input.purpose === "pod") assertPodSmsHasNoTrackingMaterial(body);
   if (input.purpose === "delivery_failure") assertDeliveryFailureSms(body);
   if (input.purpose === "arrival_notice") assertArrivalNoticeSms(body);
-  if (input.purpose === "merchant_registration") assertMerchantRegistrationSms(body);
+  const containsCredential = input.purpose === "merchant_registration"
+    ? hasMerchantOnboardingPassword(body)
+    : false;
+  const expectedLogBody = containsCredential
+    ? redactMerchantOnboardingPassword(body)
+    : body;
+  if (containsCredential && input.sensitiveLogBody === undefined) {
+    throw new Error("Password-bearing onboarding SMS requires a redacted internal log body.");
+  }
+  if (input.sensitiveLogBody !== undefined && sensitiveLogBody !== expectedLogBody) {
+    throw new Error("The onboarding SMS log body must match the exact password-redacted message.");
+  }
+  if (input.purpose === "merchant_registration") {
+    assertMerchantRegistrationSms(body);
+    if (input.sensitiveLogBody !== undefined) assertMerchantRegistrationSms(sensitiveLogBody);
+  }
   if (input.purpose === "reschedule") assertRescheduleSms(body);
   const url = process.env.SMS_EXECUTION_URL;
   const senderId = NATEX_SMS_SENDER_ID;
@@ -87,7 +112,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     id: logId,
     toPhone: to,
     senderId,
-    body,
+    body: containsCredential ? expectedLogBody : sensitiveLogBody,
     purpose: input.purpose,
     state: "queued",
   });
@@ -115,16 +140,24 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
     return { logId, state: "failed", gatewayRef: null, raw };
   }
 
-  // The gateway is a black box reached by HTTP. Destination, sender id and body
-  // are sent both as query params and as a form body so either convention works
-  // without assuming a provider. Param names match the urbanpos.lk gateway.
   // Local gateways expect 9477… rather than +9477…, so strip the leading plus.
+  // For credential-bearing onboarding SMS the body is sent only in the POST
+  // form (never the URL, which may be retained in access logs) and HTTPS is required.
   const gatewayTo = to.replace(/^\+/, "");
   let raw = "";
   try {
     const target = new URL(url);
+    if (containsCredential && target.protocol !== "https:") {
+      raw = "Credential-bearing registration SMS requires an HTTPS gateway.";
+      await db
+        .update(smsLog)
+        .set({ state: "failed", rawResponse: raw, updatedAt: new Date() })
+        .where(eq(smsLog.id, logId));
+      return { logId, state: "failed", gatewayRef: null, raw };
+    }
     target.searchParams.set("phone_no", gatewayTo);
-    target.searchParams.set("message", body);
+    target.searchParams.delete("message");
+    if (!containsCredential) target.searchParams.set("message", body);
     target.searchParams.set("sender_id", senderId);
     const res = await fetch(target, {
       method: "POST",

@@ -4,8 +4,11 @@ import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { writeAudit } from "../../shared/audit";
 import { enqueue } from "../../shared/outbox";
+import { seal } from "../../shared/secret-box";
+import { buildMerchantOnboardingSms } from "../../shared/sms-policy";
 import { createUser } from "../identity/service";
 import { setMerchantPayout } from "../cod/settlement";
+import { assignAwbBatchToNewMerchant } from "../parcels/awb-batches";
 import { assignRateCard } from "./rate-cards";
 import {
   convertRegistrationRequest,
@@ -17,6 +20,7 @@ import {
 
 export interface OnboardMerchantInput extends CreateMerchantInput {
   rateCardId?: string | null;
+  trackingBatchId?: string;
   payoutDetails?: {
     beneficiaryName: string;
     bankName: string;
@@ -58,6 +62,9 @@ async function createOnboardedMerchant(
     actor,
     executor,
   );
+  const trackingAllocation = input.trackingBatchId
+    ? await assignAwbBatchToNewMerchant(input.trackingBatchId, created, actor, executor as DbTransaction)
+    : null;
   if (input.payoutDetails) {
     await setMerchantPayout({
       merchantId: created.id,
@@ -77,19 +84,54 @@ async function createOnboardedMerchant(
         merchantId: created.id,
         username: input.portalUser.username ?? null,
         password: input.portalUser.password ?? null,
-      }, executor)
+    }, executor)
     : null;
 
+  if (input.portalUser?.password && !portal?.username) {
+    throw new Error("A portal username is required when setting a temporary password for SMS delivery.");
+  }
+
+  const onboardingSms = portal
+    ? {
+        username: portal.username,
+        allocation: trackingAllocation
+          ? {
+              awbStart: trackingAllocation.awbStart,
+              awbEnd: trackingAllocation.awbEnd,
+              labelCount: trackingAllocation.labelCount,
+            }
+          : null,
+        ...(input.portalUser?.password ? { sealedCredential: await seal(input.portalUser.password) } : {}),
+      }
+    : null;
+  // Validate the actual user-facing copy while still inside the transaction,
+  // so an overlong or malformed credential notice cannot leave a partial onboard.
+  buildMerchantOnboardingSms({
+    username: onboardingSms?.username,
+    password: input.portalUser?.password,
+    allocation: onboardingSms?.allocation,
+  });
+
   if (input.registrationRequestId) {
-    await convertRegistrationRequest(input.registrationRequestId, created.id, executor);
+    await convertRegistrationRequest(input.registrationRequestId, created.id, executor, new Date(), onboardingSms ?? undefined);
   } else {
-    // The converted-registration path already queues its fixed acceptance SMS.
-    // Other admin-approved onboarding paths get the same credential-safe notice.
-    await enqueue("merchant_welcome.sms", { merchantId: created.id }, executor);
+    await enqueue("merchant_welcome.sms", {
+      merchantId: created.id,
+      ...(onboardingSms ? { onboarding: onboardingSms } : {}),
+    }, executor);
   }
 
   return {
     merchant: { ...created, rateCardId: rate?.after ?? null },
+    trackingAllocation: trackingAllocation
+      ? {
+          batchId: trackingAllocation.id,
+          seriesNumber: trackingAllocation.seriesNumber,
+          awbStart: trackingAllocation.awbStart,
+          awbEnd: trackingAllocation.awbEnd,
+          labelCount: trackingAllocation.labelCount,
+        }
+      : null,
     portalUser: portal
       ? { id: portal.id, name: portal.name, phone: portal.phone, username: portal.username }
       : null,

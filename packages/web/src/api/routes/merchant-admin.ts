@@ -104,6 +104,7 @@ export const onboard = adminProc
       podPolicy: pod.default("signature"),
       rateCardId: z.string().min(1).nullish(),
       payoutDetails,
+      trackingBatchId: z.string().min(1).max(100).optional(),
       registrationRequestId: z.string().min(1).max(100).optional(),
       portalUser: z
         .object({
@@ -157,6 +158,7 @@ const staffApprovalInputSchema = z.object({
   podPolicy: pod.default("signature"),
   rateCardId: z.string().min(1).nullish(),
   payoutDetails,
+  trackingBatchId: z.string().min(1).max(100).optional(),
   portalUser: z.object({
     name: z.string().trim().min(2).max(120),
     phone: z.string().min(9).max(20),

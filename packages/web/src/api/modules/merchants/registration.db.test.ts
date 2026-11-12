@@ -9,6 +9,7 @@ const databaseUrl = `file:${sqlitePath}`;
 process.env.DATABASE_URL = databaseUrl;
 delete process.env.DATABASE_AUTH_TOKEN;
 process.env.NODE_ENV = "test";
+process.env.MFA_ENCRYPTION_KEY = "natex-isolated-registration-test-encryption-key";
 process.env.SMS_DISABLE_ALL = "true";
 delete process.env.SMS_EXECUTION_URL;
 
@@ -50,6 +51,16 @@ const ddl = [
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE shared_rate_limit (bucket TEXT PRIMARY KEY, tokens INTEGER NOT NULL, refilled_at INTEGER NOT NULL)`,
+  `CREATE TABLE parcels_awb_batch (
+    id TEXT PRIMARY KEY, batch_code TEXT NOT NULL UNIQUE, merchant_id TEXT NOT NULL, merchant_name TEXT NOT NULL,
+    assignment_status TEXT, assignee_type TEXT, assignee_id TEXT, assignee_name TEXT, assigned_at INTEGER,
+    assigned_by_id TEXT, assigned_by_name TEXT, awb_start TEXT NOT NULL, awb_end TEXT NOT NULL,
+    label_count INTEGER NOT NULL DEFAULT 1000, created_by_id TEXT NOT NULL, created_by_name TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE parcels_awb_batch_series (series_number INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL UNIQUE REFERENCES parcels_awb_batch(id))`,
+  `CREATE TABLE parcels_awb_batch_label (awb TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES parcels_awb_batch(id))`,
+  `CREATE TABLE parcels_parcel (id TEXT PRIMARY KEY, awb TEXT NOT NULL UNIQUE)`,
+  `CREATE TABLE parcels_retired_tracking_number (tracking_number TEXT PRIMARY KEY)`,
   `CREATE TABLE shared_audit_log (
     id TEXT PRIMARY KEY, entity TEXT NOT NULL, entity_id TEXT NOT NULL, action TEXT NOT NULL,
     actor_id TEXT, actor_role TEXT, branch_id TEXT, device_id TEXT, request_id TEXT,
@@ -86,6 +97,7 @@ for (const statement of ddl) await setupClient.execute(statement);
 const { call } = await import("@orpc/server");
 const { db } = await import("../../database");
 const { branch, user } = await import("../../database/schema/identity");
+const { awbBatch, awbBatchLabel, awbBatchSeries } = await import("../../database/schema/parcels");
 const { codMerchantPayout } = await import("../../database/schema/cod");
 const { merchant } = await import("../../database/schema/merchants");
 const { auditLog, outbox, smsLog } = await import("../../database/schema/shared");
@@ -94,11 +106,12 @@ const merchantsService = await import("./service");
 const { approveStaffOnboardingRequest, onboardMerchant } = await import("./onboarding");
 const { sendSms } = await import("../../shared/sms");
 const { dispatchMerchantRegistrationSms } = await import("../../jobs/worker");
-const { MERCHANT_REGISTRATION_ACCEPTED_SMS, MERCHANT_REGISTRATION_RECEIPT_SMS } = await import("../../shared/sms-policy");
+const { MERCHANT_REGISTRATION_RECEIPT_SMS } = await import("../../shared/sms-policy");
 
 const RUN = `${process.pid}_${Date.now()}`;
 const BRANCH_ID = `brn_registration_${RUN}`;
 const OTHER_BRANCH_ID = `brn_registration_other_${RUN}`;
+const TRACKING_BATCH_ID = `awb_registration_${RUN}`;
 const ACTOR = {
   userId: `usr_admin_${RUN}`,
   name: "Registration integration test admin",
@@ -197,6 +210,32 @@ beforeAll(async () => {
     sql: `INSERT INTO merchants_rate_card_version (id, rate_card_id, version, status, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     args: [`rcv_${RUN}`, `rtc_${RUN}`, 1, "active", Date.now(), Date.now()],
   });
+  await db.insert(awbBatch).values({
+    id: TRACKING_BATCH_ID,
+    batchCode: `NXB-ONBOARD-${RUN}`,
+    merchantId: "",
+    merchantName: "",
+    assignmentStatus: "planned",
+    assigneeType: null,
+    assigneeId: null,
+    assigneeName: null,
+    assignedAt: null,
+    assignedById: null,
+    assignedByName: null,
+    awbStart: "NX8123456000",
+    awbEnd: "NX8123456999",
+    labelCount: 1_000,
+    createdById: ACTOR.userId,
+    createdByName: ACTOR.name,
+  });
+  await db.insert(awbBatchSeries).values({ batchId: TRACKING_BATCH_ID });
+  const labels = Array.from({ length: 1_000 }, (_, index) => ({
+    awb: `NX${String(8123456000 + index).padStart(10, "0")}`,
+    batchId: TRACKING_BATCH_ID,
+  }));
+  for (let index = 0; index < labels.length; index += 200) {
+    await db.insert(awbBatchLabel).values(labels.slice(index, index + 200));
+  }
 });
 
 afterAll(async () => {
@@ -251,6 +290,8 @@ describe("merchant registration backend (isolated SQLite)", () => {
 
   test("keeps request count and conversion atomic with merchant, rate card, portal user, and acceptance outbox", async () => {
     const request = await createRequest();
+    const onboardingPassword = "Abc@@122";
+    const portalPhone = testPhone();
     expect(await merchantsService.registrationRequestCount()).toEqual({ newCount: 2 });
     const selected = await merchantsService.getRegistrationRequest(request.id);
     expect(selected).toMatchObject({ status: "new", merchantId: null, smsConsent: true });
@@ -263,10 +304,17 @@ describe("merchant registration backend (isolated SQLite)", () => {
         branchName: "Colombo Main",
         accountNumber: "123456789012",
       },
-      portalUser: { name: "Test portal account", phone: testPhone() },
+      trackingBatchId: TRACKING_BATCH_ID,
+      portalUser: { name: "Test portal account", phone: portalPhone, username: "test-merchant", password: onboardingPassword },
     }), ACTOR);
     expect(onboarded.merchant.rateCardId).toBe(`rtc_${RUN}`);
     expect(onboarded.portalUser?.id).toBeTruthy();
+    expect(onboarded.trackingAllocation).toMatchObject({
+      batchId: TRACKING_BATCH_ID,
+      awbStart: "NX8123456000",
+      awbEnd: "NX8123456999",
+      labelCount: 1_000,
+    });
     expect(await db.select().from(codMerchantPayout)).toContainEqual(expect.objectContaining({
       merchantId: onboarded.merchant.id,
       beneficiaryName: "Test Merchant Business",
@@ -294,10 +342,30 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect(jobs.filter((job) => job.topic === "merchant_registration.sms")).toHaveLength(3);
     const confirmation = jobs.map((job) => JSON.parse(job.payloadJson) as Record<string, unknown>)
       .find((payload) => payload.registrationRequestId === request.id && payload.stage === "confirmation");
-    expect(confirmation).toEqual({ registrationRequestId: request.id, stage: "confirmation" });
+    expect(confirmation).toMatchObject({
+      registrationRequestId: request.id,
+      stage: "confirmation",
+      onboarding: {
+        username: "test-merchant",
+        allocation: { awbStart: "NX8123456000", awbEnd: "NX8123456999", labelCount: 1_000 },
+      },
+    });
+    const encryptedCredential = (confirmation!.onboarding as Record<string, unknown>).sealedCredential;
+    expect(encryptedCredential).toMatch(/^v1\./);
+    expect(JSON.stringify(confirmation)).not.toContain(onboardingPassword);
+    const savedBatch = await setupClient.execute({
+      sql: "SELECT assignment_status, assignee_type, assignee_id, assignee_name FROM parcels_awb_batch WHERE id = ?",
+      args: [TRACKING_BATCH_ID],
+    });
+    expect(savedBatch.rows[0]).toMatchObject({
+      assignment_status: "assigned",
+      assignee_type: "merchant",
+      assignee_id: onboarded.merchant.id,
+      assignee_name: onboarded.merchant.name,
+    });
 
-    const sent: { to: string; body: string; purpose: string }[] = [];
-    const sender = async (message: { to: string; body: string; purpose: "otp" | "pod" | "delivery_failure" | "arrival_notice" | "merchant_registration" | "reschedule" }) => {
+    const sent: Parameters<typeof sendSms>[0][] = [];
+    const sender = async (message: Parameters<typeof sendSms>[0]) => {
       sent.push(message);
       return { logId: "sms_test", state: "sent" as const, gatewayRef: null, raw: "accepted" };
     };
@@ -305,17 +373,19 @@ describe("merchant registration backend (isolated SQLite)", () => {
     process.env.NODE_ENV = "production";
     delete process.env.SMS_DISABLE_ALL;
     try {
-      await dispatchMerchantRegistrationSms({ registrationRequestId: request.id, stage: "confirmation" }, sender);
-      await dispatchMerchantRegistrationSms({ registrationRequestId: request.id, stage: "confirmation" }, sender);
+      await dispatchMerchantRegistrationSms(confirmation as unknown as Parameters<typeof dispatchMerchantRegistrationSms>[0], sender);
+      await dispatchMerchantRegistrationSms(confirmation as unknown as Parameters<typeof dispatchMerchantRegistrationSms>[0], sender);
     } finally {
       process.env.NODE_ENV = oldEnv.nodeEnv;
       process.env.SMS_DISABLE_ALL = oldEnv.disable;
     }
     expect(sent).toEqual([{
-      to: request.phone,
-      body: MERCHANT_REGISTRATION_ACCEPTED_SMS,
+      to: portalPhone,
+      body: "Congratulations! You have been approved as a merchant, and your account is active now. Your app login username: test-merchant. Your password is Abc@@122. Your tracking-number series: NX8123456000-NX8123456999. Keep login details confidential.",
+      sensitiveLogBody: "Congratulations! You have been approved as a merchant, and your account is active now. Your app login username: test-merchant. Your password is [REDACTED]. Your tracking-number series: NX8123456000-NX8123456999. Keep login details confidential.",
       purpose: "merchant_registration",
     }]);
+    expect(sent[0]!.body).toContain(onboardingPassword);
     expect((await merchantsService.getRegistrationRequest(request.id)).confirmationSmsState).toBe("sent");
   });
 
@@ -578,8 +648,12 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect(afterOutbox.length).toBe(beforeOutboxCount + 1);
     const welcomeJobs = afterOutbox.filter((job) => job.topic === "merchant_welcome.sms");
     expect(welcomeJobs).toHaveLength(1);
-    expect(JSON.parse(welcomeJobs[0]!.payloadJson)).toEqual({ merchantId: approved.approvedMerchantId });
-    expect(welcomeJobs[0]!.payloadJson).not.toMatch(/password|username/i);
+    expect(JSON.parse(welcomeJobs[0]!.payloadJson)).toEqual({
+      merchantId: approved.approvedMerchantId,
+      onboarding: { username: null, allocation: null },
+    });
+    expect(welcomeJobs[0]!.payloadJson).not.toContain("password value");
+    expect(welcomeJobs[0]!.payloadJson).not.toContain("Abc@@122");
     const audits = (await db.select().from(auditLog)).filter((row) => row.entityId === replay.id);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ actorId: ACTOR.userId, action: "merchant.onboarding_approved" });
