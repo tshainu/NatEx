@@ -288,6 +288,23 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect("submissionId" in list.rows[0]!).toBe(false);
   });
 
+  test("rejecting a new application removes it from every request list and prevents repeat rejection", async () => {
+    const request = await createRequest();
+    const result = await merchantsService.rejectRegistrationRequest(request.id);
+    expect(result).toEqual({ id: request.id, status: "rejected" });
+    expect(await merchantsService.getRegistrationRequest(request.id)).toMatchObject({
+      id: request.id,
+      status: "rejected",
+      merchantId: null,
+    });
+
+    const active = await merchantsService.listRegistrationRequests({ page: 1, pageSize: 100, status: "new" });
+    const visible = await merchantsService.listRegistrationRequests({ page: 1, pageSize: 100 });
+    expect(active.rows.some((row) => row.id === request.id)).toBe(false);
+    expect(visible.rows.some((row) => row.id === request.id)).toBe(false);
+    await expect(merchantsService.rejectRegistrationRequest(request.id)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   test("keeps request count and conversion atomic with merchant, rate card, portal user, and acceptance outbox", async () => {
     const request = await createRequest();
     const onboardingPassword = "Abc@@122";
@@ -339,7 +356,12 @@ describe("merchant registration backend (isolated SQLite)", () => {
     expect(converted.convertedAt).toBeInstanceOf(Date);
     expect(await merchantsService.registrationRequestCount()).toEqual({ newCount: 1 });
     const jobs = await db.select().from(outbox);
-    expect(jobs.filter((job) => job.topic === "merchant_registration.sms")).toHaveLength(3);
+    const requestSmsJobs = jobs.filter((job) => {
+      if (job.topic !== "merchant_registration.sms") return false;
+      const payload = JSON.parse(job.payloadJson) as { registrationRequestId?: string };
+      return payload.registrationRequestId === request.id;
+    });
+    expect(requestSmsJobs).toHaveLength(2);
     const confirmation = jobs.map((job) => JSON.parse(job.payloadJson) as Record<string, unknown>)
       .find((payload) => payload.registrationRequestId === request.id && payload.stage === "confirmation");
     expect(confirmation).toMatchObject({

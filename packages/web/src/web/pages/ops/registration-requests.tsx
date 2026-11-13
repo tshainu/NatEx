@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, CheckCircle2, Clock3, MessageSquareText } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
 import { dateTime, humanise } from "@/lib/format";
@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
@@ -66,8 +67,8 @@ export function RegistrationRequests({
       header: "Status",
       width: "w-[120px]",
       cell: (row) => (
-        <Badge variant={row.status === "converted" ? "good" : "warn"}>
-          {row.status === "converted" ? "Converted" : "New"}
+        <Badge variant={row.status === "converted" ? "good" : row.status === "rejected" ? "bad" : "warn"}>
+          {row.status === "converted" ? "Converted" : row.status === "rejected" ? "Rejected" : "New"}
         </Badge>
       ),
     },
@@ -135,6 +136,17 @@ function RegistrationRequestDrawer({
   onOnboard: (request: MerchantRegistrationRequest) => void;
   onViewMerchant: (merchantId: string) => void;
 }) {
+  const queryClient = useQueryClient();
+  const [confirmReject, setConfirmReject] = React.useState(false);
+  const reject = useMutation({
+    ...orpc.merchants.rejectRegistrationRequest.mutationOptions(),
+    onSuccess: () => {
+      setConfirmReject(false);
+      void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequests.key() });
+      void queryClient.invalidateQueries({ queryKey: orpc.merchants.registrationRequestCount.key() });
+      onOpenChange(false);
+    },
+  });
   const detail = useQuery({
     ...orpc.merchants.registrationRequest.queryOptions({ input: { id: id ?? "" } }),
     enabled: Boolean(id),
@@ -142,33 +154,49 @@ function RegistrationRequestDrawer({
   });
   const request = detail.data as MerchantRegistrationRequest | undefined;
   const converted = request?.status === "converted";
+  const rejected = request?.status === "rejected";
+  const isNew = request?.status === "new";
 
   return (
-    <Drawer
-      open={Boolean(id)}
-      onOpenChange={onOpenChange}
-      title={request?.businessName ?? "Merchant application"}
-      subtitle={request ? `Submitted ${dateTime(request.createdAt)}` : undefined}
-      footer={request ? (
-        converted && request.merchantId ? (
-          <Button className="w-full" onClick={() => onViewMerchant(request.merchantId!)}>
-            <ArrowUpRight aria-hidden /> View merchant
-          </Button>
-        ) : !converted ? (
-          <Button className="w-full" onClick={() => onOnboard(request)}>
-            Onboard as merchant
-          </Button>
-        ) : null
-      ) : null}
-    >
+    <>
+      <Drawer
+        open={Boolean(id)}
+        onOpenChange={onOpenChange}
+        title={request?.businessName ?? "Merchant application"}
+        subtitle={request ? `Submitted ${dateTime(request.createdAt)}` : undefined}
+        footer={request ? (
+          converted && request.merchantId ? (
+            <Button className="w-full" onClick={() => onViewMerchant(request.merchantId!)}>
+              <ArrowUpRight aria-hidden /> View merchant
+            </Button>
+          ) : isNew ? (
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                variant="destructive"
+                disabled={reject.isPending}
+                onClick={() => setConfirmReject(true)}
+              >
+                Reject request
+              </Button>
+              <Button className="flex-1" onClick={() => onOnboard(request)}>
+                Onboard as merchant
+              </Button>
+            </div>
+          ) : null
+        ) : null}
+      >
       {detail.isLoading ? (
         <p className="text-[13px] text-muted-foreground">Loading application…</p>
       ) : detail.error ? (
         <ErrorNote>{apiMessage(detail.error, "This application is unavailable.")}</ErrorNote>
       ) : request ? (
         <div className="flex flex-col gap-5">
+          {reject.error ? <ErrorNote>{apiMessage(reject.error, "This request could not be rejected.")}</ErrorNote> : null}
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={converted ? "good" : "warn"}>{converted ? "Converted" : "New request"}</Badge>
+            <Badge variant={converted ? "good" : rejected ? "bad" : "warn"}>
+              {converted ? "Converted" : rejected ? "Rejected" : "New request"}
+            </Badge>
             {converted && request.merchantId ? <Badge variant="outline">Merchant linked</Badge> : null}
           </div>
 
@@ -221,14 +249,31 @@ function RegistrationRequestDrawer({
             <p className="flex items-center gap-2 rounded-md border border-status-good/30 bg-status-good/10 px-3 py-2 text-[12px] text-status-good">
               <CheckCircle2 className="size-4 shrink-0" aria-hidden /> This application is retained for reference and is read-only.
             </p>
+          ) : rejected ? (
+            <p className="rounded-md border border-status-bad/30 bg-status-bad/10 px-3 py-2 text-[12px] text-status-bad">
+              This request was rejected. It is retained for audit but hidden from the Requests list.
+            </p>
           ) : (
             <p className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
-              <Clock3 className="size-4 shrink-0" aria-hidden /> Canceling onboarding leaves this request new and available for review.
+              <Clock3 className="size-4 shrink-0" aria-hidden /> Closing this panel leaves the request new. Rejecting it hides it from the list; no SMS is sent.
             </p>
           )}
         </div>
       ) : null}
-    </Drawer>
+      </Drawer>
+      <ConfirmDialog
+        open={confirmReject && Boolean(request && isNew)}
+        onOpenChange={setConfirmReject}
+        title="Reject merchant request?"
+        objectName={request?.businessName ?? "Merchant application"}
+        body="The request will be marked rejected and removed from the Requests list. It will remain in the system for audit; the applicant will not be sent an SMS."
+        confirmLabel="Reject request"
+        pending={reject.isPending}
+        onConfirm={() => {
+          if (request && isNew) reject.mutate({ id: request.id });
+        }}
+      />
+    </>
   );
 }
 

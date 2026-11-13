@@ -10,7 +10,7 @@ export interface MerchantRegistrationRequest {
   businessType: string;
   monthlyVolume: string;
   notes: string;
-  status: "new" | "converted";
+  status: "new" | "converted" | "rejected";
   merchantId: string | null;
   createdAt: string | Date;
   convertedAt: string | Date | null;

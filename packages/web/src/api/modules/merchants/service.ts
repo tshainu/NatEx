@@ -44,7 +44,7 @@ function publicRegistrationRow(row: MerchantRegistrationRequestRow) {
     businessType: row.businessType,
     monthlyVolume: row.monthlyVolume,
     notes: row.notes,
-    status: row.status as "new" | "converted",
+    status: row.status as "new" | "converted" | "rejected",
     merchantId: row.merchantId,
     createdAt: row.createdAt,
     convertedAt: row.convertedAt,
@@ -323,7 +323,9 @@ export async function listRegistrationRequests(input: {
 }) {
   const page = Math.max(1, input.page);
   const pageSize = Math.min(100, Math.max(1, input.pageSize));
-  const where = input.status ? eq(merchantRegistrationRequest.status, input.status) : undefined;
+  const where = input.status
+    ? eq(merchantRegistrationRequest.status, input.status)
+    : inArray(merchantRegistrationRequest.status, ["new", "converted"]);
   const [rows, [total]] = await Promise.all([
     db
       .select()
@@ -353,6 +355,17 @@ export async function getRegistrationRequest(id: string) {
     .limit(1);
   if (!row) errors.notFound("Merchant registration request");
   return publicRegistrationRow(row!);
+}
+
+/** Reject only a new public application; rejected rows remain auditable but are never listed. */
+export async function rejectRegistrationRequest(id: string) {
+  const [row] = await db
+    .update(merchantRegistrationRequest)
+    .set({ status: "rejected" })
+    .where(and(eq(merchantRegistrationRequest.id, id), eq(merchantRegistrationRequest.status, "new")))
+    .returning({ id: merchantRegistrationRequest.id, status: merchantRegistrationRequest.status });
+  if (!row) errors.conflict("Only a new merchant registration request can be rejected.");
+  return row!;
 }
 
 /** Internal lookup and state transitions used only by the SMS worker. */

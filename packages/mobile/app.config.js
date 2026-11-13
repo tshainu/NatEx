@@ -16,6 +16,10 @@ module.exports = ({ config = {} } = {}) => {
   if (!isMerchant) {
     return {
       ...expo,
+      android: {
+        ...expo.android,
+        softwareKeyboardLayoutMode: "pan",
+      },
       extra: { ...expo.extra, appVariant: "field" },
     };
   }

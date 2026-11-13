@@ -43,6 +43,7 @@ export function Screen({
   scroll = true,
 }: ScreenProps) {
   const colors = useColors();
+  const [footerHeight, setFooterHeight] = React.useState(0);
   const edges = inTabs
     ? (["top", "left", "right"] as const)
     : (["top", "left", "right", "bottom"] as const);
@@ -50,7 +51,11 @@ export function Screen({
   const body = scroll ? (
     <ScrollView
       style={styles.flex}
-      contentContainerStyle={[styles.content, footer ? styles.contentWithFooter : null]}
+      contentContainerStyle={[
+        styles.content,
+        footer ? styles.contentWithFooter : null,
+        footer && footerHeight ? { paddingBottom: footerHeight + Space.page } : null,
+      ]}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         onRefresh ? (
@@ -71,23 +76,26 @@ export function Screen({
 
   return (
     <SafeAreaView edges={edges} style={[styles.flex, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-      >
-        {body}
+      <View style={styles.flex}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
+          {body}
+        </KeyboardAvoidingView>
         {footer ? (
-            <View
-            style={[
-              styles.footer,
-              { backgroundColor: colors.card, borderTopColor: colors.border },
-            ]}
+          <View
+            onLayout={(event) => {
+              const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+              setFooterHeight((current) => current === nextHeight ? current : nextHeight);
+            }}
+            style={[styles.footer, { backgroundColor: colors.card, borderTopColor: colors.border }]}
           >
             {footer}
           </View>
         ) : null}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -139,8 +147,8 @@ const styles = StyleSheet.create({
     gap: Space.unit * 2,
   },
   contentWithFooter: {
-    // Enough room that the pinned footer never covers the last row.
-    paddingBottom: Space.primaryButtonHeight + Space.page * 2,
+    // Fallback before the pinned footer's first onLayout measurement.
+    paddingBottom: Space.primaryButtonHeight * 2 + Space.page * 3,
   },
   footer: {
     padding: Space.page,

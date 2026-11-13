@@ -39,6 +39,20 @@ export const registrationRequest = adminProc
   .input(z.object({ id: z.string().min(1).max(100) }))
   .handler(({ input }) => merchantsService.getRegistrationRequest(input.id));
 
+export const rejectRegistrationRequest = adminProc
+  .input(z.object({ id: z.string().min(1).max(100) }))
+  .handler(({ input, context }) => mutate(
+    context,
+    input,
+    {
+      route: "merchants.rejectRegistrationRequest",
+      entity: "merchants_registration_request",
+      entityId: (result) => (result as { id: string }).id,
+      action: "merchant.registration_request_rejected",
+    },
+    () => merchantsService.rejectRegistrationRequest(input.id),
+  ));
+
 export const onboardingRequests = opsProc
   .input(z.object({
     page: z.number().int().min(1).default(1),
@@ -208,6 +222,7 @@ export const merchantAdmin = {
   registrationRequests,
   registrationRequestCount,
   registrationRequest,
+  rejectRegistrationRequest,
   onboardingRequests,
   onboardingRequestCount,
   onboardingRequest,
