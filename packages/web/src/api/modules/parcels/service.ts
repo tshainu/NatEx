@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, like, lte, lt, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import { awbBatchLabel, parcel, parcelEvent, retiredTrackingNumber } from "../../database/schema/parcels";
@@ -31,6 +31,7 @@ import {
   requiresPod,
   requiresSealedBag,
   roleMayCommand,
+  PARCEL_STATUSES,
   TRANSITION_ROLES,
   TERMINAL_STATUSES as TERMINAL_LIST,
   type ParcelStatus,
@@ -379,6 +380,186 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
     page: Math.max(input.page, 1),
     pageSize,
   };
+}
+
+export interface ParcelStatusAgingInput {
+  page: number;
+  pageSize: number;
+  branchId?: string;
+  status?: ParcelStatus;
+  includeTerminal?: boolean;
+  search?: string;
+  enteredFrom?: string;
+  enteredTo?: string;
+  minimumAgeHours?: number;
+}
+
+export interface ParcelStatusAgingRow {
+  id: string;
+  awb: string;
+  status: ParcelStatus;
+  branchId: string;
+  statusSince: Date;
+  ageMinutes: number;
+}
+
+const OPEN_AGING_STATUSES = PARCEL_STATUSES.filter(
+  (status) => !TERMINAL_LIST.includes(status),
+);
+
+/**
+ * Read-only parcel aging query. `authorizedBranchIds` is resolved by the API
+ * route from identity data; null is reserved for a global Admin read and [] is
+ * an empty scope. The event log is append-only, so the latest real transition
+ * into the current status is the stage start; same-status events do not reset it.
+ */
+export async function parcelStatusAging(
+  input: ParcelStatusAgingInput,
+  authorizedBranchIds: readonly string[] | null,
+  now: Date = new Date(),
+) {
+  if (input.enteredFrom && input.enteredTo && input.enteredFrom > input.enteredTo) {
+    errors.badRequest("The status-entered start date must be on or before the end date.");
+  }
+
+  const stageEvents = db
+    .select({
+      parcelId: parcelEvent.parcelId,
+      status: parcelEvent.toStatus,
+      statusSince: sql<number>`max(${parcelEvent.ts})`.as("status_since"),
+    })
+    .from(parcelEvent)
+    .where(sql`(${parcelEvent.fromStatus} is null or ${parcelEvent.fromStatus} <> ${parcelEvent.toStatus})`)
+    .groupBy(parcelEvent.parcelId, parcelEvent.toStatus)
+    .as("parcel_status_stage_events");
+  const stageJoin = and(
+    eq(stageEvents.parcelId, parcel.id),
+    eq(stageEvents.status, parcel.status),
+  );
+  const statusSinceExpr = sql<number>`coalesce(${stageEvents.statusSince}, ${parcel.createdAt})`;
+  const filters = [
+    authorizedBranchIds === null
+      ? undefined
+      : authorizedBranchIds.length
+        ? inArray(parcel.branchId, [...authorizedBranchIds])
+        : sql`0 = 1`,
+    input.branchId ? eq(parcel.branchId, input.branchId) : undefined,
+    input.status
+      ? eq(parcel.status, input.status)
+      : input.includeTerminal
+        ? undefined
+        : inArray(parcel.status, OPEN_AGING_STATUSES),
+    input.search?.trim()
+      ? like(parcel.awb, `%${input.search.trim().toUpperCase()}%`)
+      : undefined,
+  ];
+
+  const fromSeconds = input.enteredFrom
+    ? Math.floor(new Date(`${input.enteredFrom}T00:00:00+05:30`).getTime() / 1000)
+    : undefined;
+  const toExclusiveSeconds = input.enteredTo
+    ? Math.floor(new Date(`${addDays(input.enteredTo, 1)}T00:00:00+05:30`).getTime() / 1000)
+    : undefined;
+  if (fromSeconds !== undefined) filters.push(gte(statusSinceExpr, fromSeconds));
+  if (toExclusiveSeconds !== undefined) filters.push(lt(statusSinceExpr, toExclusiveSeconds));
+  if (input.minimumAgeHours !== undefined) {
+    const oldestStatusSince = Math.floor(now.getTime() / 1000 - input.minimumAgeHours * 3600);
+    filters.push(lte(statusSinceExpr, oldestStatusSince));
+  }
+
+  const where = and(...filters.filter((filter) => filter !== undefined));
+  const page = Math.max(1, Math.trunc(input.page));
+  const pageSize = Math.min(Math.max(1, Math.trunc(input.pageSize)), 100);
+  const offset = (page - 1) * pageSize;
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: parcel.id,
+        awb: parcel.awb,
+        status: parcel.status,
+        branchId: parcel.branchId,
+        statusSince: statusSinceExpr,
+      })
+      .from(parcel)
+      .leftJoin(stageEvents, stageJoin)
+      .where(where)
+      .orderBy(asc(statusSinceExpr), asc(parcel.awb))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ value: count() })
+      .from(parcel)
+      .leftJoin(stageEvents, stageJoin)
+      .where(where),
+  ]);
+
+  return {
+    rows: rows.map((row) => {
+      const statusSince = new Date(Number(row.statusSince) * 1000);
+      return {
+        id: row.id,
+        awb: row.awb,
+        status: row.status as ParcelStatus,
+        branchId: row.branchId,
+        statusSince,
+        ageMinutes: Math.max(0, Math.floor((now.getTime() - statusSince.getTime()) / 60_000)),
+      } satisfies ParcelStatusAgingRow;
+    }),
+    total: total?.value ?? 0,
+    page,
+    pageSize,
+  };
+}
+
+/** Expected-COD parcel rows for the COD report; excludes parcels with no COD. */
+export async function expectedCodParcelsForReport(
+  input: {
+    enteredFrom: string;
+    enteredTo: string;
+    branchId?: string;
+    page: number;
+    pageSize: number;
+  },
+  authorizedBranchIds: readonly string[] | null,
+) {
+  if (input.enteredFrom > input.enteredTo) {
+    errors.badRequest("The COD report start date must be on or before the end date.");
+  }
+  const start = new Date(`${input.enteredFrom}T00:00:00+05:30`);
+  const end = new Date(`${addDays(input.enteredTo, 1)}T00:00:00+05:30`);
+  const filters = [
+    gt(parcel.codAmountCents, 0),
+    gte(parcel.createdAt, start),
+    lt(parcel.createdAt, end),
+    authorizedBranchIds === null
+      ? undefined
+      : authorizedBranchIds.length
+        ? inArray(parcel.branchId, [...authorizedBranchIds])
+        : sql`0 = 1`,
+    input.branchId ? eq(parcel.branchId, input.branchId) : undefined,
+  ];
+  const where = and(...filters.filter((filter) => filter !== undefined));
+  const page = Math.max(1, Math.trunc(input.page));
+  const pageSize = Math.min(Math.max(1, Math.trunc(input.pageSize)), 100);
+  const offset = (page - 1) * pageSize;
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: parcel.id,
+        awb: parcel.awb,
+        branchId: parcel.branchId,
+        expectedCents: parcel.codAmountCents,
+        status: parcel.status,
+        bookedAt: parcel.createdAt,
+      })
+      .from(parcel)
+      .where(where)
+      .orderBy(desc(parcel.createdAt), asc(parcel.awb))
+      .limit(pageSize)
+      .offset(offset),
+    db.select({ value: count() }).from(parcel).where(where),
+  ]);
+  return { rows, total: total?.value ?? 0, page, pageSize };
 }
 
 /** Status counts for the ops board header. Branch-scoped like everything else. */

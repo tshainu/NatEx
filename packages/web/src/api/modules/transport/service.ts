@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { db } from "../../database";
+import { gte, lt } from "drizzle-orm";
 import {
   bag,
   bagItem,
@@ -2059,10 +2060,194 @@ export async function transportCounts(scope: Principal) {
   };
 }
 
+export interface ParcelAgingEnrichment {
+  lastScanAt: Date | null;
+  lastScanBranchId: string | null;
+  tripEta: Date | null;
+}
+
+/**
+ * Transport-owned, read-only enrichment for parcel-aging rows already scoped
+ * by the parcels API: latest accepted parcel scan and ETA for a live departed
+ * trip. Precise GPS, actor names, and rejected scans are intentionally omitted.
+ */
+export async function parcelAgingEnrichment(
+  parcelIds: readonly string[],
+): Promise<Record<string, ParcelAgingEnrichment>> {
+  const ids = [...new Set(parcelIds.filter(Boolean))];
+  const result: Record<string, ParcelAgingEnrichment> = Object.fromEntries(
+    ids.map((id) => [id, { lastScanAt: null, lastScanBranchId: null, tripEta: null }]),
+  );
+  if (!ids.length) return result;
+
+  const [scanRows, tripRows] = await Promise.all([
+    db
+      .select({
+        parcelId: hubScan.parcelId,
+        branchId: hubScan.hubId,
+        fallbackBranchId: hubScan.branchId,
+        ts: hubScan.ts,
+      })
+      .from(hubScan)
+      .where(and(inArray(hubScan.parcelId, ids), eq(hubScan.outcome, "accepted")))
+      .orderBy(desc(hubScan.ts)),
+    db
+      .select({ parcelId: bagItem.parcelId, expectedArrivalAt: trip.expectedArrivalAt })
+      .from(bagItem)
+      .innerJoin(bag, eq(bag.id, bagItem.bagId))
+      .innerJoin(trip, eq(trip.id, bag.tripId))
+      .where(
+        and(
+          inArray(bagItem.parcelId, ids),
+          isNull(bagItem.removedAt),
+          eq(bag.status, "in_transit"),
+          eq(trip.status, "departed"),
+        ),
+      ),
+  ]);
+
+  const seenScans = new Set<string>();
+  for (const row of scanRows) {
+    if (!row.parcelId || seenScans.has(row.parcelId)) continue;
+    seenScans.add(row.parcelId);
+    result[row.parcelId] = {
+      ...result[row.parcelId]!,
+      lastScanAt: row.ts,
+      lastScanBranchId: row.branchId ?? row.fallbackBranchId,
+    };
+  }
+  for (const row of tripRows) {
+    if (row.expectedArrivalAt) {
+      result[row.parcelId] = { ...result[row.parcelId]!, tripEta: row.expectedArrivalAt };
+    }
+  }
+  return result;
+}
+
 /** Total bag rows — used by the seed script to stay idempotent. */
 export async function bagCount(): Promise<number> {
   const [row] = await db.select({ value: count() }).from(bag);
   return row?.value ?? 0;
+}
+
+export interface MovementReportInput {
+  from: string;
+  to: string;
+  branchId?: string;
+  hubId?: string;
+  page: number;
+  pageSize: number;
+}
+
+/** A privacy-minimal row from the append-only hub scan ledger. */
+export interface MovementReportRow {
+  id: string;
+  timestamp: Date;
+  kind: string;
+  outcome: string;
+  reason: string | null;
+  awb: string | null;
+  bagCode: string | null;
+  tripCode: string | null;
+  branchId: string;
+  branchName: string;
+  hubId: string | null;
+  hubName: string | null;
+}
+
+/**
+ * Read-only Hub & Bag Movement report. All dates are inclusive Asia/Colombo
+ * calendar dates; the query uses a half-open UTC range at the DB boundary.
+ * Admin is network-wide. Ops is bounded to its assigned branch/hub and direct
+ * child branches, and optional location filters can only narrow that scope.
+ */
+export async function movementReport(input: MovementReportInput, scope: Principal) {
+  if (input.from > input.to) {
+    errors.badRequest("The movement report start date must be on or before the end date.");
+  }
+  const authorizedBranchIds = scope.role === "admin"
+    ? null
+    : await identity.operationsBranchScope(scope.branchId);
+  for (const locationId of [input.branchId, input.hubId]) {
+    if (locationId && authorizedBranchIds !== null && !authorizedBranchIds.includes(locationId)) {
+      errors.forbidden("You may only report on your assigned branch/hub and its direct child branches.");
+    }
+  }
+
+  const from = new Date(`${input.from}T00:00:00+05:30`);
+  const toExclusive = new Date(`${addColomboDay(input.to)}T00:00:00+05:30`);
+  const filters = [
+    gte(hubScan.ts, from),
+    lt(hubScan.ts, toExclusive),
+    authorizedBranchIds === null
+      ? undefined
+      : authorizedBranchIds.length
+        ? or(
+            inArray(hubScan.branchId, authorizedBranchIds),
+            inArray(hubScan.hubId, authorizedBranchIds),
+          )
+        : sql`0 = 1`,
+    input.branchId ? eq(hubScan.branchId, input.branchId) : undefined,
+    input.hubId ? eq(hubScan.hubId, input.hubId) : undefined,
+  ].filter((filter) => filter !== undefined);
+  const where = and(...filters);
+  const page = Math.max(1, Math.trunc(input.page));
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(input.pageSize)));
+  const offset = (page - 1) * pageSize;
+  const [rows, [totalRow], allBranches] = await Promise.all([
+    db
+      .select({
+        id: hubScan.id,
+        timestamp: hubScan.ts,
+        kind: hubScan.kind,
+        outcome: hubScan.outcome,
+        reason: hubScan.reason,
+        awb: hubScan.awb,
+        branchId: hubScan.branchId,
+        hubId: hubScan.hubId,
+        bagCode: bag.code,
+        tripCode: trip.code,
+      })
+      .from(hubScan)
+      .leftJoin(bag, eq(bag.id, hubScan.bagId))
+      .leftJoin(trip, eq(trip.id, hubScan.tripId))
+      .where(where)
+      .orderBy(desc(hubScan.ts), asc(hubScan.id))
+      .limit(pageSize)
+      .offset(offset),
+    db.select({ value: count() }).from(hubScan).where(where),
+    identity.listBranches({ includeInactive: true }),
+  ]);
+  const allowedBranches = allBranches.filter(
+    (branch) => authorizedBranchIds === null || authorizedBranchIds.includes(branch.id),
+  );
+  const byId = new Map(allBranches.map((branch) => [branch.id, `${branch.code} · ${branch.name}`]));
+  return {
+    rows: rows.map((row) => ({
+      ...row,
+      branchName: byId.get(row.branchId) ?? row.branchId,
+      hubName: row.hubId ? byId.get(row.hubId) ?? row.hubId : null,
+    })),
+    total: totalRow?.value ?? 0,
+    page,
+    pageSize,
+    branches: allowedBranches.map((branch) => ({
+      id: branch.id,
+      code: branch.code,
+      name: branch.name,
+      type: branch.type,
+    })),
+  };
+}
+
+/** Next calendar date in YYYY-MM-DD form, without relying on server timezone. */
+function addColomboDay(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const next = new Date(0);
+  next.setUTCHours(0, 0, 0, 0);
+  next.setUTCFullYear(year!, month! - 1, day! + 1);
+  return `${next.getUTCFullYear().toString().padStart(4, "0")}-${(next.getUTCMonth() + 1)
+    .toString().padStart(2, "0")}-${next.getUTCDate().toString().padStart(2, "0")}`;
 }
 
 export { sql };

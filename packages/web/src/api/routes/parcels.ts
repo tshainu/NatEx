@@ -21,9 +21,20 @@ import {
 } from "../modules/parcels/state-machine";
 import { errors } from "../shared/errors";
 import { isGlobalScope } from "../shared/auth";
-import { getBranch } from "../modules/identity/service";
+import { getBranch, listBranches, operationsBranchScope } from "../modules/identity/service";
+import * as transportService from "../modules/transport/service";
 
 const statusEnum = z.enum(PARCEL_STATUSES as unknown as [string, ...string[]]);
+const colomboDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(0);
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCFullYear(year!, month! - 1, day!);
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month! - 1 && date.getUTCDate() === day;
+  }, "Enter a valid calendar date.");
 
 /** Only the transitions this milestone exposes are accepted at the edge (§10). */
 const enabledStatusEnum = z.enum(ENABLED_STATUSES as unknown as [string, ...string[]]);
@@ -52,6 +63,73 @@ export const list = readProc
       context.principal,
     ),
   );
+
+/** Read-only parcel status and aging report; branch scope is resolved server-side. */
+export const statusAging = opsProc
+  .input(
+    z.object({
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(25),
+      status: statusEnum.optional(),
+      includeTerminal: z.boolean().default(false),
+      branchId: z.string().min(1).optional(),
+      search: z.string().trim().max(60).optional(),
+      enteredFrom: colomboDateSchema.optional(),
+      enteredTo: colomboDateSchema.optional(),
+      minimumAgeHours: z.number().int().min(0).max(8760).optional(),
+    }),
+  )
+  .handler(async ({ input, context }) => {
+    const isAdmin = context.principal.role === "admin";
+    const authorizedBranchIds = isAdmin
+      ? null
+      : await operationsBranchScope(context.principal.branchId);
+    if (
+      input.branchId &&
+      authorizedBranchIds !== null &&
+      !authorizedBranchIds.includes(input.branchId)
+    ) {
+      errors.forbidden("You may only report on your assigned branch and its child branches.");
+    }
+
+    const [result, allBranches] = await Promise.all([
+      parcelsService.parcelStatusAging(
+        { ...input, status: input.status as ParcelStatus | undefined },
+        authorizedBranchIds,
+      ),
+      listBranches({ includeInactive: true }),
+    ]);
+    const branchLabelById = new Map(
+      allBranches.map((branch) => [branch.id, `${branch.code} · ${branch.name}`]),
+    );
+    const branches = allBranches
+      .filter((branch) => authorizedBranchIds === null || authorizedBranchIds.includes(branch.id))
+      .map((branch) => ({
+        id: branch.id,
+        code: branch.code,
+        name: branch.name,
+        type: branch.type,
+        parentHubId: branch.parentHubId,
+      }));
+    const enrichment = await transportService.parcelAgingEnrichment(result.rows.map((row) => row.id));
+
+    return {
+      ...result,
+      branches,
+      rows: result.rows.map((row) => {
+        const transport = enrichment[row.id];
+        return {
+          ...row,
+          branchName: branchLabelById.get(row.branchId) ?? row.branchId,
+          lastScanAt: transport?.lastScanAt ?? null,
+          lastScanLocation: transport?.lastScanBranchId
+            ? branchLabelById.get(transport.lastScanBranchId) ?? transport.lastScanBranchId
+            : null,
+          tripEta: row.status === "InTransit" ? transport?.tripEta ?? null : null,
+        };
+      }),
+    };
+  });
 
 export const get = readProc
   .input(z.object({ awbOrId: z.string().min(3) }))
@@ -292,6 +370,7 @@ export const track = publicProc
 /** Router namespace — composed into the root router in api/index.ts. */
 export const parcels = {
   list,
+  statusAging,
   get,
   board,
   summary,

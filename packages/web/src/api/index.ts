@@ -4,9 +4,11 @@ import { createApp } from "./__core/app";
 import { startNightly } from "./jobs/nightly";
 import { recordDeliveryReceipt, startWorker } from "./jobs/worker";
 import { cod } from "./routes/cod";
+import { codReport } from "./routes/cod-report";
 import { collection } from "./routes/collection";
 import { dashboard } from "./routes/dashboard";
 import { delivery } from "./routes/delivery";
+import { deliveryReport } from "./routes/delivery-report";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
 import { freight } from "./routes/freight";
@@ -32,6 +34,7 @@ import { routing } from "./routes/routing";
 import { settings } from "./routes/settings";
 import { sync } from "./routes/sync";
 import { transport } from "./routes/transport";
+import { transportReport } from "./routes/transport-report";
 import { awbBatches } from "./routes/awb-batches";
 import { problemResponse, problem } from "./shared/errors";
 import { securityHeaders } from "./middleware/security-headers";
@@ -60,10 +63,12 @@ export const router = {
   collection,
   routing,
   transport,
+  transportReport,
   delivery,
+  deliveryReport,
   ndr,
   notifications,
-  cod,
+  cod: { ...cod, ...codReport },
   finance,
   freight,
   hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll },

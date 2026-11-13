@@ -19,7 +19,7 @@ import { formatLkr } from "../../shared/money";
 import { codLine as codLineFor } from "../notifications/service";
 import { normaliseLkPhone, sendSms } from "../../shared/sms";
 import { NATEX_HOTLINE_NUMBER } from "../../shared/sms-policy";
-import { colomboToday, formatLkDate } from "../../shared/time";
+import { addDays, colomboToday, formatLkDate } from "../../shared/time";
 import {
   getParcelByAwb,
   getParcelById,
@@ -506,6 +506,152 @@ export async function myFailedAttempts(input: { runDate?: string; limit?: number
       retryBlockedReason: decision.allowed ? null : decision.reason,
     };
   });
+}
+
+export interface DeliveryAttemptsReportInput {
+  fromDate?: string;
+  toDate?: string;
+  branchId?: string;
+  outcome?: "delivered" | "failed";
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface DeliveryAttemptsReportRow {
+  awb: string;
+  attemptNo: number;
+  outcome: "delivered" | "failed";
+  failureReason: string | null;
+  timestamp: Date;
+  branchLabel: string | null;
+  riderName: string | null;
+  riderId: string | null;
+  runsheetCode: string | null;
+}
+
+/**
+ * Read-only, operational projection of the append-only attempt log. Assigned
+ * rows are scoped by their runsheet branch; off-runsheet rows are only scoped
+ * after the parcel module proves the parcel's current accountable branch.
+ */
+export async function deliveryAttemptsReport(
+  input: DeliveryAttemptsReportInput,
+  authorizedBranchIds: readonly string[] | null,
+): Promise<{
+  rows: DeliveryAttemptsReportRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  if (input.fromDate && input.toDate && input.fromDate > input.toDate) {
+    errors.badRequest("The attempt start date must be on or before the end date.");
+  }
+  if (input.fromDate && input.toDate) {
+    const spanStart = new Date(`${input.fromDate}T00:00:00+05:30`);
+    const spanEnd = new Date(`${addDays(input.toDate, 1)}T00:00:00+05:30`);
+    if (spanEnd.getTime() - spanStart.getTime() > 366 * 86_400_000) {
+      errors.badRequest("Choose a date range of no more than 366 days.");
+    }
+  }
+
+  const page = Math.max(1, Math.trunc(input.page));
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(input.pageSize)));
+  if (authorizedBranchIds && authorizedBranchIds.length === 0) {
+    return { rows: [], total: 0, page, pageSize };
+  }
+
+  const filters: SQL[] = [];
+  if (input.fromDate) {
+    filters.push(gte(deliveryAttempt.ts, new Date(`${input.fromDate}T00:00:00+05:30`)));
+  }
+  if (input.toDate) {
+    filters.push(lt(deliveryAttempt.ts, new Date(`${addDays(input.toDate, 1)}T00:00:00+05:30`)));
+  }
+  if (input.outcome) filters.push(eq(deliveryAttempt.outcome, input.outcome));
+  if (input.search?.trim()) {
+    const term = input.search.trim().replace(/[%_]/g, "").toUpperCase();
+    filters.push(like(deliveryAttempt.awb, `%${term}%`));
+  }
+  if (authorizedBranchIds !== null) {
+    filters.push(or(
+      inArray(runsheet.branchId, [...authorizedBranchIds]),
+      isNull(runsheet.id),
+    )!);
+  }
+
+  // Select only fields needed by the report. In particular, this query never
+  // selects attempt coordinates, notes, POD data, client/device IDs or secrets.
+  const pageStart = (page - 1) * pageSize;
+  const pageRows: DeliveryAttemptsReportRow[] = [];
+  const branchCache = new Map<string, Awaited<ReturnType<typeof getBranch>>>();
+  let total = 0;
+  let scanOffset = 0;
+  const scanBatchSize = 200;
+  while (true) {
+    const candidates = await db
+      .select({
+        parcelId: deliveryAttempt.parcelId,
+        awb: deliveryAttempt.awb,
+        attemptNo: deliveryAttempt.attemptNo,
+        outcome: deliveryAttempt.outcome,
+        failureReason: deliveryAttempt.reasonLabel,
+        timestamp: deliveryAttempt.ts,
+        riderName: deliveryAttempt.riderName,
+        riderId: deliveryAttempt.riderId,
+        runsheetCode: runsheet.code,
+        runsheetRiderName: runsheet.riderName,
+        runsheetRiderId: runsheet.riderId,
+        runsheetBranchId: runsheet.branchId,
+      })
+      .from(deliveryAttempt)
+      .leftJoin(runsheet, eq(runsheet.id, deliveryAttempt.runsheetId))
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(deliveryAttempt.ts), desc(deliveryAttempt.id))
+      .limit(scanBatchSize)
+      .offset(scanOffset);
+    if (candidates.length === 0) break;
+    scanOffset += candidates.length;
+
+    for (const candidate of candidates) {
+      let branchId: string | null = candidate.runsheetBranchId;
+      let runsheetCode = candidate.runsheetCode;
+      if (!branchId) {
+        // Resolve an off-runsheet attempt's current branch through the parcel
+        // module for both scope checks and Admin's optional branch filter/label.
+        branchId = (await getParcelById(candidate.parcelId))?.branchId ?? null;
+      }
+      if (authorizedBranchIds !== null && (!branchId || !authorizedBranchIds.includes(branchId))) continue;
+      if (input.branchId && branchId !== input.branchId) continue;
+
+      total += 1;
+      if (total <= pageStart || pageRows.length >= pageSize) continue;
+      let branch = branchId ? branchCache.get(branchId) : null;
+      if (branchId && branch === undefined) {
+        branch = await getBranch(branchId);
+        branchCache.set(branchId, branch);
+      }
+      pageRows.push({
+        awb: candidate.awb,
+        attemptNo: candidate.attemptNo,
+        outcome: candidate.outcome as "delivered" | "failed",
+        failureReason: candidate.outcome === "failed" ? candidate.failureReason : null,
+        timestamp: candidate.timestamp,
+        branchLabel: branch ? `${branch.code} · ${branch.name}` : null,
+        riderName: candidate.riderName ?? candidate.runsheetRiderName ?? null,
+        riderId: candidate.riderId ?? candidate.runsheetRiderId ?? null,
+        runsheetCode: runsheetCode ?? null,
+      });
+    }
+    if (candidates.length < scanBatchSize) break;
+  }
+
+  return {
+    rows: pageRows,
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function reattemptFailedParcel(

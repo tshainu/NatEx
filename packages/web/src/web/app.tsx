@@ -26,6 +26,10 @@ import OpsMerchants from "./pages/ops/merchants";
 import OpsRunsheets from "./pages/ops/runsheets";
 import OpsNdr from "./pages/ops/ndr";
 import OpsCodLedger from "./pages/ops/cod-ledger";
+import OpsParcelAging from "./pages/ops/reports/parcels";
+import OpsHubMovement from "./pages/ops/reports/movement";
+import OpsCodReconciliation from "./pages/ops/reports/cod";
+import OpsDeliveryAttemptsReport from "./pages/ops/reports/delivery";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
 import AdminMerchantUsers from "./pages/admin/merchant-users";
@@ -159,6 +163,18 @@ function Routes() {
       </Portal>
       <Portal path="/ops/cod">
         <OpsCodLedger />
+      </Portal>
+      <Portal path="/ops/reports/parcels">
+        <OpsParcelAging />
+      </Portal>
+      <Portal path="/ops/reports/delivery">
+        <OpsDeliveryAttemptsReport />
+      </Portal>
+      <Portal path="/ops/reports/movement">
+        <OpsHubMovement />
+      </Portal>
+      <Portal path="/ops/reports/cod">
+        <OpsCodReconciliation />
       </Portal>
 
       {/* Transport — Milestone 2: bagging, linehaul, hub-to-hub receipt, custody */}

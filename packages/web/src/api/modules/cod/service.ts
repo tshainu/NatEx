@@ -13,7 +13,7 @@
  * `reverseEntry()` is the only way to undo anything.
  */
 
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "../../database";
 import {
   codDeposit,
@@ -1116,6 +1116,148 @@ export async function dailyFlow(days: number, now: Date = new Date(), branchIds?
     else if (entry.type === "SETTLE") day.settledCents += entry.amountCents;
   }
   return [...byDay.values()];
+}
+
+export interface CodReconciliationReportRow {
+  date: string;
+  branchId: string | null;
+  collectedCents: number;
+  depositedCents: number;
+  bankedCents: number;
+  settledCents: number;
+  varianceCents: number;
+  entryCount: number;
+}
+
+/**
+ * Read-only four-checkpoint COD flow by Colombo day and branch. Reversal pairs
+ * are resolved against the ledger before date-range totals are grouped, so a
+ * reversal recorded after the requested period still removes the original from
+ * the report. Money remains integer cents throughout.
+ */
+export async function codReconciliationReport(
+  input: { enteredFrom: string; enteredTo: string; page: number; pageSize: number },
+  authorizedBranchIds: readonly string[] | null,
+  selectedBranchId?: string,
+) {
+  if (input.enteredFrom > input.enteredTo) {
+    errors.badRequest("The COD report start date must be on or before the end date.");
+  }
+  if (
+    selectedBranchId &&
+    authorizedBranchIds !== null &&
+    !authorizedBranchIds.includes(selectedBranchId)
+  ) {
+    errors.forbidden("The requested branch is outside your authorized report scope.");
+  }
+
+  const start = new Date(`${input.enteredFrom}T00:00:00+05:30`);
+  const end = new Date(`${addDays(input.enteredTo, 1)}T00:00:00+05:30`);
+  const conditions = [
+    gte(codEntry.ts, start),
+    lt(codEntry.ts, end),
+    authorizedBranchIds === null
+      ? undefined
+      : authorizedBranchIds.length
+        ? inArray(codEntry.branchId, [...authorizedBranchIds])
+        : sql`1 = 0`,
+    selectedBranchId ? eq(codEntry.branchId, selectedBranchId) : undefined,
+  ];
+  const rangeRows = await db
+    .select()
+    .from(codEntry)
+    .where(and(...conditions.filter((condition) => condition !== undefined)))
+    .orderBy(asc(codEntry.ts), asc(codEntry.seq));
+  const rangeIds = new Set(rangeRows.map((row) => row.id));
+  const periodEntryIds = rangeRows.filter((row) => row.type !== "REVERSAL").map((row) => row.id);
+  const reversalRows = periodEntryIds.length
+    ? await db
+        .select()
+        .from(codEntry)
+        .where(inArray(codEntry.reversalOfId, periodEntryIds))
+    : [];
+  const liveRangeRows = liveEntries([...rangeRows, ...reversalRows]).filter(
+    (row) => rangeIds.has(row.id) && row.type !== "REVERSAL",
+  );
+
+  const groups = new Map<string, { branchId: string | null; date: string; entries: CodEntryRow[] }>();
+  for (const row of liveRangeRows) {
+    const date = colomboToday(row.ts);
+    const key = `${date}\u0000${row.branchId ?? ""}`;
+    const group = groups.get(key) ?? { branchId: row.branchId, date, entries: [] };
+    group.entries.push(row);
+    groups.set(key, group);
+  }
+
+  const rows: CodReconciliationReportRow[] = [...groups.values()].map((group) => {
+    const checkpoints = fourWay(group.entries);
+    const varianceCents = group.entries.reduce((sum, row) => {
+      if (row.type !== "VARIANCE") return sum;
+      if (row.debitAccount === ACCOUNTS.CASH_VARIANCE) return sum + row.amountCents;
+      if (row.creditAccount === ACCOUNTS.CASH_VARIANCE) return sum - row.amountCents;
+      return sum;
+    }, 0);
+    return {
+      date: group.date,
+      branchId: group.branchId,
+      collectedCents: checkpoints.collectedCents,
+      depositedCents: checkpoints.depositedCents,
+      bankedCents: checkpoints.bankedCents,
+      settledCents: checkpoints.settledCents,
+      varianceCents,
+      entryCount: group.entries.length,
+    };
+  }).sort((a, b) => b.date.localeCompare(a.date) || (a.branchId ?? "").localeCompare(b.branchId ?? ""));
+
+  const page = Math.max(1, Math.trunc(input.page));
+  const pageSize = Math.min(Math.max(1, Math.trunc(input.pageSize)), 100);
+  const offset = (page - 1) * pageSize;
+  const totals = rows.reduce(
+    (summary, row) => ({
+      collectedCents: summary.collectedCents + row.collectedCents,
+      depositedCents: summary.depositedCents + row.depositedCents,
+      bankedCents: summary.bankedCents + row.bankedCents,
+      settledCents: summary.settledCents + row.settledCents,
+      varianceCents: summary.varianceCents + row.varianceCents,
+      entryCount: summary.entryCount + row.entryCount,
+    }),
+    {
+      collectedCents: 0,
+      depositedCents: 0,
+      bankedCents: 0,
+      settledCents: 0,
+      varianceCents: 0,
+      entryCount: 0,
+    },
+  );
+  return { rows: rows.slice(offset, offset + pageSize), total: rows.length, page, pageSize, totals };
+}
+
+/**
+ * COLLECT ledger facts for parcel IDs already selected by the parcels module.
+ * The caller must obtain IDs through the parcel service's authorized branch
+ * query; this function deliberately accepts IDs rather than reading parcels.
+ */
+export async function collectionFactsForReport(parcelIds: readonly string[]) {
+  if (parcelIds.length === 0) return [];
+  const rows = await db
+    .select()
+    .from(codEntry)
+    .where(inArray(codEntry.parcelId, [...parcelIds]));
+  const liveCollections = liveEntries(rows).filter((row) => row.type === "COLLECT");
+  const byParcel = new Map<string, { parcelId: string; collectedCents: number; collectedAt: Date | null }>();
+  for (const row of liveCollections) {
+    if (!row.parcelId) continue;
+    const existing = byParcel.get(row.parcelId) ?? {
+      parcelId: row.parcelId,
+      collectedCents: 0,
+      collectedAt: null,
+    };
+    existing.collectedCents += row.amountCents;
+    if (!existing.collectedAt || row.ts > existing.collectedAt) existing.collectedAt = row.ts;
+    byParcel.set(row.parcelId, existing);
+  }
+  return [...byParcel.values()];
 }
 
 /** Paged ledger browser for the finance portal (§10 M4 "ledger browser"). */

@@ -37,10 +37,24 @@ await setup.execute(`CREATE TABLE delivery_runsheet (
   optimised_at INTEGER, dispatched_at INTEGER, closed_at INTEGER, created_at INTEGER NOT NULL,
   created_by_name TEXT
 )`);
+await setup.execute(`CREATE TABLE transport_bag (
+  id TEXT PRIMARY KEY, status TEXT NOT NULL, trip_id TEXT
+)`);
+await setup.execute(`CREATE TABLE transport_bag_item (
+  id TEXT PRIMARY KEY, bag_id TEXT NOT NULL, parcel_id TEXT NOT NULL, removed_at INTEGER
+)`);
+await setup.execute(`CREATE TABLE transport_trip (
+  id TEXT PRIMARY KEY, status TEXT NOT NULL, expected_arrival_at INTEGER
+)`);
+await setup.execute(`CREATE TABLE transport_hub_scan (
+  id TEXT PRIMARY KEY, parcel_id TEXT, branch_id TEXT NOT NULL, hub_id TEXT,
+  outcome TEXT NOT NULL, ts INTEGER NOT NULL
+)`);
 
 const { colomboToday } = await import("../../shared/time");
 const parcels = await import("./service");
 const delivery = await import("../delivery/service");
+const transport = await import("../transport/service");
 
 type Scope = import("../../shared/auth").Principal;
 const branchA = "scope_test_branch_a";
@@ -117,6 +131,44 @@ for (const [i, [parcelId, status]] of [
     args: [`scope_event_${i}`, parcelId, status, `Actor ${parcelId}`, nowSeconds + i],
   });
 }
+await setup.execute({
+  sql: "UPDATE parcels_parcel SET created_at = ? WHERE id = ?",
+  args: [nowSeconds - 10_800, "scope_a_hold"],
+});
+await setup.execute({
+  sql: "UPDATE parcels_parcel_event SET ts = ? WHERE id = ?",
+  args: [nowSeconds - 7_200, "scope_event_2"],
+});
+await setup.execute({
+  sql: `INSERT INTO parcels_parcel_event
+    (id, parcel_id, from_status, to_status, actor_role, ts)
+    VALUES ('scope_event_same_status', 'scope_a_hold', 'OnHold', 'OnHold', 'ops', ?)`,
+  args: [nowSeconds - 300],
+});
+await setup.execute({
+  sql: `INSERT INTO transport_trip (id, status, expected_arrival_at)
+    VALUES ('scope_trip', 'departed', ?)`,
+  args: [nowSeconds + 3_600],
+});
+await setup.execute({
+  sql: `INSERT INTO transport_bag (id, status, trip_id)
+    VALUES ('scope_bag', 'in_transit', 'scope_trip')`,
+});
+await setup.execute({
+  sql: `INSERT INTO transport_bag_item (id, bag_id, parcel_id, removed_at)
+    VALUES ('scope_bag_item', 'scope_bag', 'scope_a_hold', NULL)`,
+});
+for (const [id, branchId, outcome, ts] of [
+  ["scope_scan_old", branchA, "accepted", nowSeconds - 600],
+  ["scope_scan_new", branchB, "accepted", nowSeconds - 300],
+  ["scope_scan_rejected", branchA, "rejected", nowSeconds - 60],
+] as const) {
+  await setup.execute({
+    sql: `INSERT INTO transport_hub_scan (id, parcel_id, branch_id, hub_id, outcome, ts)
+      VALUES (?, 'scope_a_hold', ?, ?, ?, ?)`,
+    args: [id, branchId, branchId, outcome, ts],
+  });
+}
 
 const today = colomboToday();
 const runsheetRows = [
@@ -150,7 +202,7 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
 
     expect(Object.fromEntries(counts.map((row) => [row.status, row.count]))).toEqual({ Delivered: 1, OnHold: 1 });
     expect(new Set(stream.rows.map((row) => row.id))).toEqual(new Set(["scope_a_local", "scope_a_hold"]));
-    expect(events.length).toBe(3);
+    expect(events.length).toBe(4);
     expect(events.every((event) => event.parcelId !== "scope_b_cross")).toBe(true);
     expect(trends.totals.booked).toBe(2);
     expect(trends.totals.delivered).toBe(1);
@@ -193,6 +245,44 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
     expect(await parcels.recentEvents(missingBranch)).toEqual([]);
     expect((await parcels.listParcels({ page: 1, pageSize: 100 }, missingBranch)).total).toBe(0);
     expect((await parcels.parcelTrends(missingBranch, 14, now)).totals.booked).toBe(0);
+  });
+
+  test("parcel aging uses current-stage entry, Colombo dates, and authorized branches", async () => {
+    const ageNow = new Date(nowSeconds * 1000);
+    const enteredDate = colomboToday(new Date((nowSeconds - 7_200) * 1000));
+    const scoped = await parcels.parcelStatusAging(
+      { page: 1, pageSize: 100, enteredFrom: enteredDate, enteredTo: enteredDate },
+      [branchA],
+      ageNow,
+    );
+    const tooYoung = await parcels.parcelStatusAging(
+      { page: 1, pageSize: 100, minimumAgeHours: 3 },
+      [branchA],
+      ageNow,
+    );
+    const tampered = await parcels.parcelStatusAging(
+      { page: 1, pageSize: 100, branchId: branchB },
+      [branchA],
+      ageNow,
+    );
+    const network = await parcels.parcelStatusAging(
+      { page: 1, pageSize: 100, includeTerminal: true },
+      null,
+      ageNow,
+    );
+
+    expect(scoped.rows.map((row) => row.awb)).toEqual(["NXSCOPETESTA002"]);
+    expect(scoped.rows[0]?.ageMinutes).toBe(120);
+    expect(tooYoung.total).toBe(0);
+    expect(tampered.total).toBe(0);
+    expect(network.total).toBe(3);
+  });
+
+  test("transport enrichment selects the latest accepted scan and live trip ETA", async () => {
+    const enriched = await transport.parcelAgingEnrichment(["scope_a_hold"]);
+    expect(enriched.scope_a_hold?.lastScanAt?.getTime()).toBe((nowSeconds - 300) * 1000);
+    expect(enriched.scope_a_hold?.lastScanBranchId).toBe(branchB);
+    expect(enriched.scope_a_hold?.tripEta?.getTime()).toBe((nowSeconds + 3_600) * 1000);
   });
 
   test("global admin retains network-wide access while an optional branch filter narrows it", async () => {

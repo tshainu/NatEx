@@ -44,10 +44,12 @@ describe("branch status and optional coordinates (isolated SQLite)", () => {
     const otherHub = await identity.createBranch({ code: "SCOPEH2", name: "Other scope hub", address: "Other Road, Jaffna", type: "hub" });
     const otherChild = await identity.createBranch({ code: "SCOPEC2", name: "Other scope child", address: "Other Child Road, Jaffna", type: "branch", parentHubId: otherHub!.id });
 
-    const hubScope = await identity.codLedgerBranchScope(hub!.id);
+    const hubScope = await identity.operationsBranchScope(hub!.id);
     expect(hubScope).toContain(hub!.id);
     expect(hubScope).toContain(child!.id);
     expect(hubScope).not.toContain(otherChild!.id);
+    expect(await identity.codLedgerBranchScope(hub!.id)).toEqual(hubScope);
+    expect(await identity.operationsBranchScope(child!.id)).toEqual([child!.id]);
     expect(await identity.codLedgerBranchScope(child!.id)).toEqual([child!.id]);
     await expect(identity.createBranch({ code: "SCOPEBAD", name: "Invalid child", address: "Bad Road", type: "branch", parentHubId: "missing-hub" })).rejects.toThrow("does not exist");
     await expect(identity.createBranch({ code: "SCOPEBAD2", name: "Invalid child", address: "Bad Road", type: "branch", parentHubId: child!.id })).rejects.toThrow("marked as a hub");

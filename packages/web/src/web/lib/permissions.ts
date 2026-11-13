@@ -68,6 +68,13 @@ const TRANSPORT_NAV: NavItem[] = [
 
 const TRANSPORT_PATHS = TRANSPORT_NAV.map((item) => item.to);
 
+const REPORTS_NAV: NavItem[] = [
+  { label: "Parcel status & aging", to: "/ops/reports/parcels" },
+  { label: "Delivery & failed attempts", to: "/ops/reports/delivery" },
+  { label: "Hub & bag movement", to: "/ops/reports/movement" },
+  { label: "COD reconciliation", to: "/ops/reports/cod" },
+];
+
 const ADMIN: PortalConfig = {
   portal: "admin",
   name: "Administration",
@@ -181,6 +188,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
     return [
       { title: "Overview", items: OVERVIEW_NAV },
       { title: "Operations", items: OPS.nav },
+      { title: "Reports", items: REPORTS_NAV },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
       { title: "Finance", items: FINANCE.nav },
@@ -189,6 +197,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
   if (role === "ops") {
     return [
       { title: "Operations", items: OPS.nav },
+      { title: "Reports", items: REPORTS_NAV },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Reference", items: ADMIN.nav.filter((item) => OPS_REFERENCE_PATHS.includes(item.to)) },
     ];

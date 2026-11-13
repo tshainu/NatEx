@@ -626,16 +626,21 @@ export async function getBranch(id: string) {
   return row ?? null;
 }
 
-/** Branch IDs authorized for a hub-scoped COD read, derived only from identity data. */
-export async function codLedgerBranchScope(branchId: string): Promise<string[]> {
+/** Branch IDs authorized for an Operations read, derived only from identity data. */
+export async function operationsBranchScope(branchId: string): Promise<string[]> {
   const assigned = await getBranch(branchId);
-  if (!assigned) errors.forbidden("Your assigned branch is unavailable; COD ledger access is blocked.");
+  if (!assigned) errors.forbidden("Your assigned branch is unavailable; Operations access is blocked.");
   if (assigned!.type !== "hub") return [assigned!.id];
   const children = await db
     .select({ id: branch.id })
     .from(branch)
     .where(eq(branch.parentHubId, assigned!.id));
   return [assigned!.id, ...children.map((child) => child.id)];
+}
+
+/** Preserve the COD service contract while sharing the Operations hierarchy rule. */
+export async function codLedgerBranchScope(branchId: string): Promise<string[]> {
+  return operationsBranchScope(branchId);
 }
 
 /** Enforce valid Admin-managed hub/branch relationships at the identity boundary. */
