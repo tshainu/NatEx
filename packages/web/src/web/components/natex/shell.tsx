@@ -1,13 +1,25 @@
 import * as React from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Building2, ShieldCheck } from "lucide-react";
+import { LogOut, Building2, ShieldCheck, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orpc } from "@/lib/api";
 import { navForRoles, rolesOfUser, ROLE_LABEL } from "@/lib/permissions";
 import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+
+const SIDEBAR_COLLAPSED_KEY = "natex.sidebar.collapsed.v1";
+
+function loadCollapsedSidebarGroups(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) ?? "[]");
+    return Array.isArray(saved) ? saved.filter((title): title is string => typeof title === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Portal shell — design.md: fixed 232px left sidebar (--ink-800) carrying the
@@ -23,6 +35,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const user = session!.user;
   const userRoles = rolesOfUser(user);
   const groups = navForRoles(userRoles);
+  const [collapsedGroups, setCollapsedGroups] = React.useState<string[]>(loadCollapsedSidebarGroups);
+
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsedGroups));
+    } catch {
+      // Navigation still works when browser storage is unavailable.
+    }
+  }, [collapsedGroups]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -49,45 +70,67 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="natex-scroll flex-1 overflow-y-auto px-3 py-4">
-          {groups.map((group) => (
-            <div key={group.title} className="mb-5 last:mb-0">
-              <p className="px-2 pb-2 font-display text-[11.5px] font-extrabold uppercase leading-tight tracking-[0.08em] text-text-hi">
-                {group.title}
-              </p>
-              <ul className="space-y-0.5">
-                {group.items.map((item) => {
-                  // Longest prefix wins, so "/merchant" (Dashboard) is not lit
-                  // while "/merchant/book" is the current screen.
-                  const matches = (to: string) =>
-                    location === to || (to !== "/" && location.startsWith(`${to}/`));
-                  const active =
-                    matches(item.to) &&
-                    !group.items.some((o) => o.to.length > item.to.length && matches(o.to));
-                  return (
-                    <li key={item.to}>
-                      <Link
-                        href={item.to}
-                        className={cn(
-                          "flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-[13px] transition-colors duration-120",
-                          "outline-none focus-visible:ring-[3px] focus-visible:ring-brand/40",
-                          active
-                            ? "bg-brand/15 font-semibold text-brand"
-                            : "font-medium text-text-lo hover:bg-ink-700 hover:text-text-hi",
-                        )}
-                      >
-                        <span className="truncate">{item.label}</span>
-                        {item.milestone ? (
-                          <span className="shrink-0 rounded border border-ink-600 px-1 font-mono text-[10px] text-text-lo">
-                            M{item.milestone}
-                          </span>
-                        ) : null}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+          {groups.map((group) => {
+            const groupId = `sidebar-group-${group.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+            const expanded = !collapsedGroups.includes(group.title);
+
+            return (
+              <div key={group.title} className="mb-5 last:mb-0">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={groupId}
+                  onClick={() => setCollapsedGroups((current) =>
+                    current.includes(group.title)
+                      ? current.filter((title) => title !== group.title)
+                      : [...current, group.title],
+                  )}
+                  className="flex min-h-8 w-full items-center justify-between gap-2 rounded px-2 pb-2 text-left font-display text-[11.5px] font-extrabold uppercase leading-tight tracking-[0.08em] text-text-hi transition-colors hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                >
+                  <span>{group.title}</span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3 shrink-0 transition-transform duration-150",
+                      expanded ? "" : "-rotate-90",
+                    )}
+                  />
+                </button>
+                <ul id={groupId} hidden={!expanded} className="space-y-0.5">
+                  {group.items.map((item) => {
+                    // Longest prefix wins, so "/merchant" (Dashboard) is not lit
+                    // while "/merchant/book" is the current screen.
+                    const matches = (to: string) =>
+                      location === to || (to !== "/" && location.startsWith(`${to}/`));
+                    const active =
+                      matches(item.to) &&
+                      !group.items.some((o) => o.to.length > item.to.length && matches(o.to));
+                    return (
+                      <li key={item.to}>
+                        <Link
+                          href={item.to}
+                          className={cn(
+                            "flex items-center justify-between gap-2 rounded-md px-2 py-[7px] text-[13px] transition-colors duration-120",
+                            "outline-none focus-visible:ring-[3px] focus-visible:ring-brand/40",
+                            active
+                              ? "bg-brand/15 font-semibold text-brand"
+                              : "font-medium text-text-lo hover:bg-ink-700 hover:text-text-hi",
+                          )}
+                        >
+                          <span className="truncate">{item.label}</span>
+                          {item.milestone ? (
+                            <span className="shrink-0 rounded border border-ink-600 px-1 font-mono text-[10px] text-text-lo">
+                              M{item.milestone}
+                            </span>
+                          ) : null}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
         </nav>
 
         <div className="border-t border-ink-600 px-4 py-3">
