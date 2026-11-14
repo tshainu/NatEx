@@ -36,6 +36,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const userRoles = rolesOfUser(user);
   const groups = navForRoles(userRoles);
   const [collapsedGroups, setCollapsedGroups] = React.useState<string[]>(loadCollapsedSidebarGroups);
+  const mainRef = React.useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+      mainRef.current.scrollLeft = 0;
+    }
+  }, [location]);
 
   React.useEffect(() => {
     try {
@@ -142,7 +150,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onSignOut={signOut} />
-        <main className="natex-scroll min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <main ref={mainRef} className="natex-scroll min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );
