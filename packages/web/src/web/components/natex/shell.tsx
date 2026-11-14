@@ -54,8 +54,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [collapsedGroups]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <aside className="flex w-[232px] shrink-0 flex-col border-r border-ink-600 bg-ink-800">
+    <div className="fixed inset-0 flex overflow-hidden overscroll-none bg-background">
+      <aside className="flex h-full min-h-0 w-[232px] shrink-0 flex-col border-r border-ink-600 bg-ink-800">
         <div className="border-b border-ink-600 px-5 py-4">
           <Link
             href={groups[0]?.items[0]?.to ?? "/"}
@@ -77,7 +77,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <nav className="natex-scroll flex-1 overflow-y-auto px-3 py-4">
+        <nav className="natex-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
           {groups.map((group) => {
             const groupId = `sidebar-group-${group.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
             const expanded = !collapsedGroups.includes(group.title);
@@ -148,9 +148,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar onSignOut={signOut} />
-        <main ref={mainRef} className="natex-scroll min-h-0 flex-1 overflow-y-auto">
+        <main ref={mainRef} className="natex-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {children}
         </main>
       </div>
