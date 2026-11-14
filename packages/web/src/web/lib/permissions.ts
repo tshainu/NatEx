@@ -188,18 +188,18 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
     return [
       { title: "Overview", items: OVERVIEW_NAV },
       { title: "Operations", items: OPS.nav },
-      { title: "Reports", items: REPORTS_NAV },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
       { title: "Finance", items: FINANCE.nav },
+      { title: "Reports", items: REPORTS_NAV },
     ];
   }
   if (role === "ops") {
     return [
       { title: "Operations", items: OPS.nav },
-      { title: "Reports", items: REPORTS_NAV },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Reference", items: ADMIN.nav.filter((item) => OPS_REFERENCE_PATHS.includes(item.to)) },
+      { title: "Reports", items: REPORTS_NAV },
     ];
   }
   if (role === "transport") {
