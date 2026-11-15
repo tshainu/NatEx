@@ -32,11 +32,11 @@ module.exports = ({ config = {} } = {}) => {
   }));
   plugins = withPluginOptions(plugins, "expo-camera", (options) => ({
     ...options,
-    cameraPermission: "NatEx Merchant uses the camera to scan parcel tracking barcodes.",
+    cameraPermission: "NatEx Merchant uses the camera to scan tracking barcodes and read parcel labels for booking.",
   }));
   plugins = withPluginOptions(plugins, "expo-image-picker", (options) => ({
     ...options,
-    cameraPermission: "NatEx uses the camera only for delivery-related parcel images.",
+    cameraPermission: "NatEx Merchant uses the camera to capture parcel labels for booking and delivery-related parcel images.",
   }));
 
   return {

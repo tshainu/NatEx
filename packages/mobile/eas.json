@@ -14,6 +14,17 @@
       }
     },
     "production": {},
+    "merchant-apk": {
+      "distribution": "internal",
+      "channel": "production",
+      "environment": "production",
+      "env": {
+        "APP_VARIANT": "merchant"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "merchant-production": {
       "distribution": "store",
       "autoIncrement": true,

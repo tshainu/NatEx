@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
 import { randomUUID } from "expo-crypto";
+import Constants from "expo-constants";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { Button } from "../../components/natex/button";
 import { Card, Panel } from "../../components/natex/card";
 import { Input } from "../../components/natex/input";
-import { AddressFields, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "../../components/natex/address-fields";
+import { AddressFields, DISTRICTS_BY_PROVINCE, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "../../components/natex/address-fields";
 import { BarcodeScanner } from "../../components/natex/barcode-scanner";
 import { Screen, ScreenHeader } from "../../components/natex/screen";
 import { Awb, Body, Label, Small, Title } from "../../components/natex/text";
@@ -24,6 +26,8 @@ import {
 import { useColors } from "../../hooks/use-colors";
 import { Space } from "../../constants/theme";
 import { invalidAwbPulse } from "../../lib/feedback";
+import { scanMerchantLabelPhoto } from "../../lib/merchant-label-ocr-native";
+import { mergeMerchantLabelSuggestions, parseMerchantLabelText, type MerchantLabelSuggestions } from "../../lib/merchant-label-ocr";
 
 interface BookingForm {
   orderRef: string;
@@ -84,6 +88,10 @@ export default function MerchantBook() {
   const [successAwb, setSuccessAwb] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [readingLabel, setReadingLabel] = useState(false);
+  const [labelSuggestions, setLabelSuggestions] = useState<MerchantLabelSuggestions | null>(null);
+  const [labelSenderAddress, setLabelSenderAddress] = useState<string | null>(null);
+  const isMerchantBuild = Constants.expoConfig?.extra?.appVariant === "merchant";
   const [checkedAwb, setCheckedAwb] = useState("");
   const lastInvalidAwbPulse = useRef<string | null>(null);
   const keyRef = useRef<string | null>(null);
@@ -147,6 +155,94 @@ export default function MerchantBook() {
   const setDestination = (destAddress: AddressParts) => {
     keyRef.current = null;
     setForm((current) => ({ ...current, destAddress }));
+    setError(null);
+  };
+
+  const scanLabel = async (handwritingCloseUp = false) => {
+    setError(null);
+    if (!isMerchantBuild || Platform.OS === "web") {
+      setError("Full-label OCR is available in the NatEx Merchant mobile app. You can still scan the barcode or enter details manually.");
+      return;
+    }
+
+    setReadingLabel(true);
+    let capturedImageUri: string | null = null;
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setError("Allow camera access to photograph the parcel label, or use the barcode scanner and enter the address manually.");
+        return;
+      }
+
+      const capture = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+      const image = capture.assets?.[0];
+      if (capture.canceled || !image) return;
+      capturedImageUri = image.uri;
+
+      let suggestions = await scanMerchantLabelPhoto(image.uri, DISTRICTS_BY_PROVINCE);
+      if (handwritingCloseUp && suggestions.recognizedText && !suggestions.toAddressText) {
+        suggestions = parseMerchantLabelText(
+          [`TO:\n${suggestions.recognizedText}`],
+          suggestions.awb ? [suggestions.awb] : [],
+          DISTRICTS_BY_PROVINCE,
+        );
+      }
+      if (!suggestions.recognizedText && !suggestions.awb) {
+        setError(handwritingCloseUp
+          ? "No recipient handwriting could be read. Move closer, use bright even light, hold the phone steady, and try again."
+          : "No readable label text or barcode was found. Try a clear, well-lit photo, or enter the details manually.");
+        return;
+      }
+      setLabelSuggestions((current) => current && handwritingCloseUp
+        ? mergeMerchantLabelSuggestions(current, suggestions)
+        : suggestions);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message.toLowerCase() : "";
+      const needsUpdatedBuild = message.includes("native module") || message.includes("expotextextractor") || message.includes("not supported by this app build");
+      setError(needsUpdatedBuild
+        ? "Label OCR needs the updated NatEx Merchant app build. Use the existing barcode scanner or enter the details manually for now."
+        : handwritingCloseUp
+          ? "The handwritten details could not be read. Try a closer, sharper photo in bright even light, or enter them manually."
+          : "The label could not be read. Try a clearer photo, use the barcode scanner, or enter the details manually.");
+    } finally {
+      if (capturedImageUri) {
+        try {
+          const { File } = await import("expo-file-system");
+          new File(capturedImageUri).delete();
+        } catch {
+          setError((current) => `${current ? `${current} ` : ""}The temporary label photo could not be deleted from app storage; clear the app cache in phone settings.`);
+        }
+      }
+      setReadingLabel(false);
+    }
+  };
+
+  const applyLabelSuggestions = () => {
+    if (!labelSuggestions) return;
+    const suggestions = labelSuggestions;
+    keyRef.current = null;
+    lastInvalidAwbPulse.current = null;
+    setForm((current) => {
+      const destination = suggestions.destinationAddress;
+      return {
+        ...current,
+        awb: current.awb.trim() ? current.awb : suggestions.awb ?? current.awb,
+        consigneeName: current.consigneeName.trim() ? current.consigneeName : suggestions.consigneeName ?? current.consigneeName,
+        consigneePhone: current.consigneePhone.trim() ? current.consigneePhone : suggestions.consigneePhone ?? current.consigneePhone,
+        destAddress: {
+          line1: current.destAddress.line1.trim() ? current.destAddress.line1 : destination?.line1 ?? current.destAddress.line1,
+          line2: current.destAddress.line2.trim() ? current.destAddress.line2 : destination?.line2 ?? current.destAddress.line2,
+          district: current.destAddress.district || destination?.district as AddressParts["district"] || current.destAddress.district,
+          province: current.destAddress.province || destination?.province as AddressParts["province"] || current.destAddress.province,
+        },
+      };
+    });
+    setLabelSenderAddress(suggestions.senderAddressText);
+    setLabelSuggestions(null);
     setError(null);
   };
 
@@ -268,7 +364,7 @@ export default function MerchantBook() {
     <Screen
       inTabs
       footer={successAwb ? (
-        <Button title="Book another parcel" onPress={() => { setSuccessAwb(null); setForm(INITIAL); }} />
+        <Button title="Book another parcel" onPress={() => { setSuccessAwb(null); setForm(INITIAL); setLabelSenderAddress(null); setLabelSuggestions(null); }} />
       ) : (
         <Button title="Create booking" loading={booking} disabled={inactive || booking} onPress={() => { void submit(); }} hint={inactive ? "Contact NatEx operations to reactivate your account." : undefined} />
       )}
@@ -301,10 +397,34 @@ export default function MerchantBook() {
         </Card>
       ) : (
         <>
+          {labelSuggestions ? (
+            <Panel>
+              <Title>Review label suggestions</Title>
+              <Small>Check the values before applying. Fields you already entered will be left unchanged.</Small>
+              <Small>Handwriting tip: if the recipient details look unclear, photograph just the complete To/recipient section from close range. Use bright, even light, avoid shadows, and hold the phone steady.</Small>
+              {labelSuggestions.awb ? <Body>Tracking number: {labelSuggestions.awb}</Body> : null}
+              {labelSuggestions.consigneeName ? <Body>Recipient: {labelSuggestions.consigneeName}</Body> : null}
+              {labelSuggestions.consigneePhone ? <Body>Phone: {labelSuggestions.consigneePhone}</Body> : null}
+              {labelSuggestions.toAddressText ? <Small>To on label: {labelSuggestions.toAddressText.replace(/\n/g, " · ")}</Small> : null}
+              {labelSuggestions.senderAddressText ? <Small>From on label: {labelSuggestions.senderAddressText.replace(/\n/g, " · ")}</Small> : null}
+              {labelSuggestions.recognizedText && !labelSuggestions.toAddressText ? <Small>Text found: {labelSuggestions.recognizedText.replace(/\n/g, " · ")}</Small> : null}
+              <Button title="Apply to blank fields" onPress={applyLabelSuggestions} />
+              {isMerchantBuild && Platform.OS !== "web" ? <Button title={readingLabel ? "Reading close-up…" : "Scan handwritten recipient close-up"} variant="secondary" loading={readingLabel} disabled={readingLabel} onPress={() => { void scanLabel(true); }} /> : null}
+              <Button title="Dismiss scan" variant="secondary" onPress={() => setLabelSuggestions(null)} />
+            </Panel>
+          ) : null}
+          {labelSenderAddress ? (
+            <Panel>
+              <Label>FROM ADDRESS ON LABEL</Label>
+              <Body>{labelSenderAddress}</Body>
+              <Small>Bookings use your registered pickup address: {profile.data?.address ?? "not available"}. If it differs from the label, ask NatEx Operations to update the account address. OCR will not change the parcel origin.</Small>
+            </Panel>
+          ) : null}
           <Card>
             <Title>Consignee</Title>
             <Input label="Tracking number (preprinted sticker)" value={form.awb} onChangeText={setAwb} code placeholder="NX1234567890" hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking sticker allocation…" : "Type the tracking number printed on your sticker.")} error={awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null} />
             <Button title="Scan tracking number barcode" variant="secondary" onPress={() => setScanning(true)} />
+            {isMerchantBuild && Platform.OS !== "web" ? <Button title={readingLabel ? "Reading parcel label…" : "Scan full parcel label (OCR)"} variant="secondary" loading={readingLabel} disabled={readingLabel} onPress={() => { void scanLabel(); }} /> : null}
             <Input label="Full name" value={form.consigneeName} onChangeText={set("consigneeName")} autoCapitalize="words" returnKeyType="next" placeholder="Recipient name" />
             <Input label="Phone number" value={form.consigneePhone} onChangeText={set("consigneePhone")} keyboardType="phone-pad" placeholder="077 123 4567" />
             <AddressFields value={form.destAddress} onChange={setDestination} />
