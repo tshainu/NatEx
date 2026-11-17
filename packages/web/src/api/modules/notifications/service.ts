@@ -10,6 +10,7 @@ import {
   assertDeliveryFailureSms,
   containsTrackingMaterial,
   NATEX_HOTLINE_NUMBER,
+  isPositiveCodAmount,
   removeLeadingNatExPrefix,
 } from "../../shared/sms-policy";
 import { prefixedId } from "../../shared/ulid";
@@ -555,6 +556,18 @@ export async function dispatch(input: NotifyInput): Promise<NotifyResult> {
       result: { state: "skipped", reason: "Template is inactive." },
     });
     return { groupId, delivered: false, channel: null, attempts: [] };
+  }
+
+  // This second gate protects already-queued/retried arrivals created before COD-only eligibility.
+  if (
+    template!.key === ARRIVAL_NOTICE_TEMPLATE_KEY &&
+    !isPositiveCodAmount(input.vars.codAmountCents ?? input.vars.codAmount)
+  ) {
+    const reason = "Destination-arrival notice suppressed because the parcel has no COD amount.";
+    const result: ChannelResult = { state: "skipped", reason };
+    attempts.push({ channel: "sms", state: result.state, reason });
+    await logStep({ groupId, template: template!, channel: "sms", step: 1, input, body: "", result });
+    return { groupId, delivered: true, channel: null, attempts };
   }
 
   const ladder = template!.channelOrder

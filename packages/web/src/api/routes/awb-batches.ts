@@ -116,4 +116,18 @@ export const checkBranch = opsProc
     return awbBatchService.checkBranchAwb(input.branchId, input.awb);
   });
 
-export const awbBatches = { list, plannedMerchantBatches, generate, assign, retire, labels, check, checkMany, checkBranch };
+/** Staff booking check; the selected merchant must already be visible in the caller's branch scope. */
+export const checkForMerchantBooking = opsProc
+  .input(z.object({
+    merchantId: z.string().min(1).max(100),
+    awb: z.string().trim().min(1).max(24),
+  }))
+  .handler(async ({ input, context }) => {
+    const visibleMerchants = await merchantsService.merchantOptions(context.principal);
+    if (!visibleMerchants.some((merchant) => merchant.id === input.merchantId)) {
+      return errors.forbidden("You may only validate stickers for merchants available in your branch scope.");
+    }
+    return awbBatchService.checkMerchantAwb(input.merchantId, input.awb);
+  });
+
+export const awbBatches = { list, plannedMerchantBatches, generate, assign, retire, labels, check, checkMany, checkBranch, checkForMerchantBooking };

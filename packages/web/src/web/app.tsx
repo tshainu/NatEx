@@ -68,8 +68,8 @@ import MerchantNdr from "./pages/merchant/ndr";
 import FieldHome from "./pages/field/index";
 
 /**
- * Routing. Every authenticated screen lives inside <Shell>; the only public
- * route is the OTP login.
+ * Routing. Every authenticated screen lives inside <Shell>; sign-in and parcel
+ * tracking are public routes.
  *
  * The role checks here shape navigation only — they stop a signed-in ops user
  * from landing on a finance URL and seeing an error page. Authorisation itself
@@ -133,7 +133,12 @@ function Routes() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
-      <Route path="/login" component={Login} />
+      <Route path="/login">
+        <Login />
+      </Route>
+      <Route path="/merchant-login">
+        <Login merchantOnly />
+      </Route>
 
       {/* Public — no session, no shell. PDPA-minimised payload (§9). */}
       <Route path="/track" component={Track} />

@@ -3,6 +3,15 @@ const TRACKING_MATERIAL = /\{\{\s*(?:awb|tracking_?number|track_?url|tracking_?u
 export const NATEX_SMS_SENDER_ID = "NatEx";
 export const NATEX_HOTLINE_NUMBER = "+94772772708";
 
+/** Accept numeric cents or a formatted LKR amount and return whether COD is positive. */
+export function isPositiveCodAmount(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().replace(/^(?:Rs\.?|LKR)\s*/i, "").replace(/,/g, "").replace(/\s+/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) && amount > 0;
+}
+
 /** Remove the legacy body prefix exactly once; the sender ID remains separate. */
 export function removeLeadingNatExPrefix(body: string): string {
   return body.startsWith("NatEx: ") ? body.slice("NatEx: ".length) : body;

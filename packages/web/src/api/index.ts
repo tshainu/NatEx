@@ -36,7 +36,9 @@ import { sync } from "./routes/sync";
 import { transport } from "./routes/transport";
 import { transportReport } from "./routes/transport-report";
 import { awbBatches } from "./routes/awb-batches";
+import { registerPublicLocationsRoute } from "./routes/public-locations";
 import { problemResponse, problem } from "./shared/errors";
+import { listBranches } from "./modules/identity/service";
 import { securityHeaders } from "./middleware/security-headers";
 
 // API features are oRPC procedures, one file per feature in ./routes/,
@@ -127,6 +129,9 @@ app.post("/api/webhooks/sms/dlr", async (c) => {
 
 // Public readiness probe for Uptime Kuma (routes/readiness.ts).
 app.get("/api/health/ready", readiness);
+
+// Public website map; only the explicit location projection is exposed.
+registerPublicLocationsRoute(app, () => listBranches());
 
 // The outbox drain and the nightly invariant run in-process (see jobs/*.ts).
 startWorker();

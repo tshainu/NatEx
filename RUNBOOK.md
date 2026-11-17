@@ -228,7 +228,9 @@ delivery.
 
 `parcel.arrived_at_hub` is queued in the parcel transition transaction only for a non-deduplicated
 `InTransit` → `AtDestHub` receipt when the receiving branch matches the parcel's configured
-destination-zone delivery branch. Intermediate transfer hubs do not notify the consignee. The
+destination-zone delivery branch. Intermediate transfer hubs do not notify the consignee. Only
+parcels with a positive COD amount are eligible; prepaid/no-COD parcels receive no arrival SMS even
+if recipient-paid freight remains due. The
 message includes the consignee, merchant name (or freight sender snapshot), tracking number,
 destination branch contact and the amount due. Amount due is COD plus any unpaid recipient-paid
 freight; sender-paid freight is not added. If the destination branch has no phone number, the

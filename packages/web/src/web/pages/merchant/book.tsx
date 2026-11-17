@@ -12,6 +12,8 @@ import { TabStrip, useTabParam } from "@/components/natex/tab-strip";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { AddressFields } from "@/components/natex/address-fields";
+import { MerchantAddressLabel } from "@/components/natex/merchant-address-label";
+import { MerchantLabelOcrCard } from "@/components/natex/merchant-label-ocr-card";
 import { EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 import { useInvalidateParcels, useMerchantProfile, bulkChunk } from "@/queries/merchant";
 import { BulkUpload } from "./book-csv";
@@ -61,7 +63,10 @@ export default function MerchantBook() {
       />
       <div id={`panel-${mode}`} role="tabpanel" aria-labelledby={`tab-${mode}`}>
         {mode === "single" ? (
-          <SingleBooking codEnabled={merchant?.codEnabled ?? true} />
+          <SingleBooking
+            codEnabled={merchant?.codEnabled ?? true}
+            sender={merchant ? { name: merchant.name, address: merchant.address, phone: merchant.contactPhone } : null}
+          />
         ) : (
           <BulkUpload codEnabled={merchant?.codEnabled ?? true} />
         )}
@@ -112,14 +117,26 @@ const HEADER_TO_FORM: Record<string, keyof Form> = {
   declared_value_rs: "declared",
 };
 
-function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
+function SingleBooking({
+  codEnabled,
+  sender,
+}: {
+  codEnabled: boolean;
+  sender: { name: string; address: string; phone: string } | null;
+}) {
   const merchantId = useAuth().session!.user.merchantId;
   const invalidate = useInvalidateParcels();
   const [form, setForm] = React.useState<Form>(EMPTY);
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<keyof Form, string>>>({});
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
-  const [booked, setBooked] = React.useState<{ awb: string; cod: number } | null>(null);
+  const [booked, setBooked] = React.useState<{
+    awb: string;
+    cod: number;
+    consigneeName: string;
+    consigneePhone: string;
+    destAddress: string;
+  } | null>(null);
   const [checkedAwb, setCheckedAwb] = React.useState("");
   const bookingLimits = useQuery({
     ...orpc.settings.bookingLimits.queryOptions(),
@@ -235,7 +252,13 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
       );
       const ok = report.accepted[0];
       if (ok?.awb) {
-        setBooked({ awb: ok.awb, cod: ok.codAmountCents });
+        setBooked({
+          awb: ok.awb,
+          cod: ok.codAmountCents,
+          consigneeName: form.consigneeName,
+          consigneePhone: form.consigneePhone,
+          destAddress: formatAddress(form.destAddress),
+        });
         setForm(EMPTY);
         keyRef.current = null;
         void invalidate();
@@ -277,6 +300,16 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
                 </span>
               </output>
               <div className="mt-3 flex gap-2">
+                <MerchantAddressLabel
+                  awb={booked.awb}
+                  fromName={sender?.name ?? "Merchant"}
+                  fromAddress={sender?.address ?? ""}
+                  fromPhone={sender?.phone}
+                  toName={booked.consigneeName}
+                  toAddress={booked.destAddress}
+                  toPhone={booked.consigneePhone}
+                  disabled={!sender?.address}
+                />
                 <Button asChild size="sm" variant="outline">
                   <Link href="/merchant/pickups">Request pickup</Link>
                 </Button>
@@ -289,6 +322,30 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
         </Card>
       ) : null}
 
+      <MerchantLabelOcrCard
+        registeredFromAddress={sender?.address ?? ""}
+        onApply={(values) => {
+          keyRef.current = null;
+          setForm((current) => {
+            const scannedAddress = values.destAddress;
+            return {
+              ...current,
+              awb: current.awb.trim() ? current.awb : values.awb ?? current.awb,
+              consigneeName: current.consigneeName.trim() ? current.consigneeName : values.consigneeName ?? current.consigneeName,
+              consigneePhone: current.consigneePhone.trim() ? current.consigneePhone : values.consigneePhone ?? current.consigneePhone,
+              destAddress: {
+                line1: current.destAddress.line1.trim() ? current.destAddress.line1 : scannedAddress?.line1 ?? current.destAddress.line1,
+                line2: current.destAddress.line2.trim() ? current.destAddress.line2 : scannedAddress?.line2 ?? current.destAddress.line2,
+                district: current.destAddress.district || scannedAddress?.district || "",
+                province: current.destAddress.province || scannedAddress?.province || "",
+              },
+            };
+          });
+          setFieldErrors((current) => ({ ...current, awb: undefined, consigneeName: undefined, consigneePhone: undefined, destAddress: undefined }));
+          setError(null);
+        }}
+      />
+
       <form
         className="grid gap-5 lg:grid-cols-2"
         onSubmit={(e) => {
@@ -299,7 +356,7 @@ function SingleBooking({ codEnabled }: { codEnabled: boolean }) {
         <Card title="Consignee">
           <div className="space-y-4">
             <Field
-              label="tracking number number (preprinted sticker)"
+              label="Tracking number (preprinted sticker)"
               hint={awbCheck.data?.reason ?? (awbCheck.isFetching ? "Checking allocated sticker…" : "Type the tracking number printed on the sticker allocated to your merchant account.")}
               error={fieldErrors.awb ?? (awbCheck.data && !awbCheck.data.valid ? awbCheck.data.reason : null)}
             >

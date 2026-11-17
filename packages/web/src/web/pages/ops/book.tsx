@@ -107,6 +107,51 @@ export default function OpsBook() {
     refetchInterval: 30_000,
   });
   const maxWeightGrams = bookingLimits.data?.maxChargeableWeightGrams ?? DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS;
+  const [checkedSticker, setCheckedSticker] = React.useState({ merchantId: "", awb: "" });
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setCheckedSticker({ merchantId: form.merchantId, awb: form.awb.trim().toUpperCase() });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [form.awb, form.merchantId]);
+  const enteredAwb = form.awb.trim().toUpperCase();
+  const awbFormatValid = /^NX\d{10}$/.test(enteredAwb);
+  const stickerQueryCurrent = checkedSticker.merchantId === form.merchantId && checkedSticker.awb === enteredAwb;
+  const awbCheck = useQuery({
+    queryKey: ["ops-book-awb-check", checkedSticker.merchantId, checkedSticker.awb],
+    queryFn: () => client.awbBatches.checkForMerchantBooking({ merchantId: checkedSticker.merchantId, awb: checkedSticker.awb }),
+    enabled: Boolean(stickerQueryCurrent && checkedSticker.merchantId && /^NX\d{10}$/.test(checkedSticker.awb)),
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const awbFieldError = !enteredAwb
+    ? null
+    : !form.merchantId
+      ? "Select a Merchant before validating this sticker."
+      : enteredAwb.length >= 12 && !awbFormatValid
+        ? "Enter a valid 12-character NX tracking number."
+        : stickerQueryCurrent && awbCheck.data && !awbCheck.data.valid
+          ? awbCheck.data.reason
+          : stickerQueryCurrent && awbCheck.isError
+            ? "Could not verify this sticker. Check your connection and try again."
+            : null;
+  const awbFieldHint = !enteredAwb
+    ? "Optional. If entered, this sticker must be unused and allocated to the selected Merchant."
+    : !form.merchantId
+      ? "Select a Merchant to check its sticker allocation."
+      : !awbFormatValid
+        ? "Enter the full 12-character NX tracking number to validate it."
+        : !stickerQueryCurrent || awbCheck.isFetching
+          ? "Checking the selected Merchant's sticker allocation…"
+          : awbCheck.data?.valid
+            ? "Allocated to this Merchant and available."
+            : undefined;
+  const awbOutlineClass = !enteredAwb || (!awbFormatValid && enteredAwb.length < 12) || (awbFormatValid && (!stickerQueryCurrent || awbCheck.isFetching))
+    ? "border-amber-400 focus-visible:border-amber-500"
+    : awbCheck.data?.valid && !awbCheck.isError
+      ? "border-emerald-500 focus-visible:border-emerald-600"
+      : "border-rose-500 focus-visible:border-rose-600";
 
   const set = <K extends keyof Form>(key: K) => (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -191,6 +236,7 @@ export default function OpsBook() {
   const valid =
     form.merchantId !== "" &&
     bookableMerchants.some((merchant) => merchant.id === form.merchantId) &&
+    (!enteredAwb || (awbFormatValid && stickerQueryCurrent && awbCheck.data?.valid && !awbCheck.isFetching && !awbCheck.isError)) &&
     "grams" in weight &&
     weight.grams > 0 &&
     !weightLimitError &&
@@ -281,7 +327,7 @@ export default function OpsBook() {
         className="grid max-w-5xl gap-5 lg:grid-cols-2"
         onSubmit={submit}
       >
-        <Card title="Merchant &amp; consignment">
+        <Card title="Merchant &amp; Sender" className="border-amber-400/70 bg-amber-50/30 dark:bg-amber-950/10">
           <div className="space-y-4">
             <Field label="Merchant" hint="Only merchants in your branch scope are listed.">
               <MerchantPicker
@@ -292,8 +338,8 @@ export default function OpsBook() {
                 error={merchants.isError ? apiMessage(merchants.error, "Merchants could not be loaded.") : null}
               />
             </Field>
-            <Field label="Preprinted tracking number sticker" hint="Optional for staff. If entered, it must belong to this merchant and be unused.">
-              <Input value={form.awb} onChange={set("awb")} placeholder="NX1234567890" autoCapitalize="characters" className="font-mono" />
+            <Field label="Preprinted tracking number sticker" hint={awbFieldHint} error={awbFieldError}>
+              <Input value={form.awb} onChange={(event) => setForm((prev) => ({ ...prev, awb: event.target.value.toUpperCase() }))} placeholder="NX1234567890" autoCapitalize="characters" className={`font-mono ${awbOutlineClass}`} aria-invalid={Boolean(awbFieldError)} />
             </Field>
             <div className="grid grid-cols-4 gap-3">
               <Field
@@ -349,7 +395,7 @@ export default function OpsBook() {
         </Card>
 
         <div className="space-y-5">
-          <Card title="Consignee &amp; destination">
+          <Card title="Destination &amp; Recipient" className="border-emerald-500/70 bg-emerald-50/25 dark:bg-emerald-950/10">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Consignee name">

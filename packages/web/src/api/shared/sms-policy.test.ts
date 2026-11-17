@@ -13,6 +13,7 @@ import {
   MERCHANT_REGISTRATION_RECEIPT_SMS,
   NATEX_SMS_SENDER_ID,
   removeLeadingNatExPrefix,
+  isPositiveCodAmount,
 } from "./sms-policy";
 
 describe("customer SMS tracking-material policy", () => {
@@ -21,6 +22,16 @@ describe("customer SMS tracking-material policy", () => {
     expect(removeLeadingNatExPrefix("NatEx: NatEx: Your parcel arrived.")).toBe("NatEx: Your parcel arrived.");
     expect(removeLeadingNatExPrefix("NatEx your parcel arrived.")).toBe("NatEx your parcel arrived.");
     expect(removeLeadingNatExPrefix("Your parcel arrived. NatEx: call us.")).toBe("Your parcel arrived. NatEx: call us.");
+  });
+
+  test("recognizes positive COD values in cents and formatted LKR strings", () => {
+    expect(isPositiveCodAmount(1)).toBe(true);
+    expect(isPositiveCodAmount("Rs.4,800.00")).toBe(true);
+    expect(isPositiveCodAmount("Rs.0.00")).toBe(false);
+    expect(isPositiveCodAmount(0)).toBe(false);
+    expect(isPositiveCodAmount(-1)).toBe(false);
+    expect(isPositiveCodAmount("not an amount")).toBe(false);
+    expect(isPositiveCodAmount(undefined)).toBe(false);
   });
 
   test("detects tracking placeholders, current numbers, legacy numbers, and links", () => {

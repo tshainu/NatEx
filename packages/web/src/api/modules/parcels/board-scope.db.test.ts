@@ -135,6 +135,12 @@ await setup.execute({
   sql: "UPDATE parcels_parcel SET created_at = ? WHERE id = ?",
   args: [nowSeconds - 10_800, "scope_a_hold"],
 });
+const previousColomboDay = colomboToday(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+const previousColomboNoon = Math.floor(new Date(`${previousColomboDay}T12:00:00+05:30`).getTime() / 1000);
+await setup.execute({
+  sql: "UPDATE parcels_parcel SET created_at = ? WHERE id = ?",
+  args: [previousColomboNoon, "scope_b_cross"],
+});
 await setup.execute({
   sql: "UPDATE parcels_parcel_event SET ts = ? WHERE id = ?",
   args: [nowSeconds - 7_200, "scope_event_2"],
@@ -220,6 +226,18 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
 
     expect(askingForOtherBranch.rows.map((row) => row.branchId)).toEqual([branchA, branchA]);
     expect(askingForHomeBranch.rows.map((row) => row.branchId)).toEqual([branchB]);
+  });
+
+  test("parcel list filters inclusive Colombo booking dates and supports 500 rows", async () => {
+    const today = colomboToday(now);
+    const result = await parcels.listParcels(
+      { page: 1, pageSize: 500, createdFrom: today, createdTo: today },
+      admin,
+    );
+
+    expect(result.pageSize).toBe(500);
+    expect(new Set(result.rows.map((row) => row.id))).toEqual(new Set(["scope_a_local", "scope_a_hold"]));
+    expect(result.total).toBe(2);
   });
 
   test("today-run totals use the same branch allocation and missing allocation is empty", async () => {

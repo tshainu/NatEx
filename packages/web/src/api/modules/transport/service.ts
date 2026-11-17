@@ -14,7 +14,7 @@ import { errors } from "../../shared/errors";
 import { auditInsert } from "../../shared/audit";
 import { formatLkr } from "../../shared/money";
 import { normaliseLkPhone } from "../../shared/sms";
-import { NATEX_HOTLINE_NUMBER } from "../../shared/sms-policy";
+import { isPositiveCodAmount, NATEX_HOTLINE_NUMBER } from "../../shared/sms-policy";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
 import * as parcels from "../parcels/service";
@@ -70,7 +70,7 @@ export function calculateArrivalAmounts(
 /** Build a receiver notice only for the parcel's configured final delivery hub. */
 async function arrivalNoticeForFinalHub(parcelId: string, receivingHubId: string) {
   const parcel = await parcels.getParcelById(parcelId);
-  if (!parcel?.destZoneId) return null;
+  if (!parcel?.destZoneId || !isPositiveCodAmount(parcel.codAmountCents)) return null;
   const destinationZone = await routing.getZoneById(parcel.destZoneId);
   if (!isFinalDeliveryHub(destinationZone?.branchId, receivingHubId)) return null;
 
@@ -99,6 +99,7 @@ async function arrivalNoticeForFinalHub(parcelId: string, receivingHubId: string
       consigneeName: parcel.consigneeName,
       merchantName,
       awb: parcel.awb,
+      codAmountCents: amounts.codAmountCents,
       codAmount: formatLkr(amounts.codAmountCents),
       amountDue: formatLkr(amounts.amountDueCents),
       amountDueLine,
@@ -2011,14 +2012,14 @@ export async function baggableParcels(scope: Principal) {
     .innerJoin(bag, eq(bag.id, bagItem.bagId))
     .where(and(isNull(bagItem.removedAt), inArray(bag.status, ["open", "sealed", "in_transit"])));
   const held = new Set(inLiveBag.map((r) => r.parcelId));
-  return rows
-    .filter((r) => !held.has(r.id))
-    .map((r) => ({
+  const readyRows = rows.filter((r) => !held.has(r.id));
+  const destinationLabels = await routing.destinationBranchLabels(readyRows.map((row) => row.destZoneId));
+  return readyRows.map((r) => ({
       id: r.id,
       awb: r.awb,
       status: r.status,
       weightGrams: r.weightGrams,
-      destAddress: r.destAddress,
+      destinationBranchName: r.destZoneId ? destinationLabels.get(r.destZoneId) ?? null : null,
       consigneeName: r.consigneeName,
       updatedAt: r.updatedAt,
     }));

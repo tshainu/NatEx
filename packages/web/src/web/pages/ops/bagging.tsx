@@ -81,6 +81,7 @@ export default function OpsBagging() {
   const bag = useBag(activeBagId);
 
   const detail = bag.data ?? null;
+  const bagsAtYourHub = (bags.data ?? []).filter((row) => row.status === "open" || row.status === "sealed");
 
   const awbs = React.useMemo(
     () =>
@@ -153,7 +154,7 @@ export default function OpsBagging() {
     status: string;
     weightGrams: number | null;
     consigneeName: string;
-    destAddress: string;
+    destinationBranchName: string | null;
     updatedAt: Date | string;
   }>[] = [
     { key: "awb", header: "Tracking number", width: "w-[140px]", cell: (r) => <MonoCell>{r.awb}</MonoCell> },
@@ -166,8 +167,8 @@ export default function OpsBagging() {
     { key: "consignee", header: "Consignee", cell: (r) => r.consigneeName },
     {
       key: "dest",
-      header: "Destination",
-      cell: (r) => <span className="truncate text-muted-foreground">{r.destAddress}</span>,
+      header: "Destination hub / branch",
+      cell: (r) => <span className="truncate text-muted-foreground">{r.destinationBranchName ?? "Unassigned"}</span>,
     },
     {
       key: "weight",
@@ -241,26 +242,38 @@ export default function OpsBagging() {
       }
     >
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label="Bags open"
-          value={counts.data?.bagsOpen ?? "—"}
-          hint="Being built at your hub."
-        />
-        <MetricTile
-          label="Sealed, not loaded"
-          value={counts.data?.bagsSealed ?? "—"}
-          hint="Waiting for a Transit trip."
-        />
-        <MetricTile
-          label="In transit"
-          value={counts.data?.bagsInTransit ?? "—"}
-          hint="On the road between hubs."
-        />
-        <MetricTile
-          label="Open exceptions"
-          value={counts.data?.openExceptions ?? "—"}
-          hint="In the Ops exception queue."
-        />
+        <div className="rounded-lg bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 p-[1.5px]">
+          <MetricTile
+            className="h-full border-0"
+            label="Bags open"
+            value={counts.data?.bagsOpen ?? "—"}
+            hint="Being built at your hub."
+          />
+        </div>
+        <div className="rounded-lg bg-gradient-to-r from-amber-400 via-rose-400 to-violet-500 p-[1.5px]">
+          <MetricTile
+            className="h-full border-0"
+            label="Sealed, not loaded"
+            value={counts.data?.bagsSealed ?? "—"}
+            hint="Waiting for a Transit trip."
+          />
+        </div>
+        <div className="rounded-lg bg-gradient-to-r from-lime-400 via-emerald-500 to-teal-500 p-[1.5px]">
+          <MetricTile
+            className="h-full border-0"
+            label="In transit"
+            value={counts.data?.bagsInTransit ?? "—"}
+            hint="On the road between hubs."
+          />
+        </div>
+        <div className="rounded-lg bg-gradient-to-r from-fuchsia-400 via-pink-500 to-orange-400 p-[1.5px]">
+          <MetricTile
+            className="h-full border-0"
+            label="Open exceptions"
+            value={counts.data?.openExceptions ?? "—"}
+            hint="In the Ops exception queue."
+          />
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -359,7 +372,7 @@ export default function OpsBagging() {
 
         <div className="flex flex-col gap-4">
           {detail?.canScan ? (
-            <Card title="Scan into bag" description="Paste or scan a burst — duplicates are safe.">
+            <Card title="Scan into bag" description="Paste or scan a burst — duplicates are safe." className="border-emerald-500/70">
               <div className="flex flex-col gap-4">
                 <Field label="tracking numbers" hint="One per line. Up to 300 per burst.">
                   <Textarea
@@ -450,7 +463,7 @@ export default function OpsBagging() {
 
           <Card title="Open a bag" description="One destination hub per bag.">
             <div className="flex flex-col gap-3">
-              <Field label="Destination hub">
+              <Field label="Destination hub" className="[&>span:first-child]:text-emerald-600">
                 <Select value={destHubId} onChange={(e) => setDestHubId(e.target.value)}>
                   <option value="">Choose a hub…</option>
                   {destinations.map((b) => (
@@ -461,7 +474,6 @@ export default function OpsBagging() {
                 </Select>
               </Field>
               <Button
-                variant="outline"
                 disabled={!destHubId}
                 pending={createBag.isPending}
                 onClick={() => createBag.mutate({ destHubId })}
@@ -474,18 +486,18 @@ export default function OpsBagging() {
 
           <Card
             title="Bags at your hub"
-            description="Open and sealed. Click one to work on it."
+            description="Open and sealed bags only; inbounded bags are hidden. Click one to work on it."
             bodyClassName="p-0"
           >
             <ul className="divide-y divide-border">
               {bags.isLoading ? (
                 <li className="px-5 py-4 text-[13px] text-muted-foreground">Loading…</li>
-              ) : (bags.data ?? []).length === 0 ? (
+              ) : bagsAtYourHub.length === 0 ? (
                 <li className="px-5 py-5 text-[13px] text-muted-foreground">
                   No bag is being built here. Open one above.
                 </li>
               ) : (
-                (bags.data ?? []).map((b) => (
+                bagsAtYourHub.map((b) => (
                   <li key={b.id}>
                     <button
                       type="button"

@@ -260,7 +260,14 @@ export default function RetailFreightCounter() {
         ? "Available and assigned to this branch / hub."
         : enteredAwb.length < 12
           ? "Type the full 12-character tracking number; its branch allocation will be checked automatically."
-          : undefined;
+        : undefined;
+  const awbStickerOutlineClass = !enteredAwb
+    ? "border-amber-400 focus-visible:border-amber-500"
+    : awbCheck.data?.valid && !awbCheck.isFetching && !awbCheck.isError
+      ? "border-emerald-500 focus-visible:border-emerald-600"
+      : enteredAwb.length < 12 || (completeAwbFormat && awbCheck.isFetching)
+        ? "border-amber-400 focus-visible:border-amber-500"
+        : "border-rose-500 focus-visible:border-rose-600";
 
   const historyQuery = useQuery({
     ...orpc.freight.counterHistory.queryOptions({
@@ -444,7 +451,7 @@ export default function RetailFreightCounter() {
             }}
           >
             <div className="space-y-5">
-              <Card title="Branch & parcel">
+              <Card title="Branch & parcel" className="border-amber-400/70">
                 <div className="space-y-4">
                   <Field label="Accepting branch / hub" hint={canChooseBranch ? "Choose the accepting location." : "Only your assigned branch / hub is available."}>
                     <Select
@@ -462,7 +469,7 @@ export default function RetailFreightCounter() {
                       value={form.awb}
                       onChange={(event) => setForm((previous) => ({ ...previous, awb: event.target.value.toUpperCase() }))}
                       placeholder="NX1234567890"
-                      className="font-mono"
+                      className={`font-mono ${awbStickerOutlineClass}`}
                       autoCapitalize="characters"
                       aria-invalid={Boolean(awbInlineError)}
                     />
@@ -493,7 +500,7 @@ export default function RetailFreightCounter() {
               </Card>
             </div>
             <div className="space-y-5">
-              <Card title="Recipient & delivery">
+              <Card title="Recipient & delivery" className="border-emerald-500/70">
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Recipient name"><Input value={form.consigneeName} onChange={set("consigneeName")} required /></Field>

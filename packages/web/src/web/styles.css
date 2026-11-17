@@ -231,3 +231,106 @@
 .natex-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.natex-merchant-label-print {
+  display: none;
+}
+
+@media print {
+  @page natex-merchant-label {
+    size: 80mm auto;
+    margin: 1.9mm;
+  }
+
+  body[data-natex-label-print="true"] {
+    page: natex-merchant-label;
+    width: 80mm !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body[data-natex-label-print="true"] #root {
+    display: none !important;
+  }
+
+  body[data-natex-label-print="true"] > .natex-merchant-label-print:not([data-natex-label-print-active="true"]) {
+    display: none !important;
+  }
+
+  body[data-natex-label-print="true"] > .natex-merchant-label-print[data-natex-label-print-active="true"] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    display: block !important;
+    width: 76.2mm !important;
+    max-width: 76.2mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
+    box-shadow: none !important;
+  }
+
+  .natex-merchant-label-print__from,
+  .natex-merchant-label-print__to,
+  .natex-merchant-label-print__tracking {
+    display: block !important;
+    margin: 0 !important;
+    padding: 1.5mm 0 !important;
+    overflow-wrap: anywhere !important;
+    break-inside: avoid !important;
+  }
+
+  .natex-merchant-label-print__eyebrow {
+    margin: 0 0 0.7mm !important;
+    font-size: 7pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.4pt !important;
+  }
+
+  .natex-merchant-label-print__name {
+    margin: 0 0 0.6mm !important;
+    font-size: 10pt !important;
+    font-weight: 700 !important;
+  }
+
+  .natex-merchant-label-print__from p:not(.natex-merchant-label-print__eyebrow, .natex-merchant-label-print__name),
+  .natex-merchant-label-print__to p:not(.natex-merchant-label-print__eyebrow, .natex-merchant-label-print__name) {
+    margin: 0 0 0.6mm !important;
+    font-size: 9pt !important;
+  }
+
+  .natex-merchant-label-print__rule {
+    height: 0;
+    border-top: 0.3mm solid #000 !important;
+  }
+
+  .natex-merchant-label-print__tracking {
+    text-align: center !important;
+  }
+
+  .natex-merchant-label-print__awb {
+    margin: 0 0 1mm !important;
+    font-family: ui-monospace, monospace !important;
+    font-size: 13pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5pt !important;
+  }
+
+  .natex-merchant-label-print__barcode {
+    display: block !important;
+    width: 100% !important;
+    max-width: 70mm !important;
+    height: 38px !important;
+    margin: 0 auto !important;
+  }
+}

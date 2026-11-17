@@ -43,11 +43,16 @@ export const list = readProc
   .input(
     z.object({
       page: z.number().int().min(1).default(1),
-      pageSize: z.number().int().min(1).max(100).default(25),
+      pageSize: z.number().int().min(1).max(500).default(25),
       status: z.array(statusEnum).optional(),
       merchantId: z.string().optional(),
       branchId: z.string().optional(),
       search: z.string().max(60).optional(),
+      createdFrom: colomboDateSchema.optional(),
+      createdTo: colomboDateSchema.optional(),
+    }).refine((input) => !input.createdFrom || !input.createdTo || input.createdFrom <= input.createdTo, {
+      message: "The start date must be on or before the end date.",
+      path: ["createdTo"],
     }),
   )
   .handler(({ input, context }) =>
@@ -59,6 +64,8 @@ export const list = readProc
         merchantId: input.merchantId,
         branchId: input.branchId,
         search: input.search,
+        createdFrom: input.createdFrom,
+        createdTo: input.createdTo,
       },
       context.principal,
     ),

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { client, apiMessage } from "@/lib/api";
@@ -30,13 +30,14 @@ const DEMO_LOGINS = [
   { role: "Operations (Kandy)", phone: "+94779012345", name: "Lakshmi Nadarajah" },
 ];
 
-export default function Login() {
+export default function Login({ merchantOnly = false }: { merchantOnly?: boolean }) {
   const [, navigate] = useLocation();
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
-  const [method, setMethod] = React.useState<"phone" | "password">("phone");
+  const [method, setMethod] = React.useState<"phone" | "password">(merchantOnly ? "password" : "phone");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [roleError, setRoleError] = React.useState<string | null>(null);
   const [challenge, setChallenge] = React.useState<{
     challengeId: string;
     expiresInSeconds: number;
@@ -100,14 +101,20 @@ export default function Login() {
   }
 
   function finish(session: ApiSession) {
+    const roles = rolesOfUser(session.user);
+    if (merchantOnly && !roles.includes("merchant")) {
+      setPending(null);
+      setRoleError("This account does not have Merchant access. Use the regular NatEx sign-in instead.");
+      return;
+    }
     const stored = storeApiSession(session);
     // Honour the screen the guard bounced us off, but only if this role may
     // actually reach it — otherwise land in the role's own portal.
-    const roles = rolesOfUser(stored.user);
+    const storedRoles = rolesOfUser(stored.user);
     const next = new URLSearchParams(window.location.search).get("next");
-    const home = portalForRoles(roles).home;
+    const home = merchantOnly ? "/merchant" : portalForRoles(storedRoles).home;
     const target =
-      next && next.startsWith("/") && mayVisitAny(roles, next) ? next : home;
+      !merchantOnly && next && next.startsWith("/") && mayVisitAny(storedRoles, next) ? next : home;
     navigate(target, { replace: true });
   }
 
@@ -131,7 +138,7 @@ export default function Login() {
         <div aria-hidden className="absolute inset-y-0 right-0 w-px bg-ink-600" />
 
         <div className="relative flex items-center gap-2.5 px-12 pt-10">
-          <img src="/natex-logo-dark.png" alt="NatEx" className="h-12 w-auto" />
+          <img src="/natex-wordmark-white.png" alt="NatEx Logistics" className="h-12 w-auto" />
         </div>
 
         <div className="relative px-12 pb-12">
@@ -163,18 +170,29 @@ export default function Login() {
 
       {/* ── Sign-in panel ───────────────────────────────────────────── */}
       <section className="flex flex-col justify-center px-6 py-10 sm:px-12">
-        <div className="mx-auto w-full max-w-[400px]">
+          <div className="mx-auto w-full max-w-[400px]">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <img src="/natex-logo-dark.png" alt="NatEx" className="h-9 w-auto" />
+            <img src="/natex-wordmark-white.png" alt="NatEx Logistics" className="h-9 w-auto" />
           </div>
           <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-text-lo">
-            Welcome back
+            {merchantOnly ? "Merchant portal sign-in" : "Welcome back"}
           </p>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-lo">
-            Sign in with your username and password, or with your registered phone
-            number — a six-digit code is sent by SMS. Operations, finance and admin
-            also confirm with an authenticator app.
+            {merchantOnly
+              ? "Sign in with the username and password set up for your NatEx Merchant account, or use your registered phone number."
+              : "Sign in with your username and password, or with your registered phone number — a six-digit code is sent by SMS. Operations, finance and admin also confirm with an authenticator app."}
           </p>
+          <div className="mt-4 text-[13px]">
+            {merchantOnly ? (
+              <Link href="/login" className="font-medium text-brand hover:underline">
+                <ArrowLeft className="mr-1 inline size-3.5" aria-hidden /> Other NatEx staff sign in here
+              </Link>
+            ) : (
+              <Link href="/merchant-login" className="font-medium text-brand hover:underline">
+                Merchant? Sign in to your parcel portal
+              </Link>
+            )}
+          </div>
 
           <div className="mt-6 rounded-xl border border-ink-600 bg-ink-800 p-6 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.6)]">
             {pending ? (
@@ -189,9 +207,9 @@ export default function Login() {
                 className="space-y-4"
               >
                 <div>
-                  <h2 className="font-display text-[20px] font-bold">Sign in</h2>
+                  <h2 className="font-display text-[20px] font-bold">{merchantOnly ? "Merchant sign in" : "Sign in"}</h2>
                   <p className="mt-1 text-[13px] text-text-lo">
-                    Username and password, as set by your administrator.
+                    {merchantOnly ? "Use the Merchant login details issued by NatEx." : "Username and password, as set by your administrator."}
                   </p>
                 </div>
                 <Field label="Username">
@@ -223,13 +241,14 @@ export default function Login() {
                 >
                   Sign in
                 </Button>
-                <Button
-                  type="button"
-                  variant="dark"
-                  className="w-full"
-                  onClick={() => {
-                    setMethod("phone");
-                    passwordLogin.reset();
+                  <Button
+                    type="button"
+                    variant="dark"
+                    className="w-full"
+                    onClick={() => {
+                      setMethod("phone");
+                      setRoleError(null);
+                      passwordLogin.reset();
                   }}
                 >
                   <ArrowLeft aria-hidden />
@@ -245,7 +264,7 @@ export default function Login() {
                 className="space-y-4"
               >
                 <div>
-                  <h2 className="font-display text-[20px] font-bold">Sign in</h2>
+                  <h2 className="font-display text-[20px] font-bold">{merchantOnly ? "Merchant sign in" : "Sign in"}</h2>
                   <p className="mt-1 text-[13px] text-text-lo">
                     Enter the phone number on your NatEx account.
                   </p>
@@ -345,12 +364,17 @@ export default function Login() {
             )}
           </div>
 
+          {roleError ? <div className="mt-4"><ErrorNote>{roleError}</ErrorNote></div> : null}
+
           {/* Demo and dev deployments only: production has no seeded accounts. */}
           {import.meta.env.DEV || envInfo.data?.demo ? (
             <>
               <SeededAccounts
+                accounts={merchantOnly ? DEMO_LOGINS.filter((account) => account.role === "Merchant") : DEMO_LOGINS}
                 onPick={(value) => {
+                  setMethod("phone");
                   setPhone(value);
+                  setRoleError(null);
                   startOver();
                 }}
               />
@@ -366,7 +390,7 @@ export default function Login() {
 }
 
 /** Dev-only shortcut list. No SMS gateway here, so the code comes back in the response. */
-function SeededAccounts({ onPick }: { onPick: (phone: string) => void }) {
+function SeededAccounts({ onPick, accounts = DEMO_LOGINS }: { onPick: (phone: string) => void; accounts?: typeof DEMO_LOGINS }) {
   return (
     <div className="mt-5 rounded-xl border border-ink-600/70 bg-ink-900 p-4">
       <p className="label-xs text-text-lo">Seeded accounts</p>
@@ -375,7 +399,7 @@ function SeededAccounts({ onPick }: { onPick: (phone: string) => void }) {
         the response and filled in for you.
       </p>
       <ul className="mt-3 space-y-0.5">
-        {DEMO_LOGINS.map((account) => (
+        {accounts.map((account) => (
           <li key={account.phone}>
             <button
               type="button"

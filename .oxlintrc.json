@@ -1,6 +1,12 @@
 {
   "extends": ["./node_modules/@runablehq/runkit/oxlintrc.json"],
-  "ignorePatterns": ["dist/**", "dist-electron/**", ".expo/**", "packages/web/public/runable.js"],
+  "ignorePatterns": [
+    "dist/**",
+    "dist-electron/**",
+    ".expo/**",
+    "packages/web/public/runable.js",
+    "packages/web/public/ocr/core/*.wasm.js"
+  ],
   "overrides": [
     {
       "files": ["packages/mobile/**"],

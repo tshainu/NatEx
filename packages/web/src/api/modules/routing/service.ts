@@ -1,4 +1,4 @@
-import { count, eq } from "drizzle-orm";
+import { count, eq, inArray } from "drizzle-orm";
 import { db } from "../../database";
 import { geocodeCache, zone } from "../../database/schema/routing";
 import { prefixedId } from "../../shared/ulid";
@@ -35,6 +35,24 @@ export async function listZones(branchId?: string): Promise<ZoneRow[]> {
 export async function getZoneById(id: string): Promise<ZoneRow | null> {
   const [row] = await db.select().from(zone).where(eq(zone.id, id)).limit(1);
   return row ?? null;
+}
+
+/** Resolve only configured zone owners for display; never infer a hub from an address string. */
+export async function destinationBranchLabels(zoneIds: readonly (string | null | undefined)[]) {
+  const ids = [...new Set(zoneIds.filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return new Map<string, string>();
+
+  const [zones, branches] = await Promise.all([
+    db.select({ id: zone.id, branchId: zone.branchId }).from(zone).where(inArray(zone.id, ids)),
+    listBranches({ includeInactive: true }),
+  ]);
+  const branchById = new Map(branches.map((branch) => [branch.id, branch]));
+  const labels = new Map<string, string>();
+  for (const destinationZone of zones) {
+    const branch = branchById.get(destinationZone.branchId);
+    if (branch) labels.set(destinationZone.id, `${branch.name} ${branch.type}`);
+  }
+  return labels;
 }
 
 export interface ServiceabilityResult {

@@ -17,6 +17,7 @@ import * as rateCardService from "../merchants/rate-cards";
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { addBookingToAutoManifest } from "../collection/auto-assign";
 import * as identityService from "../identity/service";
+import * as routingService from "../routing/service";
 import { chargeByRequest, createRetailChargeInTransaction, entriesForCharge } from "../freight/ledger";
 import type { FreightChargeRow, FreightEntryRow } from "../../database/schema/freight";
 import { checkBranchAwb, checkMerchantAwb, lockAndAssertAwbAvailableForBooking, nextUnusedAwbForBooking } from "./awb-batches";
@@ -330,12 +331,18 @@ export interface ListParcelsInput {
   branchId?: string;
   /** Matches tracking number, consignee name or consignee phone. */
   search?: string;
+  /** Inclusive Colombo calendar-day booking-date bounds. */
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 export async function listParcels(input: ListParcelsInput, scope: Principal) {
   if (scope.role === "merchant" && input.merchantId && input.merchantId !== scope.merchantId) {
     // §5: a merchant naming another merchant is refused, never silently re-scoped.
     errors.forbidden("A merchant may only read its own parcels.", { merchantId: input.merchantId });
+  }
+  if (input.createdFrom && input.createdTo && input.createdFrom > input.createdTo) {
+    errors.badRequest("The start date must be on or before the end date.");
   }
   const filters = [scopeFilter(scope)];
 
@@ -344,6 +351,12 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
   // A branch filter can only narrow, never widen, the caller's own scope.
   if (input.branchId && isGlobalScope(scope.role)) {
     filters.push(eq(parcel.branchId, input.branchId));
+  }
+  if (input.createdFrom) {
+    filters.push(gte(parcel.createdAt, new Date(`${input.createdFrom}T00:00:00+05:30`)));
+  }
+  if (input.createdTo) {
+    filters.push(lt(parcel.createdAt, new Date(`${addDays(input.createdTo, 1)}T00:00:00+05:30`)));
   }
   if (input.search?.trim()) {
     const query = input.search.trim();
@@ -360,7 +373,7 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
   }
 
   const where = and(...filters.filter((f) => f !== undefined));
-  const pageSize = Math.min(Math.max(input.pageSize, 1), 100);
+  const pageSize = Math.min(Math.max(input.pageSize, 1), 500);
   const offset = (Math.max(input.page, 1) - 1) * pageSize;
 
   const [rows, [total]] = await Promise.all([
@@ -374,8 +387,13 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
     db.select({ value: count() }).from(parcel).where(where),
   ]);
 
+  const destinationLabels = await routingService.destinationBranchLabels(rows.map((row) => row.destZoneId));
+
   return {
-    rows,
+    rows: rows.map((row) => ({
+      ...row,
+      destinationBranchName: row.destZoneId ? destinationLabels.get(row.destZoneId) ?? null : null,
+    })),
     total: total?.value ?? 0,
     page: Math.max(input.page, 1),
     pageSize,
