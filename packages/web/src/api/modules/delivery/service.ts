@@ -55,6 +55,7 @@ import {
 import { SETTING_KEYS, settingValue } from "../settings/service";
 import { isDevelopment } from "../../shared/env";
 import { retryDeadline, riderRetryDecision } from "./retry-policy";
+import { RUNSHEET_ELIGIBLE_STATUSES, runsheetReadiness } from "./runsheet-readiness";
 import {
   deliveryOtpIssue,
   normaliseReceiverPhone,
@@ -87,7 +88,7 @@ export type PodRow = typeof deliveryPod.$inferSelect;
 export type RetryCaseRow = typeof deliveryRetryCase.$inferSelect;
 
 /** Statuses a parcel may be in to go onto a runsheet. */
-const RUNSHEET_ELIGIBLE = ["AtDestHub", "DeliveryAttempted", "OnHold"] as const;
+const RUNSHEET_ELIGIBLE = RUNSHEET_ELIGIBLE_STATUSES;
 
 /**
  * Read delivery-owned evidence within the caller's transaction. A parcel with
@@ -896,6 +897,7 @@ export interface AddToRunsheetLine {
   awb: string;
   verdict: "added" | "duplicate" | "unknown" | "rejected";
   reason?: string;
+  correction?: string;
   seq?: number;
 }
 
@@ -949,25 +951,25 @@ export async function addToRunsheet(
       lines.push({ awb: p.awb, verdict: "duplicate", reason: "Already a stop on this run." });
       continue;
     }
-    if (!(RUNSHEET_ELIGIBLE as readonly string[]).includes(p.status)) {
-      lines.push({
-        awb: p.awb,
-        verdict: "rejected",
-        reason: `Parcel is ${p.status} — only ${RUNSHEET_ELIGIBLE.join(", ")} can go on a run.`,
-      });
-      continue;
-    }
-    if (!isGlobalScope(actor.role) && p.branchId !== sheet!.branchId) {
-      lines.push({
-        awb: p.awb,
-        verdict: "rejected",
-        reason: "Parcel is accountable to another branch.",
-      });
+    const basicReadiness = runsheetReadiness({
+      parcelStatus: p.status,
+      parcelBranchId: p.branchId,
+      runsheetBranchId: sheet!.branchId,
+    });
+    if (!basicReadiness.ready) {
+      lines.push({ awb: p.awb, verdict: "rejected", reason: basicReadiness.reason, correction: basicReadiness.correction });
       continue;
     }
     const gate = await reattemptGate(p);
-    if (!gate.ok) {
-      lines.push({ awb: p.awb, verdict: "rejected", reason: gate.reason });
+    const readiness = runsheetReadiness({
+      parcelStatus: p.status,
+      parcelBranchId: p.branchId,
+      runsheetBranchId: sheet!.branchId,
+      reattemptAllowed: gate.ok,
+      reattemptReason: gate.ok ? undefined : gate.reason,
+    });
+    if (!readiness.ready) {
+      lines.push({ awb: p.awb, verdict: "rejected", reason: readiness.reason, correction: readiness.correction });
       continue;
     }
 
@@ -991,8 +993,8 @@ export async function addToRunsheet(
               currentStatus: before.status,
             });
           }
-          if (!isGlobalScope(actor.role) && before.branchId !== sheet!.branchId) {
-            errors.forbidden(`Parcel ${before.awb} is accountable to another branch.`);
+          if (before.branchId !== sheet!.branchId) {
+            errors.forbidden(`Parcel ${before.awb} belongs to a different accountable branch than runsheet ${sheet!.code}.`);
           }
 
           const [retryCase] = await tx
@@ -1308,10 +1310,104 @@ export async function optimiseRunsheet(
 
 // ---------------------------------------------------------------- dispatch
 
+export interface DispatchReviewStop {
+  awb: string;
+  status: string;
+  reason: string;
+  correction: string;
+}
+
+export interface RunsheetDispatchReviewResult {
+  runsheet: Pick<RunsheetRow, "id" | "code" | "riderName">;
+  ready: { awb: string; status: string }[];
+  blocked: DispatchReviewStop[];
+  dispatchBlock: { reason: string; correction: string } | null;
+}
+
+/** Read-only preflight for branch, status, retry and rider dispatch gates. */
+export async function reviewRunsheetDispatch(
+  input: { runsheetId: string },
+  actor: Principal,
+): Promise<RunsheetDispatchReviewResult> {
+  const sheet = await getRunsheet(input.runsheetId);
+  if (!sheet) errors.notFound(`Runsheet ${input.runsheetId}`);
+  assertRunsheetVisible(sheet!, actor);
+  if (sheet!.status !== "draft") {
+    errors.conflict(`Runsheet ${sheet!.code} is already ${sheet!.status}.`, {
+      currentStatus: sheet!.status,
+    });
+  }
+
+  const pending = await db
+    .select()
+    .from(runsheetItem)
+    .where(and(eq(runsheetItem.runsheetId, sheet!.id), eq(runsheetItem.state, "pending")));
+  const ready: RunsheetDispatchReviewResult["ready"] = [];
+  const blocked: DispatchReviewStop[] = [];
+
+  for (const item of pending) {
+    const parcel = await getParcelByAwb(item.awb);
+    if (!parcel) {
+      blocked.push({
+        awb: item.awb,
+        status: "Missing",
+        reason: "The parcel could not be found during the dispatch check.",
+        correction: "Confirm the tracking number and remove or correct this stop before dispatching.",
+      });
+      continue;
+    }
+
+    const basic = runsheetReadiness({
+      parcelStatus: parcel.status,
+      parcelBranchId: parcel.branchId,
+      runsheetBranchId: sheet!.branchId,
+    });
+    if (!basic.ready) {
+      blocked.push({ awb: item.awb, status: parcel.status, reason: basic.reason!, correction: basic.correction! });
+      continue;
+    }
+
+    const retryGate = await reattemptGate(parcel);
+    const readiness = runsheetReadiness({
+      parcelStatus: parcel.status,
+      parcelBranchId: parcel.branchId,
+      runsheetBranchId: sheet!.branchId,
+      reattemptAllowed: retryGate.ok,
+      reattemptReason: retryGate.ok ? undefined : retryGate.reason,
+    });
+    if (!readiness.ready) {
+      blocked.push({ awb: item.awb, status: parcel.status, reason: readiness.reason!, correction: readiness.correction! });
+      continue;
+    }
+    ready.push({ awb: item.awb, status: parcel.status });
+  }
+
+  let dispatchBlock: RunsheetDispatchReviewResult["dispatchBlock"] = null;
+  if (ready.length > 0) {
+    try {
+      await assertDispatchAllowed(sheet!.riderId, sheet!.riderName);
+    } catch (error) {
+      dispatchBlock = {
+        reason: error instanceof Error ? error.message : "This rider is not cleared for another dispatch.",
+        correction: "Resolve the rider's outstanding run or delivery limit in Operations, then review this runsheet again.",
+      };
+    }
+  }
+
+  return {
+    runsheet: { id: sheet!.id, code: sheet!.code, riderName: sheet!.riderName },
+    ready,
+    blocked,
+    dispatchBlock,
+  };
+}
+
 export interface DispatchResult {
   runsheet: RunsheetRow;
   movedOut: string[];
-  rejected: { awb: string; reason: string }[];
+  rejected: DispatchReviewStop[];
+  dispatchBlock: RunsheetDispatchReviewResult["dispatchBlock"];
+  notificationWarnings: { awb: string; reason: string }[];
 }
 
 /**
@@ -1326,14 +1422,9 @@ export async function dispatchRunsheet(
   input: { runsheetId: string; notes?: string | null },
   actor: Principal,
 ): Promise<DispatchResult> {
+  const review = await reviewRunsheetDispatch({ runsheetId: input.runsheetId }, actor);
   const sheet = await getRunsheet(input.runsheetId);
   if (!sheet) errors.notFound(`Runsheet ${input.runsheetId}`);
-  assertRunsheetVisible(sheet!, actor);
-  if (sheet!.status !== "draft") {
-    errors.conflict(`Runsheet ${sheet!.code} is already ${sheet!.status}.`, {
-      currentStatus: sheet!.status,
-    });
-  }
 
   const pending = await db
     .select()
@@ -1343,21 +1434,78 @@ export async function dispatchRunsheet(
     errors.badRequest(`Runsheet ${sheet!.code} has no stops to dispatch.`);
   }
 
-  // §8: "Rider exceeds configurable limit → further dispatch blocked."
-  await assertDispatchAllowed(sheet!.riderId, sheet!.riderName);
+  if (review.dispatchBlock) {
+    return {
+      runsheet: sheet!,
+      movedOut: [],
+      rejected: review.blocked,
+      dispatchBlock: review.dispatchBlock,
+      notificationWarnings: [],
+    };
+  }
+  if (review.ready.length === 0) {
+    return {
+      runsheet: sheet!,
+      movedOut: [],
+      rejected: review.blocked,
+      dispatchBlock: null,
+      notificationWarnings: [],
+    };
+  }
 
-  if (!sheet!.optimisedAt) await optimiseRunsheet(sheet!.id, actor);
+  const readyAwbs = new Set(review.ready.map((stop) => stop.awb));
+  const blockedItems = pending.filter((item) => !readyAwbs.has(item.awb));
+  if (blockedItems.length > 0) {
+    await db
+      .update(runsheetItem)
+      .set({ state: "removed" })
+      .where(and(eq(runsheetItem.runsheetId, sheet!.id), inArray(runsheetItem.id, blockedItems.map((item) => item.id))));
+  }
+
+  const readyItems = pending.filter((item) => readyAwbs.has(item.awb));
+  const optimizedByThisCall = !sheet!.optimisedAt;
+  if (optimizedByThisCall) await optimiseRunsheet(sheet!.id, actor);
 
   const movedOut: string[] = [];
-  const rejected: { awb: string; reason: string }[] = [];
+  const rejected: DispatchReviewStop[] = [...review.blocked];
+  const notificationWarnings: DispatchResult["notificationWarnings"] = [];
 
-  for (const item of pending) {
+  for (const item of readyItems) {
+    let parcel: ParcelRow | null = null;
     try {
-      const parcel = await getParcelByAwb(item.awb);
-      if (!parcel) errors.notFound(`Parcel ${item.awb}`);
-      const retryGate = await reattemptGate(parcel!);
-      if (!retryGate.ok) errors.conflict(retryGate.reason, { awb: item.awb });
-      const moved = await transitionParcel(
+      parcel = await getParcelByAwb(item.awb);
+      if (!parcel) {
+        rejected.push({
+          awb: item.awb,
+          status: "Missing",
+          reason: "The parcel could not be found during the final dispatch check.",
+          correction: "Confirm the tracking number and correct this stop in Operations.",
+        });
+        continue;
+      }
+      const basic = runsheetReadiness({
+        parcelStatus: parcel.status,
+        parcelBranchId: parcel.branchId,
+        runsheetBranchId: sheet!.branchId,
+      });
+      if (!basic.ready) {
+        rejected.push({ awb: item.awb, status: parcel.status, reason: basic.reason!, correction: basic.correction! });
+        continue;
+      }
+      const retryGate = await reattemptGate(parcel);
+      const readiness = runsheetReadiness({
+        parcelStatus: parcel.status,
+        parcelBranchId: parcel.branchId,
+        runsheetBranchId: sheet!.branchId,
+        reattemptAllowed: retryGate.ok,
+        reattemptReason: retryGate.ok ? undefined : retryGate.reason,
+      });
+      if (!readiness.ready) {
+        rejected.push({ awb: item.awb, status: parcel.status, reason: readiness.reason!, correction: readiness.correction! });
+        continue;
+      }
+
+      await transitionParcel(
         {
           awbOrId: item.awb,
           to: "OutForDelivery",
@@ -1365,46 +1513,77 @@ export async function dispatchRunsheet(
         },
         actor,
       );
-      movedOut.push(item.awb);
+    } catch (err) {
+      rejected.push({
+        awb: item.awb,
+        status: parcel?.status ?? "Unknown",
+        reason: err instanceof Error ? err.message : "The final dispatch check failed.",
+        correction: "Refresh the parcel and runsheet, correct the branch or status, then review the run again.",
+      });
+      continue;
+    }
 
+    movedOut.push(item.awb);
+    try {
       await enqueue("notify.dispatch", {
         templateKey: "parcel.out_for_delivery",
-        parcelId: moved.parcel.id,
+        parcelId: parcel!.id,
         awb: item.awb,
-        merchantId: moved.parcel.merchantId,
+        merchantId: parcel!.merchantId,
         toPhone: item.consigneePhone,
         vars: {
           awb: item.awb,
           consigneeName: item.consigneeName,
           riderName: sheet!.riderName,
-          // The OFD bodies interpolate {{codLine}} (a whole sentence that
-          // disappears for a non-COD parcel), not a bare amount. Both are
-          // passed so an admin editing the template can use either.
           codLine: codLineFor(item.codAmountCents),
           codAmount: item.codAmountCents > 0 ? formatLkr(item.codAmountCents) : "",
           trackUrl: `natex.lk/track/${item.awb}`,
         },
       });
     } catch (err) {
-      // One bad parcel does not strand the whole van. The stop comes off the
-      // run and the reason is reported back to the hub.
-      rejected.push({ awb: item.awb, reason: err instanceof Error ? err.message : "Unknown error" });
-      await db
-        .update(runsheetItem)
-        .set({ state: "removed" })
-        .where(eq(runsheetItem.id, item.id));
+      // A notification enqueue failure must not undo a successful parcel move.
+      notificationWarnings.push({
+        awb: item.awb,
+        reason: err instanceof Error ? err.message : "The delivery notice could not be queued.",
+      });
     }
   }
 
   if (movedOut.length === 0) {
-    errors.conflict(`No stop on ${sheet!.code} could be dispatched.`, { rejected });
+    // A stale review should leave the draft and its stops available for a
+    // correction, not discard them or strand the operator at a generic error.
+    if (blockedItems.length > 0) {
+      await db
+        .update(runsheetItem)
+        .set({ state: "pending" })
+        .where(and(eq(runsheetItem.runsheetId, sheet!.id), inArray(runsheetItem.id, blockedItems.map((item) => item.id))));
+    }
+    if (optimizedByThisCall) {
+      await db.update(runsheet).set({ optimisedAt: null, routeDistanceMetres: null }).where(eq(runsheet.id, sheet!.id));
+    }
+    const unchanged = await getRunsheet(sheet!.id);
+    return {
+      runsheet: unchanged ?? sheet!,
+      movedOut,
+      rejected,
+      dispatchBlock: null,
+      notificationWarnings,
+    };
+  }
+
+  const rejectedAwbs = [...new Set(rejected.map((item) => item.awb))];
+  if (rejectedAwbs.length > 0) {
+    await db
+      .update(runsheetItem)
+      .set({ state: "removed" })
+      .where(and(eq(runsheetItem.runsheetId, sheet!.id), inArray(runsheetItem.awb, rejectedAwbs)));
   }
 
   const removedCod = pending
-    .filter((i) => rejected.some((r) => r.awb === i.awb))
+    .filter((i) => rejectedAwbs.includes(i.awb))
     .reduce((n, i) => n + i.codAmountCents, 0);
   const removedFreight = pending
-    .filter((i) => rejected.some((r) => r.awb === i.awb))
+    .filter((i) => rejectedAwbs.includes(i.awb))
     .reduce((n, i) => n + i.freightAmountCents, 0);
 
   const [updated] = await db
@@ -1419,7 +1598,7 @@ export async function dispatchRunsheet(
     .where(eq(runsheet.id, sheet!.id))
     .returning();
 
-  return { runsheet: updated!, movedOut, rejected };
+  return { runsheet: updated!, movedOut, rejected, dispatchBlock: null, notificationWarnings };
 }
 
 // -------------------------------------------------------------- delivery OTP

@@ -352,6 +352,9 @@ function RunsheetDrawer({
   const [confirm, setConfirm] = React.useState<null | "dispatch" | "close" | "cancel" | { remove: string }>(null);
   const [awbText, setAwbText] = React.useState("");
   const [addLines, setAddLines] = React.useState<DeliveryOut<"runsheetAdd">["lines"]>([]);
+  const [dispatchReview, setDispatchReview] = React.useState<DeliveryOut<"runsheetDispatchReview"> | null>(null);
+  const [dispatchOutcome, setDispatchOutcome] = React.useState<DeliveryOut<"runsheetDispatch"> | null>(null);
+  const [reviewingDispatch, setReviewingDispatch] = React.useState(false);
   const [force, setForce] = React.useState(false);
   const [closeNotes, setCloseNotes] = React.useState("");
   const [cancelReason, setCancelReason] = React.useState("");
@@ -366,6 +369,9 @@ function RunsheetDrawer({
     setConfirm(null);
     setAwbText("");
     setAddLines([]);
+    setDispatchReview(null);
+    setDispatchOutcome(null);
+    setReviewingDispatch(false);
     setForce(false);
     setCloseNotes("");
     setCancelReason("");
@@ -418,15 +424,22 @@ function RunsheetDrawer({
   const dispatch = useRunsheetDispatch({
     onSuccess: (r) => {
       setConfirm(null);
-      setError(null);
-      setDone(
-        `${r.movedOut.length} parcel(s) out for delivery.${
-          r.rejected.length ? ` ${r.rejected.length} refused: ${r.rejected.map((x) => `${x.awb} (${x.reason})`).join("; ")}` : ""
-        }`,
-      );
+      setDispatchReview(null);
+      setDispatchOutcome(r);
+      if (r.dispatchBlock) {
+        fail(r.dispatchBlock.reason);
+      } else {
+        setError(null);
+        setDone(
+          r.movedOut.length === 0
+            ? "Nothing was dispatched. The draft is still open; correct the listed stops and review again."
+            : `${r.movedOut.length} parcel(s) sent to the rider${r.rejected.length ? `; ${r.rejected.length} held out for correction` : ""}${r.notificationWarnings.length ? `; ${r.notificationWarnings.length} delivery notice(s) need review` : ""}.`,
+        );
+      }
     },
     onError: (m) => {
       setConfirm(null);
+      setDispatchReview(null);
       fail(m);
     },
   });
@@ -467,6 +480,23 @@ function RunsheetDrawer({
     .filter(Boolean);
   const closeBlocked =
     pendingStops.length > 0 ? !force || closeNotes.trim().length < 10 : false;
+
+  const reviewDispatch = async () => {
+    if (!sheet) return;
+    setError(null);
+    setDone(null);
+    setDispatchOutcome(null);
+    setReviewingDispatch(true);
+    try {
+      const review = await client.delivery.runsheetDispatchReview({ runsheetId: sheet.id });
+      setDispatchReview(review);
+      setConfirm("dispatch");
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : "Could not review the runsheet. Refresh and try again.");
+    } finally {
+      setReviewingDispatch(false);
+    }
+  };
 
   return (
     <Drawer
@@ -535,6 +565,30 @@ function RunsheetDrawer({
 
           {error ? <ErrorNote>{error}</ErrorNote> : null}
           {done ? <SuccessNote>{done}</SuccessNote> : null}
+          {dispatchOutcome && (dispatchOutcome.rejected.length > 0 || dispatchOutcome.dispatchBlock || dispatchOutcome.notificationWarnings.length > 0) ? (
+            <section className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-950" role="status">
+              <h4 className="font-semibold">
+                {dispatchOutcome.movedOut.length > 0 ? "Held out of the rider's run" : "Dispatch stopped — correct before retrying"}
+              </h4>
+              {dispatchOutcome.dispatchBlock ? (
+                <div>
+                  <p>{dispatchOutcome.dispatchBlock.reason}</p>
+                  <p className="mt-1"><strong>Next step:</strong> {dispatchOutcome.dispatchBlock.correction}</p>
+                </div>
+              ) : null}
+              {dispatchOutcome.rejected.map((item) => (
+                <div key={item.awb} className="border-t border-amber-300/70 pt-2">
+                  <p><span className="font-mono font-semibold">{item.awb}</span> · {humanise(item.status)} — {item.reason}</p>
+                  <p className="mt-1"><strong>Next step:</strong> {item.correction}</p>
+                </div>
+              ))}
+              {dispatchOutcome.notificationWarnings.map((item) => (
+                <p key={item.awb} className="border-t border-amber-300/70 pt-2">
+                  <span className="font-mono font-semibold">{item.awb}</span>: delivery status moved, but its notification needs review — {item.reason}
+                </p>
+              ))}
+            </section>
+          ) : null}
 
           {canAddStops ? (
             <section className="space-y-3 border-t pt-4">
@@ -582,14 +636,17 @@ function RunsheetDrawer({
                 </div>
               </form>
               {addLines.length > 0 ? (
-                <ul className="space-y-0.5 text-[12px]">
+                <ul className="space-y-2 text-[12px]">
                   {addLines.map((l) => (
-                    <li key={l.awb} className="flex gap-2">
-                      <span className="font-mono">{l.awb}</span>
-                      <Badge variant={l.verdict === "added" ? "good" : l.verdict === "duplicate" ? "muted" : "bad"}>
-                        {l.verdict}
-                      </Badge>
-                      {l.reason ? <span className="text-muted-foreground">{l.reason}</span> : null}
+                    <li key={l.awb} className="rounded-md border px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono">{l.awb}</span>
+                        <Badge variant={l.verdict === "added" ? "good" : l.verdict === "duplicate" ? "muted" : "bad"}>
+                          {l.verdict}
+                        </Badge>
+                      </div>
+                      {l.reason ? <p className="mt-1 text-muted-foreground">{l.reason}</p> : null}
+                      {l.correction ? <p className="mt-1 text-foreground"><strong>Next step:</strong> {l.correction}</p> : null}
                     </li>
                   ))}
                 </ul>
@@ -607,9 +664,9 @@ function RunsheetDrawer({
                       <Route aria-hidden />
                       Order the stops
                     </Button>
-                    <Button size="sm" disabled={liveStops.length === 0} onClick={() => setConfirm("dispatch")}>
+                    <Button size="sm" pending={reviewingDispatch} disabled={pendingStops.length === 0} onClick={() => void reviewDispatch()}>
                       <Send aria-hidden />
-                      Dispatch
+                      Review & dispatch
                     </Button>
                   </div>
                   <div className="space-y-2 border-t pt-3">
@@ -683,17 +740,85 @@ function RunsheetDrawer({
             </section>
           ) : null}
 
-          <ConfirmDialog
-            open={confirm === "dispatch"}
-            onOpenChange={(o) => !o && setConfirm(null)}
-            title="Hand this van over?"
-            objectName={sheet.code}
-            destructive={false}
-            confirmLabel={`Dispatch ${liveStops.length} stop(s)`}
-            pending={dispatch.isPending}
-            body={`Every stop moves to Out for delivery under ${sheet.riderName}, who becomes accountable for ${money(sheet.codExpectedCents)} COD. Stops can no longer be added.`}
-            onConfirm={() => dispatch.mutate({ runsheetId: sheet.id })}
-          />
+          <Dialog
+            open={confirm === "dispatch" && dispatchReview !== null}
+            onOpenChange={(open) => {
+              if (!open) {
+                setConfirm(null);
+                setDispatchReview(null);
+              }
+            }}
+            title="Review the run before dispatch"
+            description={dispatchReview ? `${dispatchReview.runsheet.code} · ${dispatchReview.runsheet.riderName}` : undefined}
+            footer={dispatchReview ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" disabled={dispatch.isPending} onClick={() => { setConfirm(null); setDispatchReview(null); }}>
+                  Back and correct
+                </Button>
+                <Button
+                  pending={dispatch.isPending}
+                  disabled={dispatchReview.ready.length === 0 || dispatchReview.dispatchBlock !== null}
+                  onClick={() => dispatch.mutate({ runsheetId: sheet.id })}
+                >
+                  {dispatchReview.ready.length > 0
+                    ? `Dispatch ${dispatchReview.ready.length} ready stop(s)`
+                    : "No ready stops"}
+                </Button>
+              </div>
+            ) : null}
+          >
+            {dispatchReview ? (
+              <div className="space-y-3 text-[13px]">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-950">
+                    <p className="font-semibold">Ready</p>
+                    <p>{dispatchReview.ready.length} stop(s) can be sent.</p>
+                  </div>
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                    <p className="font-semibold">Held out</p>
+                    <p>{dispatchReview.blocked.length} stop(s) need correction.</p>
+                  </div>
+                </div>
+                {dispatchReview.dispatchBlock ? (
+                  <div className="rounded-md border border-status-bad/40 bg-status-bad/5 p-3 text-status-bad" role="alert">
+                    <p className="font-semibold">The rider cannot receive another run yet.</p>
+                    <p className="mt-1">{dispatchReview.dispatchBlock.reason}</p>
+                    <p className="mt-1"><strong>Next step:</strong> {dispatchReview.dispatchBlock.correction}</p>
+                  </div>
+                ) : null}
+                {dispatchReview.ready.length > 0 ? (
+                  <section className="rounded-md border border-emerald-300 p-3">
+                    <h4 className="font-semibold text-emerald-900">Ready stops — these will go to the rider</h4>
+                    <ul className="mt-2 space-y-1">
+                      {dispatchReview.ready.map((item) => (
+                        <li key={item.awb} className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-medium">{item.awb}</span>
+                          <Badge variant="good">Ready</Badge>
+                          <span className="text-muted-foreground">{humanise(item.status)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+                {dispatchReview.blocked.length > 0 ? (
+                  <ul className="space-y-2">
+                    {dispatchReview.blocked.map((item) => (
+                      <li key={item.awb} className="rounded-md border border-amber-300 p-3">
+                        <p><span className="font-mono font-semibold">{item.awb}</span> · {humanise(item.status)}</p>
+                        <p className="mt-1 text-muted-foreground">{item.reason}</p>
+                        <p className="mt-1"><strong>Next step:</strong> {item.correction}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="rounded-md border border-emerald-300 p-3 text-emerald-900">All stops passed the branch, parcel-status and retry checks.</p>
+                )}
+                <p className="text-muted-foreground">
+                  Only ready stops will be handed to the rider. Held stops are kept off the route; if none are ready, the draft remains open and nothing is dispatched.
+                </p>
+              </div>
+            ) : null}
+          </Dialog>
           <ConfirmDialog
             open={confirm === "cancel"}
             onOpenChange={(o) => !o && setConfirm(null)}

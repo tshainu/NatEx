@@ -143,6 +143,11 @@ export const runsheetAdd = transportProc
     ),
   );
 
+/** Preview per-stop eligibility before the hub gives the run to the rider. */
+export const runsheetDispatchReview = transportProc
+  .input(z.object({ runsheetId: z.string().min(1) }))
+  .handler(({ input, context }) => deliveryService.reviewRunsheetDispatch(input, context.principal));
+
 export const runsheetRemove = transportProc
   .input(
     z.object({
@@ -453,6 +458,7 @@ export const delivery = {
   runsheetAdd,
   runsheetRemove,
   runsheetOptimise,
+  runsheetDispatchReview,
   runsheetDispatch,
   runsheetCancel,
   runsheetClose,
