@@ -14,7 +14,7 @@ delete process.env.SMS_EXECUTION_URL;
 const { createClient } = await import("@libsql/client");
 const setup = createClient({ url: databaseUrl });
 await setup.execute(`CREATE TABLE parcels_parcel (
-  id TEXT PRIMARY KEY, awb TEXT NOT NULL UNIQUE, merchant_id TEXT, branch_id TEXT NOT NULL,
+  id TEXT PRIMARY KEY, awb TEXT NOT NULL UNIQUE, merchant_id TEXT, branch_id TEXT NOT NULL, origin_branch_id TEXT,
   status TEXT NOT NULL, weight_grams INTEGER NOT NULL, length_cm INTEGER, width_cm INTEGER, height_cm INTEGER,
   description TEXT, declared_value_cents INTEGER DEFAULT 0, cod_amount_cents INTEGER NOT NULL DEFAULT 0,
   cod_locked_at INTEGER, origin_address TEXT NOT NULL, origin_lat_e6 INTEGER, origin_lng_e6 INTEGER,
@@ -60,6 +60,11 @@ await setup.execute({
     VALUES ('district_jaf_hub', 'DIST-JAF', 'Jaffna Hub', 'Jaffna Main Street, Jaffna, Northern Province', 'hub', 'active', 0)`,
   args: [],
 });
+await setup.batch([
+  { sql: "INSERT INTO identity_branch (id, code, name, address, type, status, created_at) VALUES (?, ?, ?, ?, ?, 'active', 0)", args: ["scope_test_branch_a", "SCOPE-A", "Mannar Hub", "Mannar Main Street, Mannar", "hub"] },
+  { sql: "INSERT INTO identity_branch (id, code, name, address, type, status, created_at) VALUES (?, ?, ?, ?, ?, 'active', 0)", args: ["scope_test_branch_b", "SCOPE-B", "Colombo Hub", "Colombo Main Street, Colombo", "hub"] },
+  { sql: "INSERT INTO identity_branch (id, code, name, address, type, parent_hub_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'active', 0)", args: ["scope_test_branch_child", "SCOPE-A1", "Mannar Branch", "Mannar Road, Mannar", "branch", "scope_test_branch_a"] },
+], "write");
 
 const { colomboToday } = await import("../../shared/time");
 const parcels = await import("./service");
@@ -69,6 +74,7 @@ const transport = await import("../transport/service");
 type Scope = import("../../shared/auth").Principal;
 const branchA = "scope_test_branch_a";
 const branchB = "scope_test_branch_b";
+const branchAChild = "scope_test_branch_child";
 const ops: Scope = {
   userId: "scope_test_ops",
   name: "Scope test Operations",
@@ -93,6 +99,7 @@ const parcelRows = [
     id: "scope_a_local",
     awb: "NXSCOPETESTA001",
     branchId: branchA,
+    originBranchId: branchA,
     status: "Delivered",
     origin: "Origin branch: elsewhere",
     destination: "No. 10, Jaffna Main Street, Jaffna, Northern Province",
@@ -101,6 +108,7 @@ const parcelRows = [
     id: "scope_a_hold",
     awb: "NXSCOPETESTA002",
     branchId: branchA,
+    originBranchId: branchA,
     status: "OnHold",
     origin: "Origin branch: elsewhere",
     destination: "Destination branch: elsewhere",
@@ -109,22 +117,50 @@ const parcelRows = [
     id: "scope_b_cross",
     awb: "NXSCOPETESTB001",
     branchId: branchB,
+    originBranchId: branchB,
     status: "Delivered",
     // These address hints deliberately mention branch A. Accountability is the
     // parcel's current branch_id, not its origin/destination text or old events.
     origin: `Origin branch: ${branchA}`,
     destination: `Destination branch: ${branchA}`,
   },
+  {
+    id: "scope_a_sent_moved",
+    awb: "NXSCOPETESTA003",
+    branchId: branchB,
+    originBranchId: branchA,
+    status: "AtDestHub",
+    origin: "Mannar Hub",
+    destination: "Jaffna district",
+  },
+  {
+    id: "scope_b_received",
+    awb: "NXSCOPETESTB002",
+    branchId: branchA,
+    originBranchId: branchB,
+    status: "Delivered",
+    origin: "Colombo Hub",
+    destination: "Mannar district",
+  },
+  {
+    id: "scope_a_child",
+    awb: "NXSCOPETESTA004",
+    branchId: branchAChild,
+    originBranchId: branchAChild,
+    status: "Booked",
+    origin: "Mannar Branch",
+    destination: "Jaffna district",
+  },
 ];
 
 for (const row of parcelRows) {
   await setup.execute({
     sql: `INSERT INTO parcels_parcel
-      (id, awb, merchant_id, branch_id, status, weight_grams, cod_amount_cents,
+      (id, awb, merchant_id, branch_id, origin_branch_id, status, weight_grams, cod_amount_cents,
        origin_address, consignee_name, consignee_phone, dest_address, delivery_attempts,
        created_at, updated_at)
-      VALUES (?, ?, NULL, ?, ?, 500, 2500, ?, ?, '+94770000000', ?, 0, ?, ?)`,
-    args: [row.id, row.awb, row.branchId, row.status, row.origin, `Receiver ${row.id}`, row.destination, nowSeconds, nowSeconds],
+      VALUES (?, ?, NULL, ?, ?, ?, 500, 2500, ?, ?, '+94770000000', ?, 0, ?, ?)`,
+    args: [row.id, row.awb, row.branchId, row.originBranchId, row.status, row.origin, `Receiver ${row.id}`, row.destination, nowSeconds, nowSeconds],
   });
 }
 for (const [i, [parcelId, status]] of [
@@ -133,6 +169,11 @@ for (const [i, [parcelId, status]] of [
   ["scope_a_hold", "OnHold"],
   ["scope_b_cross", "Booked"],
   ["scope_b_cross", "Delivered"],
+  ["scope_a_sent_moved", "Booked"],
+  ["scope_a_sent_moved", "AtDestHub"],
+  ["scope_b_received", "Booked"],
+  ["scope_b_received", "Delivered"],
+  ["scope_a_child", "Booked"],
 ].entries()) {
   await setup.execute({
     sql: `INSERT INTO parcels_parcel_event
@@ -216,15 +257,17 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
       parcels.parcelTrends(ops, 14, now),
     ]);
 
-    expect(Object.fromEntries(counts.map((row) => [row.status, row.count]))).toEqual({ Delivered: 1, OnHold: 1 });
-    expect(new Set(stream.rows.map((row) => row.id))).toEqual(new Set(["scope_a_local", "scope_a_hold"]));
-    expect(events.length).toBe(4);
+    expect(Object.fromEntries(counts.map((row) => [row.status, row.count]))).toEqual({ Delivered: 2, OnHold: 1 });
+    expect(new Set(stream.rows.map((row) => row.id))).toEqual(new Set([
+      "scope_a_local", "scope_a_hold", "scope_a_sent_moved", "scope_a_child",
+    ]));
+    expect(events.length).toBe(6);
     expect(events.every((event) => event.parcelId !== "scope_b_cross")).toBe(true);
-    expect(trends.totals.booked).toBe(2);
-    expect(trends.totals.delivered).toBe(1);
+    expect(trends.totals.booked).toBe(3);
+    expect(trends.totals.delivered).toBe(2);
   });
 
-  test("tampered branch filters cannot replace an ops allocation", async () => {
+  test("sender branch plus assigned children define the ops register; inbound parcels stay out", async () => {
     const askingForOtherBranch = await parcels.listParcels(
       { page: 1, pageSize: 100, branchId: branchB },
       ops,
@@ -234,8 +277,19 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
       { ...ops, branchId: branchB },
     );
 
-    expect(askingForOtherBranch.rows.map((row) => row.branchId)).toEqual([branchA, branchA]);
-    expect(askingForHomeBranch.rows.map((row) => row.branchId)).toEqual([branchB]);
+    expect(new Set(askingForOtherBranch.rows.map((row) => row.id))).toEqual(new Set([
+      "scope_a_local", "scope_a_hold", "scope_a_sent_moved", "scope_a_child",
+    ]));
+    expect(new Set(askingForHomeBranch.rows.map((row) => row.originBranchId))).toEqual(new Set([branchB]));
+    expect(askingForHomeBranch.total).toBe(2);
+  });
+
+  test("a sender branch can read its transferred parcel but receives no mutation controls", async () => {
+    const detail = await parcels.getParcelDetail("NXSCOPETESTA003", ops);
+    expect(detail.parcel.originBranchId).toBe(branchA);
+    expect(detail.parcel.branchId).toBe(branchB);
+    expect(detail.commandable).toEqual([]);
+    expect(detail.readOnlyReason).toContain("has left your branch");
   });
 
   test("parcel list filters inclusive Colombo booking dates and supports 500 rows", async () => {
@@ -246,8 +300,10 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
     );
 
     expect(result.pageSize).toBe(500);
-    expect(new Set(result.rows.map((row) => row.id))).toEqual(new Set(["scope_a_local", "scope_a_hold"]));
-    expect(result.total).toBe(2);
+    expect(new Set(result.rows.map((row) => row.id))).toEqual(new Set([
+      "scope_a_local", "scope_a_hold", "scope_a_sent_moved", "scope_b_received", "scope_a_child",
+    ]));
+    expect(result.total).toBe(5);
   });
 
   test("parcel list resolves the recipient address district to its active hub without a zone", async () => {
@@ -314,7 +370,7 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
     expect(scoped.rows[0]?.ageMinutes).toBe(120);
     expect(tooYoung.total).toBe(0);
     expect(tampered.total).toBe(0);
-    expect(network.total).toBe(3);
+    expect(network.total).toBe(6);
   });
 
   test("transport enrichment selects the latest accepted scan and live trip ETA", async () => {
@@ -333,11 +389,11 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
     ]);
     const narrowed = await parcels.listParcels({ page: 1, pageSize: 100, branchId: branchA }, admin);
 
-    expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(3);
-    expect(stream.total).toBe(3);
-    expect(trends.totals.booked).toBe(3);
+    expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(6);
+    expect(stream.total).toBe(6);
+    expect(trends.totals.booked).toBe(6);
     expect(runs.runsheetsToday).toBe(2);
-    expect(narrowed.total).toBe(2);
-    expect(narrowed.rows.every((row) => row.branchId === branchA)).toBe(true);
+    expect(narrowed.total).toBe(3);
+    expect(narrowed.rows.every((row) => row.originBranchId === branchA)).toBe(true);
   });
 });

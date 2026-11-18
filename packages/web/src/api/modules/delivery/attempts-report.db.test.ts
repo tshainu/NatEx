@@ -27,7 +27,7 @@ await setup.execute(`CREATE TABLE delivery_attempt (
   rider_name TEXT, ts INTEGER NOT NULL
 )`);
 await setup.execute(`CREATE TABLE parcels_parcel (
-  id TEXT PRIMARY KEY, awb TEXT NOT NULL, merchant_id TEXT, branch_id TEXT NOT NULL,
+  id TEXT PRIMARY KEY, awb TEXT NOT NULL, merchant_id TEXT, branch_id TEXT NOT NULL, origin_branch_id TEXT,
   status TEXT NOT NULL, weight_grams INTEGER NOT NULL, length_cm INTEGER, width_cm INTEGER,
   height_cm INTEGER, description TEXT, declared_value_cents INTEGER, cod_amount_cents INTEGER NOT NULL,
   cod_locked_at INTEGER, origin_address TEXT NOT NULL, origin_lat_e6 INTEGER, origin_lng_e6 INTEGER,

@@ -152,6 +152,20 @@ function allocatedBranchFilter(scope: Principal) {
     : sql`0 = 1`;
 }
 
+/**
+ * The Operations parcel register is the sender's register, not the current
+ * custody inbox. Hub operators see their hub plus Admin-assigned child branches.
+ */
+async function parcelRegisterScopeFilter(scope: Principal) {
+  if (isGlobalScope(scope.role) || scope.role !== "ops") return scopeFilter(scope);
+  const branchId = scope.branchId;
+  if (typeof branchId !== "string" || !branchId.trim()) return sql`0 = 1`;
+  const senderBranchIds = await identityService.operationsBranchScope(branchId);
+  return senderBranchIds.length
+    ? inArray(parcel.originBranchId, senderBranchIds)
+    : sql`0 = 1`;
+}
+
 /** Assert the caller is allowed to see this parcel at all. */
 function assertVisible(row: ParcelRow, scope: Principal): void {
   if (isGlobalScope(scope.role)) return;
@@ -164,6 +178,28 @@ function assertVisible(row: ParcelRow, scope: Principal): void {
       parcelBranchId: row.branchId,
     });
   }
+}
+
+/** Read access may follow a sent parcel, but it never grants operational authority. */
+async function assertReadable(row: ParcelRow, scope: Principal): Promise<void> {
+  if (isGlobalScope(scope.role)) return;
+  if (scope.role === "merchant") {
+    if (row.merchantId !== scope.merchantId) errors.notFound("Parcel");
+    return;
+  }
+  if (scope.role === "ops") {
+    const branchId = scope.branchId;
+    const visibleBranchIds = typeof branchId === "string" && branchId.trim()
+      ? await identityService.operationsBranchScope(branchId)
+      : [];
+    if (
+      visibleBranchIds.includes(row.branchId) ||
+      Boolean(row.originBranchId && visibleBranchIds.includes(row.originBranchId))
+    ) return;
+  } else if (row.branchId === scope.branchId) {
+    return;
+  }
+  errors.notFound("Parcel");
 }
 
 export async function getParcelById(id: string): Promise<ParcelRow | null> {
@@ -182,6 +218,8 @@ export interface ParcelDetail {
   legalNext: readonly ParcelStatus[];
   /** Of `legalNext`, the ones this caller's role may command in M1. */
   commandable: ParcelStatus[];
+  /** Explains why a sender-branch user may track this parcel but cannot mutate it. */
+  readOnlyReason: string | null;
 }
 
 /**
@@ -212,7 +250,10 @@ export async function getParcelDetail(
   const row =
     (await getParcelByAwb(awbOrId)) ?? (await getParcelById(awbOrId));
   if (!row) errors.notFound("Parcel");
-  assertVisible(row!, scope);
+  await assertReadable(row!, scope);
+  const readOnlyReason = scope.role === "ops" && row!.branchId !== scope.branchId
+    ? "This parcel has left your branch. You can track its status and custody history, but the hub currently responsible for it must make operational updates."
+    : null;
 
   const timeline = await db
     .select()
@@ -225,9 +266,10 @@ export async function getParcelDetail(
     parcel: row!,
     timeline,
     legalNext: next,
-    commandable: next.filter((to) =>
-      isGenericallyCommandable(row!.status as ParcelStatus, to, scope.role),
-    ),
+    commandable: readOnlyReason
+      ? []
+      : next.filter((to) => isGenericallyCommandable(row!.status as ParcelStatus, to, scope.role)),
+    readOnlyReason,
   };
 }
 
@@ -344,13 +386,13 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
   if (input.createdFrom && input.createdTo && input.createdFrom > input.createdTo) {
     errors.badRequest("The start date must be on or before the end date.");
   }
-  const filters = [scopeFilter(scope)];
+  const filters = [await parcelRegisterScopeFilter(scope)];
 
   if (input.status?.length) filters.push(inArray(parcel.status, input.status));
   if (input.merchantId) filters.push(eq(parcel.merchantId, input.merchantId));
-  // A branch filter can only narrow, never widen, the caller's own scope.
+  // Global users can narrow the sender register to one origin branch.
   if (input.branchId && isGlobalScope(scope.role)) {
-    filters.push(eq(parcel.branchId, input.branchId));
+    filters.push(eq(parcel.originBranchId, input.branchId));
   }
   if (input.createdFrom) {
     filters.push(gte(parcel.createdAt, new Date(`${input.createdFrom}T00:00:00+05:30`)));
@@ -972,6 +1014,7 @@ export async function createParcel(
             awb,
             merchantId: input.merchantId,
             branchId: input.branchId,
+            originBranchId: input.branchId,
             status: "Booked",
             weightGrams: input.weightGrams,
             lengthCm: input.lengthCm ?? null,
@@ -1056,6 +1099,7 @@ export async function createParcel(
     commandable: legalNext("Booked").filter((to) =>
       isGenericallyCommandable("Booked", to, actor.role),
     ),
+    readOnlyReason: null,
   };
 }
 
@@ -1219,6 +1263,7 @@ export async function createRetailCounterBooking(
             awb,
             merchantId: null,
             branchId: branch!.id,
+            originBranchId: branch!.id,
             status: "Booked",
             weightGrams: input.weightGrams,
             lengthCm: input.lengthCm ?? null,
@@ -1305,6 +1350,7 @@ export async function createRetailCounterBooking(
     commandable: legalNext(parcelRow!.status as ParcelStatus).filter((to) =>
       isGenericallyCommandable(parcelRow!.status as ParcelStatus, to, actor.role),
     ),
+    readOnlyReason: null,
     freightCharge: charge!,
     paidReceipt,
   };
@@ -1715,6 +1761,7 @@ export async function seedParcel(
       awb: input.awb,
       merchantId: input.merchantId,
       branchId: input.branchId,
+      originBranchId: input.branchId,
       status: input.status,
       weightGrams: input.weightGrams,
       lengthCm: input.lengthCm ?? null,

@@ -153,9 +153,28 @@ Reuse the current NatEx login brand panel, portal shell, local wordmark/logo and
 
 ## Constraints
 
-No schema or migration edits, production database writes, or VPS deployments. Commit the verified code changes to the repository's `main` branch after fetching and fast-forward integration; do not add the local 135 MB Rider APK to GitHub because it exceeds GitHub's per-file size limit. Keep generated web handoff artifacts current if they are included in the commit.
+The original UI polish did not change schema or production data. That constraint is superseded only for the separately approved sender-branch follow-up below; all other schema, database and deployment actions remain out of scope. Do not add the local 135 MB Rider APK to GitHub because it exceeds GitHub's per-file size limit.
 
 
 ## District resolver verification note (2026-11-18)
 
 A read-only `GET https://204-13-236-153.sslip.io/api/public/locations` returned HTTP 200 and six active Admin → Branches records. The new parser recognized the stored address districts for Colombo Central/Colombo Main Hub, Jaffna Branch, Mannar Branch, Kilinochi Hub, and Vavuniya Branch; Colombo correctly prefers the unique hub over the same-district branch. No raw address, phone number, or parcel data was copied into this note, and no Production writes were made.
+
+## Sender-branch parcel isolation (explicitly approved 2026-11-18)
+
+- Add one nullable `parcels_parcel.origin_branch_id` column and an index. Keep the existing `branch_id` as the parcel's current accountable branch; never repurpose it. Populate `origin_branch_id` in every new Merchant, Operations, counter and seed/demo parcel insert.
+- Scope the Operations Parcels register by the immutable sender branch: an Ops hub sees parcels booked at that hub and its Admin-assigned child branches; an Ops branch sees its own sent parcels; global Admin/Finance/HR roles retain the existing network view; Merchant scope remains its own merchant. An Admin branch filter means “sent from”.
+- An origin branch may read/timeline-track its own sent parcel after it leaves, but status changes remain authorized only for the current accountable branch (or existing global/merchant permissions). Show a read-only explanation where appropriate.
+- Backfill only legacy rows whose origin is absent. Use the earliest valid append-only `Accountability moved from <branch> to <branch>.` parcel event to recover the sender. If no transfer event exists, use the row's current branch; malformed or conflicting earliest transfer evidence stays NULL and is reported as unresolved. Never overwrite a non-NULL origin value or guess from addresses/zones.
+- The one-shot backfill tool defaults to read-only planning; `--apply` requires a pinned DB target, a reviewed plan hash, explicit target confirmation, and is idempotent. Take/verify the pre-migration database backup. Test schema sync and backfill on disposable SQLite first, then use the explicit schema-enabled Production/Demo deploy path; no destructive data operations.
+
+
+## Approved sender-branch register (2026-11-18)
+
+The owner approved adding a durable `origin_branch_id` to each parcel and a safe migration/backfill. Keep `branch_id` unchanged as the mutable current-accountability branch used by transport, delivery, and all write authorization. Every new booking path (single, counter, bulk, seed) records the original booking branch once; accountability transfers never overwrite it.
+
+The Operations Parcels list is filtered server-side by sender branch, including the operator's assigned hub and Admin-assigned child branches. Global Admin/Finance/HR scope remains network-wide; merchant scope remains merchant-only. A parcel moved to another hub remains visible to its sender branch as read-only tracking. Detail reads may use current-accountable branch or sender-branch scope, but transitions and all operational writes keep the existing current-branch check. A parcel received from another hub is not placed in the receiver hub's sender register.
+
+The one-time backfill uses the earliest append-only `Accountability moved from <source> to <destination>.` event to reconstruct moved parcels. With no movement event, the legacy current branch is used. Malformed, conflicting, or dangling branch evidence is left null and reported, never guessed. The CLI is read-only by default; apply requires the pinned target, exact database fingerprint, exact plan hash, explicit Production/Demo confirmation, and a verified durable backup identifier. Unresolved history is updated only when the operator explicitly permits a partial backfill. No destructive or bulk rewrites are allowed.
+
+Release order after scratch tests: take and restore-verify a durable backup; apply the additive nullable column and index through the documented schema-enabled deploy; run/review the target-specific plan; apply the hash-bound backfill; verify origin counts and sender-scope regression cases; verify API readiness and GitHub refs. This is an approved schema change, not a code-only release.

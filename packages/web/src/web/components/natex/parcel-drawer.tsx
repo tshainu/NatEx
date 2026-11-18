@@ -99,6 +99,7 @@ export function ParcelDrawer({
               commandable={detail.data.commandable}
               legalNext={detail.data.legalNext}
               status={parcel!.status}
+              readOnlyReason={detail.data.readOnlyReason}
               pendingTo={transition.isPending ? pendingTo : null}
               onCommand={(to) => setPendingTo(to)}
             />
@@ -236,15 +237,20 @@ function CommandBar({
   commandable,
   legalNext,
   status,
+  readOnlyReason,
   pendingTo,
   onCommand,
 }: {
   commandable: readonly string[];
   legalNext: readonly string[];
   status: string;
+  readOnlyReason: string | null;
   pendingTo: string | null;
   onCommand: (to: string) => void;
 }) {
+  if (readOnlyReason) {
+    return <p className="text-[12px] text-muted-foreground">{readOnlyReason}</p>;
+  }
   if (commandable.length === 0) {
     const deferred = legalNext.filter((s) => !commandable.includes(s));
     return (

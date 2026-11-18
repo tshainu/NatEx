@@ -36,3 +36,22 @@
 - [ ] In Operations and Merchant Parcels tables, take the destination district from the recipient address, not the service zone. Match it to active Admin → Branches addresses; prefer one unique hub, otherwise a unique branch. If no matching location or multiple candidates exist, display the parsed district and explain the state rather than showing “Unassigned” or guessing. Keep this distinct from Bagging, which still displays its configured destination hub.
 - [ ] Include the resolved destination/district in Merchant CSV export. Add no database schema or migration changes; newly added or updated active locations should be considered on the next parcel-list request.
 - [ ] Run the focused address-resolution tests, typecheck/build, push the fix to GitHub, and deploy through the code-only VPS path without schema changes.
+
+
+# Sender-Branch Parcels Isolation (explicitly approved 2026-11-18)
+
+- [ ] Add nullable `origin_branch_id` plus index; keep `branch_id` as current accountability. Populate origin at all Merchant/Operations/counter and demo-seed parcel insertion paths.
+- [ ] Scope Operations Parcels to the logged-in sender branch (hub plus its Admin-assigned children); keep Admin/global access and Merchant ownership behavior intact. Admin branch filter is by sender branch.
+- [ ] Allow safe read-only timeline access for the sender after transfer; leave all status mutation gates on the current accountable branch and make the read-only state clear.
+- [ ] Add a dry-run-first, idempotent backfill using the first valid accountability-transfer audit event, current branch only when no transfer exists, and NULL for malformed/ambiguous history. Require pinned target, plan hash, explicit apply confirmation, and verified pre-migration backup.
+- [ ] Scratch-test schema synchronization, backfill and row scope; run typecheck/build, push to GitHub, then apply the explicit schema-enabled Production/Demo release and verify readiness and sender-only list behavior.
+
+
+# Sender-Branch Parcel Register — Owner Approved (2026-11-18)
+
+- [ ] Add nullable `origin_branch_id` and index; keep mutable `branch_id` as current accountability for transport/delivery/write checks.
+- [ ] Set origin branch at all new single, counter, bulk, and seed booking paths; never alter it on custody transfer.
+- [ ] Filter Operations Parcels by origin hub plus Admin-assigned child branches; keep global Admin/Finance/HR and merchant scopes intact. Sender-branch details remain read-only after transfer; receiver hubs do not see parcels they did not send.
+- [ ] Safely backfill from the earliest audited accountability-transfer event; use current branch only when no transfer event exists. Leave malformed, conflicting, or dangling references unresolved instead of guessing.
+- [ ] Implement read-only-by-default, pinned-target backfill CLI. Live apply requires durable verified backup ID, database fingerprint, reviewed plan hash, explicit confirmation and explicit partial-backfill permission when unresolved rows exist.
+- [ ] Run scratch DB tests, typecheck, build, review exact schema diff; then prepare the approved schema-enabled Production/Demo release without running it unless the complete backup/backfill plan is verified.

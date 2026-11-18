@@ -59,7 +59,7 @@ const ddl = [
   )`,
   `CREATE TABLE parcels_awb_batch_series (series_number INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL UNIQUE REFERENCES parcels_awb_batch(id))`,
   `CREATE TABLE parcels_awb_batch_label (awb TEXT PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES parcels_awb_batch(id))`,
-  `CREATE TABLE parcels_parcel (id TEXT PRIMARY KEY, awb TEXT NOT NULL UNIQUE)`,
+  `CREATE TABLE parcels_parcel (id TEXT PRIMARY KEY, awb TEXT NOT NULL UNIQUE, origin_branch_id TEXT)`,
   `CREATE TABLE parcels_retired_tracking_number (tracking_number TEXT PRIMARY KEY)`,
   `CREATE TABLE shared_audit_log (
     id TEXT PRIMARY KEY, entity TEXT NOT NULL, entity_id TEXT NOT NULL, action TEXT NOT NULL,

@@ -135,7 +135,7 @@ export default function OpsParcels() {
   return (
     <Page
       title="Parcels"
-      description="Every parcel accountable to your branch. Click a row to inspect its custody timeline and command the next legal transition."
+      description="Parcels booked by your hub and assigned sub-branches. After a parcel moves elsewhere, you can still track its status and custody history, but operational updates belong to the current hub."
       actions={
         role === "ops" || role === "admin" ? (
           <Button asChild>

@@ -19,6 +19,8 @@ export const parcel = sqliteTable(
     merchantId: text("merchant_id"),
     /** Branch currently accountable for the parcel — row-level scoping. */
     branchId: text("branch_id").notNull(),
+    /** Immutable booking/sender branch; branchId above continues to track current accountability. */
+    originBranchId: text("origin_branch_id"),
     /** Enumerated state, advanced only through legal transitions (PROJECT.md §6). */
     status: text("status").notNull(),
     /** Grams — integer, never float. */
@@ -57,6 +59,7 @@ export const parcel = sqliteTable(
   (t) => [
     index("parcels_parcel_status_idx").on(t.status),
     index("parcels_parcel_branch_idx").on(t.branchId),
+    index("parcels_parcel_origin_branch_idx").on(t.originBranchId),
     index("parcels_parcel_merchant_idx").on(t.merchantId),
   ],
 );
