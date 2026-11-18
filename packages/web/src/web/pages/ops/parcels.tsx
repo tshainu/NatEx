@@ -22,6 +22,7 @@ interface Row {
   consigneeName: string;
   consigneePhone: string;
   destAddress: string;
+  destinationBranchName: string | null;
   weightGrams: number;
   codAmountCents: number;
   createdAt: string | Date;
@@ -86,6 +87,16 @@ export default function OpsParcels() {
             {r.consigneePhone}
           </p>
         </div>
+      ),
+    },
+    {
+      key: "destination",
+      header: "Destination hub / branch",
+      width: "w-[180px]",
+      cell: (r) => (
+        <span className="truncate text-muted-foreground">
+          {r.destinationBranchName?.trim() || "Unassigned"}
+        </span>
       ),
     },
     {
