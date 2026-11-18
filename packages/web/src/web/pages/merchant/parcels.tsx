@@ -36,6 +36,8 @@ interface Row {
   consigneePhone: string;
   destAddress: string;
   destinationBranchName: string | null;
+  destinationDistrict: string | null;
+  destinationResolutionStatus: string;
   weightGrams: number;
   codAmountCents: number;
   createdAt: string | Date;
@@ -108,8 +110,8 @@ export default function MerchantParcels() {
     },
     {
       key: "destinationBranch",
-      header: "Destination hub / branch",
-      cell: (r) => <span className="text-muted-foreground">{r.destinationBranchName ?? "Unassigned"}</span>,
+      header: "Destination hub / district",
+      cell: (r) => <span className="text-muted-foreground" title={destinationDisplay(r)}>{destinationDisplay(r)}</span>,
     },
     {
       key: "dest",
@@ -240,8 +242,8 @@ export default function MerchantParcels() {
             <div className="self-end">
               <ExportCsvButton<Row>
                 filename={`shipments-${colomboToday()}.csv`}
-                header={["tracking_number", "status", "consignee_name", "consignee_phone", "destination_hub_or_branch", "delivery_address", "weight_g", "cod_rs", "booked_at"]}
-                toRow={(r) => [r.awb, r.status, r.consigneeName, r.consigneePhone, r.destinationBranchName ?? "", r.destAddress, r.weightGrams, centsToRupees(r.codAmountCents), new Date(r.createdAt).toISOString()]}
+                header={["tracking_number", "status", "consignee_name", "consignee_phone", "destination_hub_or_district", "delivery_address", "weight_g", "cod_rs", "booked_at"]}
+                toRow={(r) => [r.awb, r.status, r.consigneeName, r.consigneePhone, destinationDisplay(r), r.destAddress, r.weightGrams, centsToRupees(r.codAmountCents), new Date(r.createdAt).toISOString()]}
                 fetchPage={async (p) => {
                   const res = await client.parcels.list({ ...filter, page: p, pageSize: 100 });
                   return { ...res, rows: res.rows as unknown as Row[] };
@@ -261,4 +263,16 @@ export default function MerchantParcels() {
       <ParcelDrawer awb={openAwb} onOpenChange={(open) => !open && setOpenAwb(null)} />
     </Page>
   );
+}
+
+function destinationDisplay(row: Pick<Row, "destinationBranchName" | "destinationDistrict" | "destinationResolutionStatus">): string {
+  if (row.destinationBranchName?.trim()) return row.destinationBranchName.trim();
+  if (!row.destinationDistrict) return "District not found";
+  if (row.destinationResolutionStatus === "multiple-locations-for-district") {
+    return `${row.destinationDistrict} district · multiple locations`;
+  }
+  if (row.destinationResolutionStatus === "no-location-for-district") {
+    return `${row.destinationDistrict} district · no hub listed`;
+  }
+  return `${row.destinationDistrict} district`;
 }

@@ -146,10 +146,16 @@ Reuse the current NatEx login brand panel, portal shell, local wordmark/logo and
 ## Scope and behavior
 
 - `/ops/bagging`: display the destination service-zone owner as a hub/branch label in the ready-to-bag table, never substitute the full recipient address for a hub. Use the existing branch name/type and destination-zone assignment. Keep “Bags at your hub” to open/sealed bags only; style the Open bag action and its label green, add varied gradient outlines to the four summary tiles, and outline the Scan into bag card in green.
-- `/merchant/parcels`: add from/to filters for the parcel booking date (`createdAt` in Colombo calendar time), keep the date controls on the right of the filter bar, offer 50/100/500/All page sizes, and display the configured destination zone’s owning hub/branch as a separate column. Extend the existing read-only parcel-list API with validated date bounds and a 500-row cap; the All option reads sequential pages. Preserve merchant ownership scoping. Do not treat the parcel’s current accountable branch as its destination.
+- `/merchant/parcels`: add from/to filters for the parcel booking date (`createdAt` in Colombo calendar time), keep the date controls on the right of the filter bar, offer 50/100/500/All page sizes, and display the destination district parsed from the recipient address. Match that district to active Admin → Branches addresses, preferring one unique hub and falling back to one unique branch; if no location or multiple candidates exist, show the district with a clear status rather than guessing. Do not use service zones or the parcel’s current accountable branch as its destination.
 - `/ops/book`: rename the two requested cards and apply restrained yellow/green treatments. Add an operations-only, branch-scoped sticker check for the selected Merchant; only show green after the server confirms the label is allocated to that Merchant, unused and not retired. Keep blank optional stickers neutral/yellow and show invalid or failed checks in red.
 - `/ops/freight-counter`: add yellow/green card outlines and use the existing branch sticker check result to display yellow (empty/incomplete/pending), green (valid) or red (invalid/failed) input outlines. Preserve validation and booking gates.
+- `/ops/parcels`: use the same district-from-recipient-address resolver as the Merchant Parcels table, with explicit no-district/no-location/ambiguous states. New branch records are considered from the active branch directory on the next parcel-list query.
 
 ## Constraints
 
 No schema or migration edits, production database writes, or VPS deployments. Commit the verified code changes to the repository's `main` branch after fetching and fast-forward integration; do not add the local 135 MB Rider APK to GitHub because it exceeds GitHub's per-file size limit. Keep generated web handoff artifacts current if they are included in the commit.
+
+
+## District resolver verification note (2026-11-18)
+
+A read-only `GET https://204-13-236-153.sslip.io/api/public/locations` returned HTTP 200 and six active Admin → Branches records. The new parser recognized the stored address districts for Colombo Central/Colombo Main Hub, Jaffna Branch, Mannar Branch, Kilinochi Hub, and Vavuniya Branch; Colombo correctly prefers the unique hub over the same-district branch. No raw address, phone number, or parcel data was copied into this note, and no Production writes were made.

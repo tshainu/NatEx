@@ -29,3 +29,10 @@
 - [x] **Staff Book a parcel:** Rename “Merchant & consignment” to “Merchant & Sender” and colour the card yellow. Rename “Consignee & destination” to “Destination & Recipient” and colour the card green. Give the preprinted tracking-number sticker field a yellow outline by default, green when the sticker is accepted for the selected Merchant, and red when it is invalid/unavailable.
 - [x] **Customer Counter Booking:** Give the “Branch & parcel” card a yellow outline and the “Recipient & delivery” card a green outline. Give both the preprinted branch tracking-number sticker field and the branch tracking-number sticker field a yellow outline by default, green when accepted for the selected branch/hub, and red when invalid/unavailable.
 - [x] **Safe release:** Preserve existing role/branch and sticker-allocation checks, make no database schema or migration changes, run focused checks, and push the completed code to GitHub. Do not deploy to the VPS as part of this task.
+
+
+# Parcel Destination District Follow-up (2026-11-18)
+
+- [ ] In Operations and Merchant Parcels tables, take the destination district from the recipient address, not the service zone. Match it to active Admin → Branches addresses; prefer one unique hub, otherwise a unique branch. If no matching location or multiple candidates exist, display the parsed district and explain the state rather than showing “Unassigned” or guessing. Keep this distinct from Bagging, which still displays its configured destination hub.
+- [ ] Include the resolved destination/district in Merchant CSV export. Add no database schema or migration changes; newly added or updated active locations should be considered on the next parcel-list request.
+- [ ] Run the focused address-resolution tests, typecheck/build, push the fix to GitHub, and deploy through the code-only VPS path without schema changes.

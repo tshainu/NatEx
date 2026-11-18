@@ -50,6 +50,16 @@ await setup.execute(`CREATE TABLE transport_hub_scan (
   id TEXT PRIMARY KEY, parcel_id TEXT, branch_id TEXT NOT NULL, hub_id TEXT,
   outcome TEXT NOT NULL, ts INTEGER NOT NULL
 )`);
+await setup.execute(`CREATE TABLE identity_branch (
+  id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, address TEXT NOT NULL,
+  phone TEXT, lat_e6 INTEGER, lng_e6 INTEGER, type TEXT NOT NULL, parent_hub_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active', counter_rate_card_id TEXT, created_at INTEGER NOT NULL
+)`);
+await setup.execute({
+  sql: `INSERT INTO identity_branch (id, code, name, address, type, status, created_at)
+    VALUES ('district_jaf_hub', 'DIST-JAF', 'Jaffna Hub', 'Jaffna Main Street, Jaffna, Northern Province', 'hub', 'active', 0)`,
+  args: [],
+});
 
 const { colomboToday } = await import("../../shared/time");
 const parcels = await import("./service");
@@ -85,7 +95,7 @@ const parcelRows = [
     branchId: branchA,
     status: "Delivered",
     origin: "Origin branch: elsewhere",
-    destination: "Destination branch: elsewhere",
+    destination: "No. 10, Jaffna Main Street, Jaffna, Northern Province",
   },
   {
     id: "scope_a_hold",
@@ -238,6 +248,17 @@ describe("Operations live-board allocation scope (scratch SQLite)", () => {
     expect(result.pageSize).toBe(500);
     expect(new Set(result.rows.map((row) => row.id))).toEqual(new Set(["scope_a_local", "scope_a_hold"]));
     expect(result.total).toBe(2);
+  });
+
+  test("parcel list resolves the recipient address district to its active hub without a zone", async () => {
+    const result = await parcels.listParcels({ page: 1, pageSize: 100 }, admin);
+    const destination = result.rows.find((row) => row.id === "scope_a_local");
+
+    expect(destination).toMatchObject({
+      destinationDistrict: "Jaffna",
+      destinationBranchName: "Jaffna hub",
+      destinationResolutionStatus: "resolved",
+    });
   });
 
   test("today-run totals use the same branch allocation and missing allocation is empty", async () => {

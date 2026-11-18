@@ -23,6 +23,8 @@ interface Row {
   consigneePhone: string;
   destAddress: string;
   destinationBranchName: string | null;
+  destinationDistrict: string | null;
+  destinationResolutionStatus: string;
   weightGrams: number;
   codAmountCents: number;
   createdAt: string | Date;
@@ -91,11 +93,11 @@ export default function OpsParcels() {
     },
     {
       key: "destination",
-      header: "Destination hub / branch",
-      width: "w-[180px]",
+      header: "Destination hub / district",
+      width: "w-[210px]",
       cell: (r) => (
-        <span className="truncate text-muted-foreground">
-          {r.destinationBranchName?.trim() || "Unassigned"}
+        <span className="truncate text-muted-foreground" title={destinationDisplay(r)}>
+          {destinationDisplay(r)}
         </span>
       ),
     },
@@ -214,6 +216,18 @@ export default function OpsParcels() {
       <ParcelDrawer awb={openAwb} onOpenChange={(open) => !open && setOpenAwb(null)} />
     </Page>
   );
+}
+
+function destinationDisplay(row: Pick<Row, "destinationBranchName" | "destinationDistrict" | "destinationResolutionStatus">): string {
+  if (row.destinationBranchName?.trim()) return row.destinationBranchName.trim();
+  if (!row.destinationDistrict) return "District not found";
+  if (row.destinationResolutionStatus === "multiple-locations-for-district") {
+    return `${row.destinationDistrict} district · multiple locations`;
+  }
+  if (row.destinationResolutionStatus === "no-location-for-district") {
+    return `${row.destinationDistrict} district · no hub listed`;
+  }
+  return `${row.destinationDistrict} district`;
 }
 
 function useDebounced<T>(value: T, ms: number): T {

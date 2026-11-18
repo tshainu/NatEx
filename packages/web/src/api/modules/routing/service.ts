@@ -11,6 +11,7 @@ import {
   toE6,
 } from "../../shared/geo";
 import { listBranches, nearestBranch, requireActiveBranch } from "../identity/service";
+import { destinationDistrictFromAddress, resolveDestinationDistrict } from "./destination-district";
 
 /**
  * MODULE: routing — serviceability and nearest-branch.
@@ -37,7 +38,14 @@ export async function getZoneById(id: string): Promise<ZoneRow | null> {
   return row ?? null;
 }
 
-/** Resolve only configured zone owners for display; never infer a hub from an address string. */
+/** Resolve recipient districts from saved addresses against the active hub/branch directory. */
+export async function destinationLocationsFromAddresses(addresses: readonly (string | null | undefined)[]) {
+  const districts = addresses.map(destinationDistrictFromAddress);
+  const branches = districts.some(Boolean) ? await listBranches() : [];
+  return districts.map((district) => resolveDestinationDistrict(district, branches));
+}
+
+/** Bagging continues to label configured zone owners; parcel lists use address districts instead. */
 export async function destinationBranchLabels(zoneIds: readonly (string | null | undefined)[]) {
   const ids = [...new Set(zoneIds.filter((id): id is string => Boolean(id)))];
   if (ids.length === 0) return new Map<string, string>();

@@ -387,13 +387,12 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
     db.select({ value: count() }).from(parcel).where(where),
   ]);
 
-  const destinationLabels = await routingService.destinationBranchLabels(rows.map((row) => row.destZoneId));
+  const destinationResolutions = await routingService.destinationLocationsFromAddresses(
+    rows.map((row) => row.destAddress),
+  );
 
   return {
-    rows: rows.map((row) => ({
-      ...row,
-      destinationBranchName: row.destZoneId ? destinationLabels.get(row.destZoneId) ?? null : null,
-    })),
+    rows: rows.map((row, index) => ({ ...row, ...destinationResolutions[index]! })),
     total: total?.value ?? 0,
     page: Math.max(input.page, 1),
     pageSize,
