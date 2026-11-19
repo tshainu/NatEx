@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, Page } from "@/components/natex/page";
+import { TabStrip, useTabParam } from "@/components/natex/tab-strip";
 import { DataTable, type Column } from "@/components/natex/data-table";
 import { client, orpc, apiMessage } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
@@ -30,9 +31,39 @@ type InventoryRow = {
 };
 
 type ExportKind = "csv" | "pdf";
+const BATCH_TABS = ["register", "usage"] as const;
 const EMPTY_BATCHES: BatchRow[] = [];
 const EMPTY_MERCHANTS: MerchantOption[] = [];
 const EMPTY_LOCATIONS: LocationOption[] = [];
+const CARD_GRADIENTS = [
+  "from-emerald-400 via-cyan-400 to-blue-500",
+  "from-amber-400 via-rose-400 to-violet-500",
+  "from-lime-400 via-emerald-500 to-teal-500",
+  "from-fuchsia-400 via-pink-500 to-orange-400",
+] as const;
+
+function randomGradientOrder(): string[] {
+  const gradients = [...CARD_GRADIENTS];
+  for (let index = gradients.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = gradients[index]!;
+    gradients[index] = gradients[swapIndex]!;
+    gradients[swapIndex] = current;
+  }
+  return gradients;
+}
+
+function GradientOutlineCard({
+  gradient,
+  className,
+  ...props
+}: React.ComponentProps<typeof Card> & { gradient: string }) {
+  return (
+    <div className={`rounded-lg bg-gradient-to-r ${gradient} p-[1.5px]`}>
+      <Card {...props} className={`border-0 ${className ?? ""}`} />
+    </div>
+  );
+}
 
 function dateTime(value: string | Date): string {
   return new Date(value).toLocaleString("en-LK", {
@@ -125,6 +156,8 @@ export default function AdminAwbBatches() {
   const [success, setSuccess] = React.useState<string | null>(null);
   const [seriesSearch, setSeriesSearch] = React.useState("");
   const [retirementBatch, setRetirementBatch] = React.useState<BatchRow | null>(null);
+  const [activeTab, selectTab] = useTabParam("labelView", BATCH_TABS, "register");
+  const [cardGradients] = React.useState(randomGradientOrder);
   const batchesQuery = useQuery(orpc.awbBatches.list.queryOptions());
   const batches = batchesQuery.data?.batches ?? EMPTY_BATCHES;
   const visibleBatches = React.useMemo(() => {
@@ -388,12 +421,66 @@ export default function AdminAwbBatches() {
     },
   ];
 
+  const inventoryColumns: Column<InventoryRow>[] = [
+    {
+      key: "assignee",
+      header: "Assignee",
+      width: "w-[260px]",
+      cell: (row) => (
+        <span>
+          {row.name}
+          <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.type}</span>
+        </span>
+      ),
+    },
+    {
+      key: "batches",
+      header: "Batch count",
+      align: "right",
+      width: "w-[130px]",
+      className: "font-mono",
+      cell: (row) => row.batchCount.toLocaleString(),
+    },
+    {
+      key: "issued",
+      header: "Labels issued",
+      align: "right",
+      width: "w-[150px]",
+      className: "font-mono",
+      cell: (row) => row.issued.toLocaleString(),
+    },
+    {
+      key: "used",
+      header: "Used",
+      align: "right",
+      width: "w-[130px]",
+      className: "font-mono",
+      cell: (row) => row.used.toLocaleString(),
+    },
+    {
+      key: "retired",
+      header: "Retired",
+      align: "right",
+      width: "w-[130px]",
+      className: "font-mono",
+      cell: (row) => row.retired.toLocaleString(),
+    },
+    {
+      key: "unused",
+      header: "Unused labels",
+      align: "right",
+      width: "w-[150px]",
+      className: "font-mono font-semibold",
+      cell: (row) => row.unused.toLocaleString(),
+    },
+  ];
+
   return (
     <Page
-      title="tracking number label batches"
-      description="Generate planned tracking-number batches, assign them to merchants or locations, and track the unused stock as bookings consume tracking numbers."
+      title="Tracking Number & Label Management"
+      description="Generate and assign tracking-number label batches, then review batch history and label usage by assignee."
     >
-      <Card title="Generate new batches" description="Enter the exact starting tracking number and batch sizes. Every requested number is reserved sequentially, and any overlap rejects the whole generation.">
+      <GradientOutlineCard gradient={cardGradients[0]!} title="Generate new batches" description="Enter the exact starting tracking number and batch sizes. Every requested number is reserved sequentially, and any overlap rejects the whole generation.">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Number of batches" hint="Generate 1–50 batches at a time.">
             <Input
@@ -445,12 +532,12 @@ export default function AdminAwbBatches() {
         <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
           For example, two batches of 500 starting at NX4820000000 reserve NX4820000000–NX4820000999 as two adjacent, unique ranges. Existing or retired numbers are never skipped; the whole request is rejected instead.
         </p>
-      </Card>
+      </GradientOutlineCard>
 
-      <Card title="Assign batch" description="Select a planned batch and assign its full reserved range to one merchant, branch, or hub.">
+      <GradientOutlineCard gradient={cardGradients[1]!} title="Assign batch" description="Select a planned batch and assign its full reserved range to one merchant, branch, or hub.">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Planned batch" className="w-full max-w-sm">
-            <Select value={assignmentBatchId} onChange={(event) => setAssignmentBatchId(event.target.value)} disabled={!plannedBatches.length}>
+            <Select className="border-amber-400/80 focus-visible:border-amber-500 focus-visible:ring-amber-500/30" value={assignmentBatchId} onChange={(event) => setAssignmentBatchId(event.target.value)} disabled={!plannedBatches.length}>
               <option value="">{plannedBatches.length ? "Select a planned batch" : "No planned batches available"}</option>
               {plannedBatches.map((batch) => (
                 <option key={batch.id} value={batch.id}>{formatSeriesId(batch.seriesNumber)} · {batch.awbStart}–{batch.awbEnd}</option>
@@ -458,14 +545,14 @@ export default function AdminAwbBatches() {
             </Select>
           </Field>
           <Field label="Assign to type" className="w-40">
-            <Select value={assigneeType} onChange={(event) => setAssigneeType(event.target.value as AssigneeType)}>
+            <Select className="border-amber-400/80 focus-visible:border-amber-500 focus-visible:ring-amber-500/30" value={assigneeType} onChange={(event) => setAssigneeType(event.target.value as AssigneeType)}>
               <option value="merchant">Merchant</option>
               <option value="branch">Branch</option>
               <option value="hub">Hub</option>
             </Select>
           </Field>
           <Field label={assigneeTypeLabel(assigneeType)} className="w-full max-w-sm">
-            <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={!availableTargets.length}>
+            <Select className="border-amber-400/80 focus-visible:border-amber-500 focus-visible:ring-amber-500/30" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} disabled={!availableTargets.length}>
               <option value="">{availableTargets.length ? `Select a ${assigneeType}` : `No ${assigneeType}s available`}</option>
               {availableTargets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
             </Select>
@@ -487,54 +574,61 @@ export default function AdminAwbBatches() {
         <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">
           Merchant batches are consumed first for that merchant&apos;s bookings. If no merchant labels remain, bookings at an assigned branch or hub use that location&apos;s stock.
         </p>
-      </Card>
+      </GradientOutlineCard>
 
       {success ? <output aria-live="polite" className="block text-[13px] text-status-good">{success}</output> : null}
 
-      <Card title="Unused stickers by assignee" description="Counts reflect tracking numbers not yet attached to booked parcels. Planned batches remain in central stock until assigned.">
-        {inventory.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {inventory.map((owner) => (
-              <div key={owner.id} className="rounded-md border border-border bg-background p-4">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{owner.type}</span>
-                <h3 className="mt-1 truncate text-[14px] font-semibold">{owner.name}</h3>
-                <div className="mt-3 flex items-baseline justify-between gap-3">
-                  <span className="text-[12px] text-muted-foreground">Unused stickers</span>
-                  <span className="font-mono text-[20px] font-bold">{owner.unused.toLocaleString()}</span>
-                </div>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  {owner.used.toLocaleString()} used · {owner.retired.toLocaleString()} retired · {owner.issued.toLocaleString()} issued · {owner.batchCount} batch{owner.batchCount === 1 ? "" : "es"}
-                </p>
+      <div>
+        <TabStrip
+          label="Tracking number label management sections"
+          tabs={[
+            { id: "register", label: "Batch register", badge: batches.length },
+            { id: "usage", label: "Label usage list", badge: inventory.length },
+          ]}
+          value={activeTab}
+          onChange={selectTab}
+        />
+        {activeTab === "register" ? (
+          <div id="panel-register" role="tabpanel" aria-labelledby="tab-register" tabIndex={0} className="pt-4">
+            <GradientOutlineCard gradient={cardGradients[2]!} title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused tracking numbers; CSV opens in Excel and PDF opens the browser print dialog.">
+              {exportError ? <p role="alert" className="mb-3 text-[13px] text-status-bad">{exportError}</p> : null}
+              <div className="mb-3 max-w-lg">
+                <Field label="Search batch / tracking number / merchant" hint="Search by series ID, batch code, any tracking number within the range, or merchant/assignee.">
+                  <Input
+                    type="search"
+                    value={seriesSearch}
+                    onChange={(event) => setSeriesSearch(event.target.value)}
+                    placeholder="e.g. NXB-…, NX1234567890, or merchant name"
+                  />
+                </Field>
               </div>
-            ))}
+              <DataTable
+                columns={columns}
+                rows={visibleBatches}
+                rowKey={(row) => row.id}
+                loading={batchesQuery.isLoading}
+                error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
+                emptyTitle={seriesSearch.trim() ? "No matching tracking number series" : "No tracking number batch has been generated"}
+                emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more batches above. They will appear as planned until assigned."}
+              />
+            </GradientOutlineCard>
           </div>
         ) : (
-          <p className="text-[13px] text-muted-foreground">No tracking number batches have been generated yet.</p>
+          <div id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" tabIndex={0} className="pt-4">
+            <GradientOutlineCard gradient={cardGradients[3]!} title="Label usage list" description="Counts show tracking-number labels issued, booked, retired and still unused for each merchant, branch, hub or planned stock group.">
+              <DataTable
+                columns={inventoryColumns}
+                rows={inventory}
+                rowKey={(row) => row.id}
+                loading={batchesQuery.isLoading}
+                error={batchesQuery.error ? apiMessage(batchesQuery.error, "The label usage list is unavailable.") : null}
+                emptyTitle="No tracking number batches have been generated"
+                emptyDescription="Generate a batch above; its label counts will appear here by assignee."
+              />
+            </GradientOutlineCard>
+          </div>
         )}
-      </Card>
-
-      <Card title="Batch register" description="Track every batch from planned to assigned or depleted. Export includes only currently unused tracking numbers; CSV opens in Excel and PDF opens the browser print dialog.">
-        {exportError ? <p role="alert" className="mb-3 text-[13px] text-status-bad">{exportError}</p> : null}
-        <div className="mb-3 max-w-lg">
-          <Field label="Search batch / tracking number / merchant" hint="Search by series ID, batch code, any tracking number within the range, or merchant/assignee.">
-            <Input
-              type="search"
-              value={seriesSearch}
-              onChange={(event) => setSeriesSearch(event.target.value)}
-              placeholder="e.g. NXB-…, NX1234567890, or merchant name"
-            />
-          </Field>
-        </div>
-        <DataTable
-          columns={columns}
-          rows={visibleBatches}
-          rowKey={(row) => row.id}
-          loading={batchesQuery.isLoading}
-          error={batchesQuery.error ? apiMessage(batchesQuery.error, "The batch register is unavailable.") : null}
-          emptyTitle={seriesSearch.trim() ? "No matching tracking number series" : "No tracking number batch has been generated"}
-          emptyDescription={seriesSearch.trim() ? "Try a series ID, range endpoint, batch code, or assignee name." : "Generate one or more batches above. They will appear as planned until assigned."}
-        />
-      </Card>
+      </div>
       {retirementBatch ? (
         <ConfirmDialog
           open
