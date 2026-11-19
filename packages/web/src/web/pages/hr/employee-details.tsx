@@ -11,7 +11,7 @@ import { salaryPackageNetOptionSuffix } from "./salary-net-estimate";
 
 type Employee = {
   id: string; employeeCode: string; fullName: string; nationalId: string | null; phone: string | null;
-  email: string | null; address: string | null; branchId: string; department: string; jobTitle: string;
+  email: string | null; address: string | null; permanentAddress: string | null; currentAddress: string | null; branchId: string; department: string; jobTitle: string;
   employmentType: string; joinedOn: string; endedOn: string | null; status: string; epfNumber: string | null;
   tin: string | null; primaryEmployment: boolean; overtimePolicy: string;
 };
@@ -75,7 +75,8 @@ export function EmployeeDetails({ employee, branchName, packages, initialSection
         <KeyValue label="End date">{employee.endedOn ?? "—"}</KeyValue>
         <KeyValue label="Phone">{employee.phone ?? "—"}</KeyValue>
         <KeyValue label="Email">{employee.email ?? "—"}</KeyValue>
-        <KeyValue label="Address">{employee.address ?? "—"}</KeyValue>
+        <KeyValue label="Permanent address">{employee.permanentAddress ?? employee.address ?? "—"}</KeyValue>
+        <KeyValue label="Current living address">{employee.currentAddress ?? employee.address ?? "—"}</KeyValue>
         <KeyValue label="National ID">{employee.nationalId ?? "—"}</KeyValue>
         <KeyValue label="EPF member number">{employee.epfNumber ?? "—"}</KeyValue>
         <KeyValue label="TIN">{employee.tin ?? "—"}</KeyValue>

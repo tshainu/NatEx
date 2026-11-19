@@ -19,6 +19,8 @@ export const hrEmployee = sqliteTable(
     phone: text("phone"),
     email: text("email"),
     address: text("address"),
+    permanentAddress: text("permanent_address"),
+    currentAddress: text("current_address"),
     branchId: text("branch_id").notNull(),
     department: text("department").notNull(),
     jobTitle: text("job_title").notNull(),

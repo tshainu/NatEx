@@ -18,6 +18,9 @@ type EmployeeForm = {
   phone: string;
   email: string;
   address: string;
+  permanentAddress: string;
+  currentAddress: string;
+  sameAsPermanent: boolean;
   branchId: string;
   department: string;
   jobTitle: string;
@@ -42,6 +45,9 @@ const emptyForm = (): EmployeeForm => ({
   phone: "",
   email: "",
   address: "",
+  permanentAddress: "",
+  currentAddress: "",
+  sameAsPermanent: true,
   branchId: "",
   department: "",
   jobTitle: "",
@@ -108,6 +114,9 @@ export default function HrEmployees() {
       phone: employee.phone ?? "",
       email: employee.email ?? "",
       address: employee.address ?? "",
+      permanentAddress: employee.permanentAddress ?? employee.address ?? "",
+      currentAddress: employee.currentAddress ?? employee.address ?? "",
+      sameAsPermanent: (employee.currentAddress ?? employee.address ?? "") === (employee.permanentAddress ?? employee.address ?? ""),
       branchId: employee.branchId,
       department: employee.department,
       jobTitle: employee.jobTitle,
@@ -131,6 +140,10 @@ export default function HrEmployees() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setNote(null);
+    if (!form.sameAsPermanent && !form.currentAddress.trim()) {
+      setNote("Enter the current living address or select 'Current address is the same'.");
+      return;
+    }
     const multiplier = Number(form.overtimeMultiplier);
     const divisorHours = Number(form.overtimeDivisorHours);
     if (!Number.isFinite(multiplier) || multiplier < 0 || !Number.isFinite(divisorHours) || divisorHours <= 0) {
@@ -143,7 +156,9 @@ export default function HrEmployees() {
       nationalId: form.nationalId || null,
       phone: form.phone || null,
       email: form.email || null,
-      address: form.address || null,
+      address: (form.currentAddress || form.permanentAddress || form.address) || null,
+      permanentAddress: form.permanentAddress || null,
+      currentAddress: (form.sameAsPermanent ? form.permanentAddress : form.currentAddress) || null,
       branchId: form.branchId,
       department: form.department.trim(),
       jobTitle: form.jobTitle.trim(),
@@ -220,8 +235,9 @@ export default function HrEmployees() {
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "The HR data could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
-      <Card title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users.">
+      <Card className="border-2 border-brand/25 shadow-sm" title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users. Complete each outlined section before saving.">
         <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
+          <div className="border-b border-brand/20 pb-2 pt-1 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Personal and contact details</p><p className="mt-1 text-[11px] text-muted-foreground">Keep identity, communication, and official-account information together.</p></div>
           {editingId ? <Field label="Employee number"><Input readOnly value={employees.data?.find((employee) => employee.id === editingId)?.employeeCode ?? ""} /></Field> : <p className="self-center text-[12px] text-muted-foreground">Employee number is assigned automatically when you save. The next available number starts at N26002.</p>}
           <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
           <Field label="Official courier-staff login" hint="Optional. Link this HR record to an active official account (Rider, Transport, Ops, Finance, Admin, HR, or any combination). Inactive accounts and Merchant portal users are excluded.">
@@ -235,6 +251,7 @@ export default function HrEmployees() {
           <Field label="National ID"><Input maxLength={40} value={form.nationalId} onChange={(e) => setField("nationalId", e.target.value)} /></Field>
           <Field label="Phone"><Input maxLength={30} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
           <Field label="Email"><Input type="email" maxLength={200} value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
+          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Employment assignment</p><p className="mt-1 text-[11px] text-muted-foreground">Assign the employee to the operational location and role used by HR reporting.</p></div>
           <Field label="Branch / hub">
             <select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}>
               <option value="">Select branch or hub</option>
@@ -250,6 +267,7 @@ export default function HrEmployees() {
           </Field>
           <Field label="Joined on"><Input type="date" required value={form.joinedOn} onChange={(e) => setField("joinedOn", e.target.value)} /></Field>
           {editingId ? <Field label="End date"><Input type="date" value={form.endedOn} onChange={(e) => setField("endedOn", e.target.value)} /></Field> : null}
+          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Compliance and payroll settings</p><p className="mt-1 text-[11px] text-muted-foreground">These values affect statutory payroll, APIT eligibility, and overtime calculations.</p></div>
           <Field label="EPF member number"><Input maxLength={50} value={form.epfNumber} onChange={(e) => setField("epfNumber", e.target.value)} /></Field>
           <Field label="Taxpayer identification number"><Input maxLength={50} value={form.tin} onChange={(e) => setField("tin", e.target.value)} /></Field>
           <Field label="Overtime classification" hint="Select the employee's applicable legal arrangement. No overtime is paid until a rule is configured.">
@@ -288,7 +306,10 @@ export default function HrEmployees() {
             <input type="checkbox" aria-label="Primary employment for APIT" checked={form.primaryEmployment} onChange={(e) => setField("primaryEmployment", e.target.checked)} />
             Primary employment for APIT
           </label>
-          <Field label="Address" className="md:col-span-2 xl:col-span-3"><Textarea value={form.address} onChange={(e) => setField("address", e.target.value)} maxLength={500} /></Field>
+          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Address details</p><p className="mt-1 text-[11px] text-muted-foreground">Record the permanent home address and the current living address when they differ.</p></div>
+          <Field label="Permanent address" hint="The employee's long-term or registered home address." className="md:col-span-2"><Textarea value={form.permanentAddress} onChange={(e) => { setField("permanentAddress", e.target.value); if (form.sameAsPermanent) setField("currentAddress", e.target.value); }} maxLength={500} /></Field>
+          <label className="flex items-start gap-2 rounded-md border border-brand/20 bg-brand/5 p-3 text-[12px] md:mt-6"><input type="checkbox" checked={form.sameAsPermanent} onChange={(e) => { const checked = e.target.checked; setField("sameAsPermanent", checked); if (checked) setField("currentAddress", form.permanentAddress); }} /><span><span className="block font-medium">Current address is the same</span><span className="text-muted-foreground">Use the permanent address as the employee's current living address.</span></span></label>
+          {!form.sameAsPermanent ? <Field label="Current living address" hint="Required when the employee currently lives somewhere different." className="md:col-span-2 xl:col-span-3"><Textarea value={form.currentAddress} onChange={(e) => setField("currentAddress", e.target.value)} maxLength={500} /></Field> : null}
           {!editingId && initialPackage ? <div className="rounded-md border border-brand/25 bg-brand/5 p-3 text-[12px] md:col-span-2 xl:col-span-3"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s). The full breakdown will appear in the employee's Salary record.</p></div> : null}
           <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
             <Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>

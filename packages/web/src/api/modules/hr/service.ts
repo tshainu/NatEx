@@ -31,6 +31,8 @@ export interface EmployeeInput {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  permanentAddress?: string | null;
+  currentAddress?: string | null;
   branchId: string;
   department: string;
   jobTitle: string;
@@ -119,7 +121,9 @@ export async function createEmployee(input: EmployeeInput, actor: Principal): Pr
     nationalId: input.nationalId?.trim() || null,
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
-    address: input.address?.trim() || null,
+    address: input.currentAddress?.trim() || input.address?.trim() || input.permanentAddress?.trim() || null,
+    permanentAddress: input.permanentAddress?.trim() || null,
+    currentAddress: input.currentAddress?.trim() || input.address?.trim() || input.permanentAddress?.trim() || null,
     branchId: input.branchId,
     department: input.department.trim(),
     jobTitle: input.jobTitle.trim(),
@@ -174,6 +178,11 @@ async function updateEmployeeWithExecutor(employeeId: string, patch: EmployeePat
   if (patch.phone !== undefined) set.phone = patch.phone?.trim() || null;
   if (patch.email !== undefined) set.email = patch.email?.trim() || null;
   if (patch.address !== undefined) set.address = patch.address?.trim() || null;
+  if (patch.permanentAddress !== undefined) set.permanentAddress = patch.permanentAddress?.trim() || null;
+  if (patch.currentAddress !== undefined) {
+    set.currentAddress = patch.currentAddress?.trim() || null;
+    set.address = patch.currentAddress?.trim() || null;
+  }
   if (patch.branchId !== undefined) set.branchId = patch.branchId;
   if (patch.department !== undefined) set.department = patch.department.trim();
   if (patch.jobTitle !== undefined) set.jobTitle = patch.jobTitle.trim();
