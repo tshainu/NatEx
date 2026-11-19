@@ -265,7 +265,10 @@ export default function RiderDeliveriesScreen() {
                 key={stop.id}
                 accessibilityLabel={`Open stop ${stop.seq} for ${stop.consigneeName}`}
                 onPress={() => router.push(`/(rider)/stop/${stop.awb}`)}
-                style={first ? { borderColor: colors.primary, borderWidth: 2 } : undefined}
+                style={{
+                  ...styles.stopCard,
+                  ...(first ? { borderColor: colors.primary, borderWidth: 2 } : {}),
+                }}
               >
                 <View style={styles.stopHeader}>
                   <View style={[styles.sequence, { backgroundColor: first ? colors.primary : colors.surface }]}>
@@ -317,7 +320,8 @@ const styles = StyleSheet.create({
   cashMetric: { flex: 1, gap: 4 },
   noticeHeading: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit * 1.5 },
-  stopHeader: { flexDirection: "row", alignItems: "center", gap: Space.unit * 1.5 },
-  sequence: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  badges: { flexDirection: "row", flexWrap: "wrap", gap: Space.unit, marginTop: 2 },
+  stopCard: { padding: Space.unit * 1.25, gap: Space.unit / 2 },
+  stopHeader: { flexDirection: "row", alignItems: "center", gap: Space.unit },
+  sequence: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  badges: { flexDirection: "row", flexWrap: "wrap", gap: Space.unit / 2, marginTop: 0 },
 });

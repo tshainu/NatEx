@@ -16,6 +16,8 @@ const DEFAULT_LEAVE_TYPES = [
   { code: "CASUAL", name: "Casual leave", paid: true },
   { code: "SICK", name: "Medical leave", paid: true },
   { code: "UNPAID", name: "Unpaid leave", paid: false },
+  { code: "SHORT", name: "Short leave", paid: true },
+  { code: "HALF_DAY", name: "Half-day leave", paid: true },
 ] as const;
 
 /** Seed labels only. Entitlements remain zero until HR configures NatEx policy. */
@@ -182,6 +184,17 @@ export async function createLeaveRequest(input: {
   if (!type) errors.notFound("Active leave type");
   if (input.startsOn > input.endsOn) errors.badRequest("Leave end date must be on or after the start date.");
   if (input.startsOn.slice(0, 4) !== input.endsOn.slice(0, 4)) errors.badRequest("Split leave requests at the calendar-year boundary so annual balances remain accurate.");
+  if (type!.code === "HALF_DAY" && input.halfDays !== 1) errors.badRequest("A half-day leave request must be one half-day unit.");
+  if (type!.code === "SHORT") {
+    if (input.halfDays !== 1 || input.startsOn !== input.endsOn) errors.badRequest("A short leave request must cover one half-day unit on one date.");
+    const monthStart = `${input.startsOn.slice(0, 7)}-01`;
+    const monthEnd = `${input.startsOn.slice(0, 7)}-31`;
+    const shortTypeRequests = await db.select({ halfDays: hrLeaveRequest.halfDays }).from(hrLeaveRequest).where(and(
+      eq(hrLeaveRequest.employeeId, input.employeeId), eq(hrLeaveRequest.leaveTypeId, type!.id),
+      inArray(hrLeaveRequest.status, ["pending", "approved"]), gte(hrLeaveRequest.startsOn, monthStart), lte(hrLeaveRequest.startsOn, monthEnd),
+    ));
+    if (shortTypeRequests.reduce((sum, row) => sum + row.halfDays, 0) >= 2) errors.conflict("Only two short-leave units are permitted per employee each month.");
+  }
   if (!Number.isSafeInteger(input.halfDays) || input.halfDays < 1 || input.halfDays > daysInclusive(input.startsOn, input.endsOn) * 2) {
     errors.badRequest("Leave duration must be a positive number of half-days no longer than the date range.");
   }
@@ -192,7 +205,7 @@ export async function createLeaveRequest(input: {
     gte(hrLeaveRequest.endsOn, input.startsOn),
   )).limit(1);
   if (overlapping.length) errors.conflict("This employee already has a pending or approved leave request overlapping these dates.");
-  if (type!.paid) {
+  if (type!.paid && type!.code !== "SHORT" && type!.code !== "HALF_DAY") {
     const balance = await leaveBalance(employee.id, type!.id, Number(input.startsOn.slice(0, 4)));
     if (input.halfDays > balance.availableHalfDays) errors.conflict(`Only ${balance.availableHalfDays / 2} days are available for ${type!.name}.`);
   }

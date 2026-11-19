@@ -122,6 +122,7 @@ export default function RiderLayout() {
         {/* Completed and failed outcome lists live in the Rider drawer. */}
         <Tabs.Screen name="delivered" options={{ href: null }} />
         <Tabs.Screen name="failed-attempts" options={{ href: null }} />
+        <Tabs.Screen name="day-registry" options={{ href: null }} />
       </Tabs>
     </RoleGate>
   );

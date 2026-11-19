@@ -136,6 +136,12 @@ export const hrTimesheet = sqliteTable(
     overtimeMinutes: integer("overtime_minutes").notNull().default(0),
     /** present | absent | leave | off_duty; leave balances remain managed separately. */
     attendanceStatus: text("attendance_status").notNull().default("present"),
+    clockInAt: integer("clock_in_at", { mode: "timestamp" }),
+    clockOutAt: integer("clock_out_at", { mode: "timestamp" }),
+    approvalStatus: text("approval_status").notNull().default("approved"),
+    approvalNote: text("approval_note"),
+    approvedBy: text("approved_by"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
     note: text("note"),
     source: text("source").notNull().default("manual"),
     createdBy: text("created_by").notNull(),

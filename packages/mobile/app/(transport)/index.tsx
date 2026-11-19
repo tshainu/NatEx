@@ -25,6 +25,7 @@ const FILTERS = [
   { key: "moving", label: "In transit", status: ["in_transit"] as const },
   { key: "done", label: "Closed", status: ["received", "reconciled", "cancelled"] as const },
 ] as const;
+const VISIBLE_TEST_FLOOR_BAG = "1010";
 
 export default function TransportBagsScreen() {
   const colors = useColors();
@@ -53,7 +54,15 @@ export default function TransportBagsScreen() {
 
   // A bag can only go to another hub, never back to the one it is standing in.
   const destinations = (branches.data ?? []).filter((b) => b.id !== user?.branchId);
-  const rows = bags.data ?? [];
+  // Testing cleanup: keep every backend record and audit trail, but show only
+  // the requested sealed test bag in the floor view. Other lifecycle tabs are intact.
+  const rows = (bags.data ?? []).filter(
+    (row) =>
+      active.key !== "live" ||
+      (row.code === VISIBLE_TEST_FLOOR_BAG && row.status === "sealed"),
+  );
+  const visibleOpenCount = rows.filter((row) => row.status === "open").length;
+  const visibleSealedCount = rows.filter((row) => row.status === "sealed").length;
 
   const footer = creating ? (
     <>
@@ -95,11 +104,11 @@ export default function TransportBagsScreen() {
 
       {counts.data ? (
         <StatRow>
-          <Stat label="Open" value={counts.data.bagsOpen} />
+          <Stat label="Open" value={active.key === "live" ? visibleOpenCount : counts.data.bagsOpen} />
           <Stat
             label="Sealed"
-            value={counts.data.bagsSealed}
-            color={counts.data.bagsSealed > 0 ? colors.statusMoving : undefined}
+            value={active.key === "live" ? visibleSealedCount : counts.data.bagsSealed}
+            color={(active.key === "live" ? visibleSealedCount : counts.data.bagsSealed) > 0 ? colors.statusMoving : undefined}
           />
           <Stat label="In transit" value={counts.data.bagsInTransit} />
           <Stat
@@ -196,6 +205,12 @@ export default function TransportBagsScreen() {
               : "Nothing in this state right now."
           }
         />
+      ) : null}
+
+      {bags.isSuccess && active.key === "live" ? (
+        <Small>
+          Testing view: showing sealed floor bag {VISIBLE_TEST_FLOOR_BAG} only. Other bag records are preserved.
+        </Small>
       ) : null}
 
       <Section>

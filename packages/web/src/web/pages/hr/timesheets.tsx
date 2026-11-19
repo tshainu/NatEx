@@ -118,7 +118,7 @@ export default function HrTimesheets() {
   const [month, setMonth] = React.useState(currentRange.from.slice(0, 7));
   const [employeeCode, setEmployeeCode] = React.useState("");
   const [workDate, setWorkDate] = React.useState(todayInColombo());
-  const [regularHours, setRegularHours] = React.useState("8");
+  const [regularHours, setRegularHours] = React.useState("8.5");
   const [overtimeHours, setOvertimeHours] = React.useState("0");
   const [note, setNote] = React.useState<string | null>(null);
   const [entryNote, setEntryNote] = React.useState("");
@@ -174,7 +174,7 @@ export default function HrTimesheets() {
       {save.error ? <ErrorNote>{apiMessage(save.error, "Timesheet rows could not be saved.")}</ErrorNote> : null}
       <HrNavigation />
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card title="Manual entry" description="One employee and one work date per row. Decimal hours are converted to minutes before saving.">
+        <Card title="Manual entry" description="One employee and one work date per row. Regular office time is 08:30–17:00 (8.5 hours); decimal hours are converted to minutes before saving.">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={saveManual}>
             <Field label="Employee code"><Input required value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())} /></Field>
             <Field label="Work date"><Input type="date" required value={workDate} onChange={(e) => setWorkDate(e.target.value)} /></Field>

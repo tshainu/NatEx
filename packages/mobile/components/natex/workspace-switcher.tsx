@@ -161,7 +161,7 @@ function WorkspaceMenu() {
                   >
                     <Ionicons name="checkmark-circle-outline" size={21} color={colors.statusGood} />
                     <View style={styles.optionText}>
-                      <Body>Delivered</Body>
+                      <Body>Delivery report</Body>
                       <Small>Completed deliveries</Small>
                     </View>
                   </Pressable>
@@ -180,7 +180,7 @@ function WorkspaceMenu() {
                   >
                     <Ionicons name="alert-circle-outline" size={21} color={colors.statusWarn} />
                     <View style={styles.optionText}>
-                      <Body>Failed Attempt</Body>
+                      <Body>Failed attempt report</Body>
                       <Small>Unsuccessful delivery attempts</Small>
                     </View>
                   </Pressable>

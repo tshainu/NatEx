@@ -46,6 +46,7 @@ const OPS: PortalConfig = {
     // deliberately NOT in TRANSPORT_NAV below, because sync.conflict* are
     // opsProc routes and a transport clerk is refused them server-side.
     { label: "Sync conflicts", to: "/ops/sync-conflicts" },
+    { label: "Attendance desk", to: "/ops/attendance" },
   ],
 };
 
@@ -134,6 +135,8 @@ const HR: PortalConfig = {
     { label: "Leave", to: "/hr/leave" },
     { label: "Calendar & payout", to: "/hr/calendar" },
     { label: "Timesheets", to: "/hr/timesheets" },
+    { label: "Attendance management", to: "/hr/attendance-management" },
+    { label: "Approvals", to: "/hr/approvals" },
     { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },
   ],
@@ -145,8 +148,10 @@ const HR_NAV: NavItem[] = [
   { label: "Attendance", to: "/hr/attendance" },
   { label: "Leave", to: "/hr/leave" },
   { label: "Calendar & payout", to: "/hr/calendar" },
-  { label: "Timesheets", to: "/hr/timesheets" },
-  { label: "Terminations", to: "/hr/terminations" },
+    { label: "Timesheets", to: "/hr/timesheets" },
+    { label: "Attendance management", to: "/hr/attendance-management" },
+    { label: "Approvals", to: "/hr/approvals" },
+    { label: "Terminations", to: "/hr/terminations" },
 ];
 
 const PAYROLL_NAV: NavItem[] = [

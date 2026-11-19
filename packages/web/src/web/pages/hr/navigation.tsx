@@ -8,6 +8,8 @@ const HR_SECTIONS = [
   { label: "Leave", href: "/hr/leave" },
   { label: "Calendar & payout", href: "/hr/calendar" },
   { label: "Timesheets", href: "/hr/timesheets" },
+  { label: "Attendance management", href: "/hr/attendance-management" },
+  { label: "Approvals", href: "/hr/approvals" },
   { label: "Terminations", href: "/hr/terminations" },
 ] as const;
 

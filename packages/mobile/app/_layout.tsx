@@ -12,6 +12,7 @@ import { PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold } from "@expo-goog
 import { IBMPlexSans_400Regular, IBMPlexSans_500Medium } from "@expo-google-fonts/ibm-plex-sans";
 import { IBMPlexMono_500Medium, IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono";
 import { ErrorBoundary } from "../components/__ErrorBoundary";
+import { ConnectivityAlert } from "../components/natex/connectivity-alert";
 import { OneDollarStatsProvider } from "../lib/__analytics";
 import { isWeb, startWebSafeArea } from "../lib/__web-safe-area";
 import { AuthProvider } from "../lib/auth";
@@ -69,6 +70,7 @@ export default function RootLayout() {
             <StatusBar style={scheme === "dark" ? "light" : "dark"} />
             {fontsLoaded ? (
               <AuthProvider>
+                <ConnectivityAlert />
                 <Stack
                   screenOptions={{
                     headerShown: false,

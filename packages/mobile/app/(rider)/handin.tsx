@@ -6,7 +6,7 @@ import { apiMessage, client, orpc } from "../../lib/api";
 import { normaliseAwb, plural } from "../../lib/format";
 import { Screen, ScreenHeader, Section } from "../../components/natex/screen";
 import { Button } from "../../components/natex/button";
-import { Card, Empty, Panel } from "../../components/natex/card";
+import { Card, Panel } from "../../components/natex/card";
 import { Input } from "../../components/natex/input";
 import { BarcodeScanner } from "../../components/natex/barcode-scanner";
 import { Body, Label, Mono, Small } from "../../components/natex/text";
@@ -66,18 +66,27 @@ export default function RiderHandInScreen() {
     <Screen
       inTabs
       footer={
-        <>
-          <Button
-            title={`Hand in ${plural(queue.length, "parcel")}`}
-            loading={handIn.isPending}
-            disabled={queue.length === 0}
-            hint={queue.length === 0 ? "Add at least one label" : undefined}
-            onPress={() => handIn.mutate(queue)}
-          />
+        <View style={styles.footerActions}>
+          <View style={styles.footerAction}>
+            <Button
+              title={`Hand in ${plural(queue.length, "parcel")}`}
+              loading={handIn.isPending}
+              disabled={queue.length === 0}
+              onPress={() => handIn.mutate(queue)}
+              style={styles.fullWidthButton}
+            />
+          </View>
           {queue.length > 0 && !handIn.isPending ? (
-            <Button title="Clear list" variant="ghost" onPress={() => setQueue([])} />
+            <View style={styles.footerAction}>
+              <Button
+                title="Clear list"
+                variant="ghost"
+                onPress={() => setQueue([])}
+                style={styles.fullWidthButton}
+              />
+            </View>
           ) : null}
-        </>
+        </View>
       }
     >
       <ScreenHeader
@@ -88,7 +97,7 @@ export default function RiderHandInScreen() {
       <Panel style={styles.batchSummary}>
         <View style={styles.flex}>
           <Label color={colors.primary}>RETURN BATCH</Label>
-          <Body>{plural(queue.length, "parcel")} queued</Body>
+          <Small>{plural(queue.length, "parcel")} queued</Small>
           <Small>Scan or enter every label before submitting.</Small>
         </View>
         <View style={[styles.queueCount, { backgroundColor: `${colors.primary}1F` }]}>
@@ -111,18 +120,26 @@ export default function RiderHandInScreen() {
           returnKeyType="next"
           placeholder="NATEX…"
         />
-        <Button
-          title="Scan with camera"
-          variant="secondary"
-          icon={<Ionicons name="barcode-outline" size={18} color={colors.foreground} />}
-          onPress={() => setScannerOpen(true)}
-        />
-        <Button
-          title="Add to list"
-          variant="secondary"
-          disabled={normaliseAwb(awb).length === 0}
-          onPress={() => add()}
-        />
+        <View style={styles.scanActions}>
+          <View style={styles.scanAction}>
+            <Button
+              title="Scan with camera"
+              variant="secondary"
+              icon={<Ionicons name="barcode-outline" size={18} color={colors.foreground} />}
+              onPress={() => setScannerOpen(true)}
+              style={styles.fullWidthButton}
+            />
+          </View>
+          <View style={styles.scanAction}>
+            <Button
+              title="Add to list"
+              variant="secondary"
+              disabled={normaliseAwb(awb).length === 0}
+              onPress={() => add()}
+              style={styles.fullWidthButton}
+            />
+          </View>
+        </View>
         {duplicate ? (
           <Small color={colors.statusMoving}>{duplicate} is already on the list.</Small>
         ) : null}
@@ -158,10 +175,10 @@ export default function RiderHandInScreen() {
       ) : null}
 
       {queue.length === 0 ? (
-        <Empty
-          title="Nothing queued"
-          detail="Labels you add appear here before you submit them."
-        />
+        <Panel style={styles.emptyCompact}>
+          <Body>Nothing queued</Body>
+          <Small>Labels you add appear here before you submit them.</Small>
+        </Panel>
       ) : (
         <Section>
           <Label>Queued for return · {queue.length}</Label>
@@ -203,6 +220,12 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   rejectRow: { flexDirection: "row", alignItems: "center", gap: Space.unit },
-  batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2 },
-  queueCount: { minWidth: 64, minHeight: 64, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2 },
+  batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2, paddingVertical: Space.unit },
+  queueCount: { minWidth: 52, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", gap: 2 },
+  scanActions: { flexDirection: "row", gap: Space.unit },
+  scanAction: { flex: 1 },
+  footerActions: { flexDirection: "row", gap: Space.unit },
+  footerAction: { flex: 1 },
+  fullWidthButton: { width: "100%" },
+  emptyCompact: { paddingVertical: Space.unit * 1.5 },
 });

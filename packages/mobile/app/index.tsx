@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { homeRouteFor } from "../lib/session";
@@ -20,6 +20,7 @@ export default function Index() {
   if (!ready) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
+        <Image source={require("../assets/natex-logo.png")} resizeMode="contain" style={styles.logo} />
         <ActivityIndicator color={colors.primary} />
       </View>
     );
@@ -29,5 +30,6 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  splash: { flex: 1, alignItems: "center", justifyContent: "center" },
+  splash: { flex: 1, alignItems: "center", justifyContent: "center", gap: 20 },
+  logo: { width: 240, height: 120 },
 });

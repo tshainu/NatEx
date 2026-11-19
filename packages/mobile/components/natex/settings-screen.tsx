@@ -16,6 +16,9 @@ import { useOutbox } from "../../hooks/use-rider-run";
 import { drain } from "../../lib/outbox";
 import { Fonts, Space, Type } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { orpc } from "../../lib/api";
+import { Input } from "./input";
 
 /**
  * The Settings tab, shared by both role groups — a rider and a transport
@@ -73,6 +76,8 @@ export function SettingsScreen({ note }: { note?: string }) {
         </Section>
       ) : null}
 
+      {role === "rider" ? <RiderAttendance /> : null}
+
       {/* ── This device ─────────────────────────────────────────── */}
       <Section title="This device" icon="phone-portrait-outline">
         <Row label="Device id" value={deviceId()} mono />
@@ -94,6 +99,36 @@ export function SettingsScreen({ note }: { note?: string }) {
       </Section>
     </Screen>
   );
+}
+
+function RiderAttendance() {
+  const { user } = useAuth();
+  const colors = useColors();
+  const queryClient = useQueryClient();
+  const year = new Date().getFullYear();
+  const status = useQuery({ ...orpc.hr.clockStatus.queryOptions({ input: {} }), refetchInterval: 60_000 });
+  const summary = useQuery({ ...orpc.hr.riderAttendanceSummary.queryOptions({ input: { year } }) });
+  const balances = useQuery({ ...orpc.hr.riderLeaveBalances.queryOptions({ input: { year } }) });
+  const cash = useQuery({ ...orpc.cod.riderCash.queryOptions({ input: { riderId: user?.id ?? "" } }), enabled: Boolean(user?.id) });
+  const [leaveTypeId, setLeaveTypeId] = React.useState("");
+  const [startsOn, setStartsOn] = React.useState("");
+  const [endsOn, setEndsOn] = React.useState("");
+  const [reason, setReason] = React.useState("");
+  const [message, setMessage] = React.useState<string | null>(null);
+  const clockIn = useMutation({ ...orpc.hr.clockIn.mutationOptions(), onSuccess: () => { setMessage("Clock-in recorded and sent for HR approval."); void queryClient.invalidateQueries({ queryKey: orpc.hr.clockStatus.key() }); } });
+  const clockOut = useMutation({ ...orpc.hr.clockOut.mutationOptions(), onSuccess: () => { setMessage("Clock-out recorded. Your COD and delivery-charge settlement is shown below."); void queryClient.invalidateQueries({ queryKey: orpc.hr.clockStatus.key() }); void queryClient.invalidateQueries({ queryKey: orpc.cod.riderCash.key() }); } });
+  const applyLeave = useMutation({ ...orpc.hr.riderApplyLeave.mutationOptions(), onSuccess: () => { setMessage("Leave request sent to HR for approval."); setReason(""); void queryClient.invalidateQueries({ queryKey: orpc.hr.riderLeaveBalances.key() }); } });
+  const row = status.data?.row;
+  const types = (balances.data ?? []).filter((item) => item.leaveTypeId);
+  React.useEffect(() => { if (!leaveTypeId && types[0]?.leaveTypeId) setLeaveTypeId(types[0].leaveTypeId); }, [leaveTypeId, types]);
+  return <Section title="Attendance & leave" icon="time-outline">
+    <View style={styles.attendanceCard}><Body color={colors.mutedForeground}>Regular time 08:30–17:00 · short leave until 09:30 · half day until 12:30</Body><View style={styles.attendanceActions}>{!row?.clockInAt || row?.clockOutAt ? <Button title="Clock in" loading={clockIn.isPending} onPress={() => clockIn.mutate({})} style={styles.smallAction} /> : <Button title="Clock out" loading={clockOut.isPending} onPress={() => clockOut.mutate({})} style={styles.smallAction} />}</View>{row ? <Small>Today: {row.clockInAt ? `in ${new Date(row.clockInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "not clocked in"}{row.clockOutAt ? ` · out ${new Date(row.clockOutAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""} · {row.approvalStatus}</Small> : null}</View>
+    <View style={styles.leaveSummary}>{types.slice(0, 4).map((item) => <View key={item.leaveTypeId} style={styles.leaveMetric}><Small>{item.leaveType}</Small><Body>{item.availableHalfDays / 2} d balance</Body></View>)}<View style={styles.leaveMetric}><Small>Short leave</Small><Body>{summary.data?.shortLeaveDays ?? 0} / 2</Body></View><View style={styles.leaveMetric}><Small>Half days</Small><Body>{summary.data?.halfDays ?? 0}</Body></View></View>
+    <Button title="Open day registry" variant="secondary" onPress={() => router.push("/(rider)/day-registry")} />
+    <View style={styles.settlement}><Label>SETTLEMENT TO HUB</Label><Mono>Rs. {((cash.data?.liabilityCents ?? 0) / 100).toLocaleString()}</Mono><Small>COD collected plus delivery charges currently assigned to you.</Small></View>
+    <View style={styles.leaveForm}><Label>APPLY LEAVE IN ADVANCE</Label><View style={styles.formGap}><Input label="Leave type" value={types.find((item) => item.leaveTypeId === leaveTypeId)?.leaveType ?? "Select a leave type"} editable={false} /><View style={styles.leaveTypeButtons}>{types.slice(0, 4).map((item) => <Pressable key={item.leaveTypeId} onPress={() => setLeaveTypeId(item.leaveTypeId)} style={[styles.leaveType, { borderColor: item.leaveTypeId === leaveTypeId ? colors.primary : colors.border }]}><Small>{item.leaveType}</Small></Pressable>)}</View><Input label="Start date" placeholder="YYYY-MM-DD" value={startsOn} onChangeText={setStartsOn} /><Input label="End date" placeholder="YYYY-MM-DD" value={endsOn} onChangeText={setEndsOn} /><Input label="Reason" value={reason} onChangeText={setReason} multiline /><Button title="Send leave request" loading={applyLeave.isPending} disabled={!leaveTypeId || !startsOn || !endsOn || !reason.trim()} onPress={() => applyLeave.mutate({ employeeId: "self", leaveTypeId, startsOn, endsOn, halfDays: 1, reason })} /></View></View>
+    {message ? <Small color={colors.primary}>{message}</Small> : null}
+  </Section>;
 }
 
 /* ── Building blocks ─────────────────────────────────────────────────────── */
@@ -332,4 +367,14 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: Type.small,
   },
+  attendanceCard: { gap: 10, padding: 12, borderRadius: Space.radius, backgroundColor: "rgba(128,128,128,0.08)" },
+  attendanceActions: { flexDirection: "row", gap: 8 },
+  smallAction: { flex: 1 },
+  leaveSummary: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: Space.unit },
+  leaveMetric: { minWidth: "30%", flexGrow: 1, padding: 10, borderWidth: 1, borderColor: "rgba(128,128,128,0.25)", borderRadius: 10 },
+  settlement: { gap: 6, paddingVertical: Space.unit },
+  leaveForm: { gap: 10, marginTop: Space.unit },
+  formGap: { gap: 10 },
+  leaveTypeButtons: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  leaveType: { paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderRadius: 10 },
 });
