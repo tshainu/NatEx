@@ -5,6 +5,7 @@ import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
 import { getEmployee } from "./service";
+import { listBranches } from "../identity/service";
 import { isValidIsoDate } from "./validation";
 
 export type LeaveTypeRow = typeof hrLeaveType.$inferSelect;
@@ -119,9 +120,17 @@ export async function leaveBalance(employeeId: string, leaveTypeId: string, year
   };
 }
 
-export async function listLeaveBalances(year: number, employeeId?: string) {
+export async function listLeaveBalances(year: number, employeeId?: string, branchId?: string, hubId?: string) {
   await ensureDefaultLeaveTypes();
-  const employees = employeeId ? [await getEmployee(employeeId)] : await db.select().from(hrEmployee).where(eq(hrEmployee.status, "active")).orderBy(asc(hrEmployee.employeeCode));
+  const allowedBranchIds = branchId || hubId
+    ? (await listBranches({ includeInactive: true })).filter((branch) =>
+      branchId ? branch.id === branchId : branch.id === hubId || branch.parentHubId === hubId,
+    ).map((branch) => branch.id)
+    : null;
+  const employeeFilters = [eq(hrEmployee.status, "active")];
+  if (allowedBranchIds) employeeFilters.push(inArray(hrEmployee.branchId, allowedBranchIds));
+  if (employeeId) employeeFilters.push(eq(hrEmployee.id, employeeId));
+  const employees = employeeId ? [await getEmployee(employeeId)] : await db.select().from(hrEmployee).where(and(...employeeFilters)).orderBy(asc(hrEmployee.employeeCode));
   const types = await db.select().from(hrLeaveType).where(eq(hrLeaveType.active, true)).orderBy(asc(hrLeaveType.name));
   const out = [];
   for (const employee of employees) {
@@ -130,17 +139,24 @@ export async function listLeaveBalances(year: number, employeeId?: string) {
   return out;
 }
 
-export async function listLeaveRequests(input: { employeeId?: string; status?: string; year?: number } = {}) {
+export async function listLeaveRequests(input: { employeeId?: string; status?: string; year?: number; branchId?: string; hubId?: string } = {}) {
   const filters = [];
   if (input.employeeId) filters.push(eq(hrLeaveRequest.employeeId, input.employeeId));
   if (input.status) filters.push(eq(hrLeaveRequest.status, input.status));
   if (input.year) {
     filters.push(gte(hrLeaveRequest.startsOn, yearStart(input.year)), lte(hrLeaveRequest.startsOn, yearEnd(input.year)));
   }
+  if (input.branchId || input.hubId) {
+    const allowedBranchIds = (await listBranches({ includeInactive: true })).filter((branch) =>
+      input.branchId ? branch.id === input.branchId : branch.id === input.hubId || branch.parentHubId === input.hubId,
+    ).map((branch) => branch.id);
+    filters.push(inArray(hrEmployee.branchId, allowedBranchIds));
+  }
   let query = db.select({
     request: hrLeaveRequest,
     employeeCode: hrEmployee.employeeCode,
     employeeName: hrEmployee.fullName,
+    branchId: hrEmployee.branchId,
     leaveTypeName: hrLeaveType.name,
     paid: hrLeaveType.paid,
   }).from(hrLeaveRequest)

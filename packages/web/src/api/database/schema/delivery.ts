@@ -413,3 +413,35 @@ export const reasonCode = sqliteTable(
   },
   (t) => [index("delivery_reason_category_idx").on(t.category, t.sortOrder)],
 );
+
+/** Daily immutable-ish performance calculation used as the HR/Finance payout input. */
+export const riderDailyPerformance = sqliteTable(
+  "delivery_rider_daily_performance",
+  {
+    id: text("id").primaryKey(),
+    riderId: text("rider_id").notNull(),
+    riderName: text("rider_name").notNull(),
+    branchId: text("branch_id").notNull(),
+    hubId: text("hub_id").notNull(),
+    performanceDate: text("performance_date").notNull(),
+    assignedCount: integer("assigned_count").notNull().default(0),
+    deliveredByCutoff: integer("delivered_by_cutoff").notNull().default(0),
+    targetCount: integer("target_count").notNull().default(40),
+    starCount: integer("star_count").notNull().default(0),
+    rateCents: integer("rate_cents").notNull().default(4000),
+    payableCents: integer("payable_cents").notNull().default(0),
+    status: text("status").notNull().default("unpaid"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: integer("reviewed_at", { mode: "timestamp" }),
+    paidBy: text("paid_by"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [
+    unique("delivery_rider_daily_performance_uq").on(t.riderId, t.performanceDate),
+    index("delivery_rider_daily_performance_date_idx").on(t.performanceDate),
+    index("delivery_rider_daily_performance_branch_idx").on(t.branchId, t.performanceDate),
+    index("delivery_rider_daily_performance_status_idx").on(t.status),
+  ],
+);

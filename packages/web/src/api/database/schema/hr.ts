@@ -275,3 +275,71 @@ export const hrEmployeeDocument = sqliteTable(
   },
   (t) => [index("hr_employee_document_employee_idx").on(t.employeeId, t.createdAt)],
 );
+
+/**
+ * Company calendar rules. A row may be global, hub-scoped, or branch-scoped;
+ * services resolve the most-specific applicable row for an employee.
+ */
+export const hrHoliday = sqliteTable(
+  "hr_holiday",
+  {
+    id: text("id").primaryKey(),
+    holidayDate: text("holiday_date").notNull(),
+    name: text("name").notNull(),
+    scope: text("scope").notNull().default("company"),
+    scopeId: text("scope_id"),
+    otAllowed: integer("ot_allowed", { mode: "boolean" }).notNull().default(false),
+    compulsoryLeave: integer("compulsory_leave", { mode: "boolean" }).notNull().default(false),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("hr_holiday_date_idx").on(t.holidayDate),
+    index("hr_holiday_scope_idx").on(t.scope, t.scopeId, t.holidayDate),
+    uniqueIndex("hr_holiday_date_scope_uq").on(t.holidayDate, t.scope, t.scopeId),
+  ],
+);
+
+/** Immutable year-end leave-payout snapshot and its approval/payment state. */
+export const hrLeavePayoutRun = sqliteTable(
+  "hr_leave_payout_run",
+  {
+    id: text("id").primaryKey(),
+    year: integer("year").notNull().unique(),
+    status: text("status").notNull().default("draft"),
+    generatedBy: text("generated_by").notNull(),
+    generatedAt: integer("generated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    submittedBy: text("submitted_by"),
+    submittedAt: integer("submitted_at", { mode: "timestamp" }),
+    approvedBy: text("approved_by"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    paymentReference: text("payment_reference"),
+    paidBy: text("paid_by"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    totalCents: integer("total_cents").notNull().default(0),
+    employeeCount: integer("employee_count").notNull().default(0),
+  },
+  (t) => [index("hr_leave_payout_status_idx").on(t.status)],
+);
+
+export const hrLeavePayoutLine = sqliteTable(
+  "hr_leave_payout_line",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull().references(() => hrLeavePayoutRun.id),
+    employeeId: text("employee_id").notNull().references(() => hrEmployee.id),
+    employeeCode: text("employee_code").notNull(),
+    employeeName: text("employee_name").notNull(),
+    branchId: text("branch_id").notNull(),
+    leaveTypeId: text("leave_type_id").notNull().references(() => hrLeaveType.id),
+    leaveTypeName: text("leave_type_name").notNull(),
+    availableHalfDays: integer("available_half_days").notNull(),
+    basicSalaryCents: integer("basic_salary_cents").notNull(),
+    payoutCents: integer("payout_cents").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+  },
+  (t) => [index("hr_leave_payout_line_run_idx").on(t.runId), index("hr_leave_payout_line_branch_idx").on(t.branchId)],
+);

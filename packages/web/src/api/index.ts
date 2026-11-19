@@ -9,12 +9,14 @@ import { collection } from "./routes/collection";
 import { dashboard } from "./routes/dashboard";
 import { delivery } from "./routes/delivery";
 import { deliveryReport } from "./routes/delivery-report";
+import { deliveryPerformance } from "./routes/delivery-performance";
 import { disputes } from "./routes/disputes";
 import { finance } from "./routes/finance";
 import { freight } from "./routes/freight";
 import { hrEmployees } from "./routes/hr-employees";
 import { hrDocuments } from "./routes/hr-documents";
 import { hrLeave } from "./routes/hr-leave";
+import { hrCalendar } from "./routes/hr-calendar";
 import { hrPayroll } from "./routes/hr-payroll";
 import { hrTimesheets } from "./routes/hr-timesheets";
 import { audit } from "./routes/audit";
@@ -68,12 +70,13 @@ export const router = {
   transportReport,
   delivery,
   deliveryReport,
+  deliveryPerformance,
   ndr,
   notifications,
   cod: { ...cod, ...codReport },
   finance,
   freight,
-  hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll },
+  hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll, ...hrCalendar },
   disputes,
   sync,
   // M5 — admin portal & hardening (§10 M5).

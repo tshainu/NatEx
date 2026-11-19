@@ -30,6 +30,7 @@ import OpsParcelAging from "./pages/ops/reports/parcels";
 import OpsHubMovement from "./pages/ops/reports/movement";
 import OpsCodReconciliation from "./pages/ops/reports/cod";
 import OpsDeliveryAttemptsReport from "./pages/ops/reports/delivery";
+import OpsPerformance from "./pages/ops/reports/performance";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
 import AdminMerchantUsers from "./pages/admin/merchant-users";
@@ -54,6 +55,7 @@ import HrAttendance from "./pages/hr/attendance";
 import HrPackages from "./pages/hr/packages";
 import HrTimesheets from "./pages/hr/timesheets";
 import HrLeave from "./pages/hr/leave";
+import HrCalendar from "./pages/hr/calendar";
 import HrPayslips from "./pages/hr/payslips";
 import HrPayroll from "./pages/hr/payroll";
 import MerchantDisputes from "./pages/merchant/disputes";
@@ -175,6 +177,9 @@ function Routes() {
       <Portal path="/ops/reports/delivery">
         <OpsDeliveryAttemptsReport />
       </Portal>
+      <Portal path="/ops/reports/performance">
+        <OpsPerformance />
+      </Portal>
       <Portal path="/ops/reports/movement">
         <OpsHubMovement />
       </Portal>
@@ -294,6 +299,7 @@ function Routes() {
       <Portal path="/hr/packages"><HrPackages /></Portal>
       <Portal path="/hr/timesheets"><HrTimesheets /></Portal>
       <Portal path="/hr/leave"><HrLeave /></Portal>
+      <Portal path="/hr/calendar"><HrCalendar /></Portal>
       <Portal path="/hr/payroll"><HrPayroll /></Portal>
       <Portal path="/hr/payslips"><HrPayslips /></Portal>
 

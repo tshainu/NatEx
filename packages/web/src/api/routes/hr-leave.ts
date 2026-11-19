@@ -21,11 +21,18 @@ export const saveLeaveType = hrProc.input(z.object({
   action: "hr.leave_type_saved",
 }, () => leave.saveLeaveType(input)));
 
-export const leaveBalances = hrProc.input(z.object({ year: year.default(new Date().getFullYear()), employeeId: z.string().min(1).optional() })).handler(({ input }) => leave.listLeaveBalances(input.year, input.employeeId));
+export const leaveBalances = hrProc.input(z.object({
+  year: year.default(new Date().getFullYear()),
+  employeeId: z.string().min(1).optional(),
+  branchId: z.string().min(1).optional(),
+  hubId: z.string().min(1).optional(),
+})).handler(({ input }) => leave.listLeaveBalances(input.year, input.employeeId, input.branchId, input.hubId));
 export const leaveRequests = hrProc.input(z.object({
   employeeId: z.string().min(1).optional(),
   status: z.enum(["pending", "approved", "rejected", "cancelled"]).optional(),
   year: year.optional(),
+  branchId: z.string().min(1).optional(),
+  hubId: z.string().min(1).optional(),
 })).handler(({ input }) => leave.listLeaveRequests(input));
 
 export const createLeaveRequest = hrProc.input(z.object({

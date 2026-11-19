@@ -16,6 +16,7 @@ import { prefixedId } from "../../shared/ulid";
 import { nextEmployeeCode } from "./employee-number";
 import * as identity from "../identity/service";
 import { isValidIsoDate } from "./validation";
+import { applicableHoliday } from "./holiday";
 
 export type EmployeeRow = typeof hrEmployee.$inferSelect;
 export type SalaryPackageRow = typeof hrSalaryPackage.$inferSelect;
@@ -428,7 +429,16 @@ export async function saveTimesheets(rows: TimesheetInput[], actor: Principal) {
       errors.badRequest(`Timesheet date ${row.workDate} falls outside ${code}'s recorded employment dates.`);
     }
     await assertTimesheetUnlocked(row.workDate);
-    prepared.push({ employee, row, code });
+    const holiday = await applicableHoliday(row.workDate, employee.branchId);
+    const normalizedRow = holiday?.otAllowed
+      ? {
+          ...row,
+          regularMinutes: 0,
+          overtimeMinutes: row.regularMinutes + row.overtimeMinutes,
+          note: `${row.note?.trim() ? `${row.note.trim()} · ` : ""}Holiday OT: ${holiday.name}`,
+        }
+      : row;
+    prepared.push({ employee, row: normalizedRow, code });
   }
   for (const { employee, row } of prepared) {
     await db.insert(hrTimesheet).values({
