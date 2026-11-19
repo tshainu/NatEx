@@ -141,7 +141,7 @@ export default function HrDashboard() {
 
       <Card title="Department overview" description="Active headcount within the current HR workforce register."><CategoryBars data={[...activeEmployees.reduce((counts, employee) => { if (!department || employee.department === department) counts.set(employee.department, (counts.get(employee.department) ?? 0) + 1); return counts; }, new Map<string, number>()).entries()].map(([label, employeesCount]) => ({ label, employees: employeesCount }))} title="Active staff by department" series={[{ key: "employees", label: "Employees", colour: "#176B4D" }]} /></Card>
 
-      <Card title="Go to work" description="Use the detailed HR desks for edits and approvals."><div className="flex flex-wrap gap-2"><Button variant="outline" asChild><Link href="/hr/employees">Employee records</Link></Button><Button variant="outline" asChild><Link href="/hr/payroll">Salary operations</Link></Button><Button variant="outline" asChild><Link href="/hr/leave">Leave management</Link></Button><Button variant="outline" asChild><Link href="/hr/calendar">Year calendar & payout</Link></Button><Button variant="outline" asChild><Link href="/hr/timesheets">Timesheets</Link></Button></div></Card>
+      <Card title="Go to work" description="Use the detailed HR desks for edits and approvals."><div className="flex flex-wrap gap-2"><Button variant="outline" asChild><Link href="/hr/employees">Employee records</Link></Button><Button variant="outline" asChild><Link href="/hr/leave">Leave management</Link></Button><Button variant="outline" asChild><Link href="/hr/calendar">Year calendar & payout</Link></Button><Button variant="outline" asChild><Link href="/hr/timesheets">Timesheets</Link></Button></div></Card>
     </Page>
   );
 }

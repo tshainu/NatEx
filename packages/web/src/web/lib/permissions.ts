@@ -118,7 +118,6 @@ const FINANCE: PortalConfig = {
     { label: "Invoices", to: "/finance/invoices" },
     { label: "Customer freight", to: "/finance/freight" },
     { label: "Disputes", to: "/finance/disputes" },
-    { label: "Payroll approval", to: "/hr/payroll" },
     { label: "Rider performance", to: "/ops/reports/performance" },
   ],
 };
@@ -131,7 +130,6 @@ const HR: PortalConfig = {
     { label: "Overview", to: "/hr/dashboard" },
     { label: "Attendance", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
-    { label: "Salary operations", to: "/hr/payroll" },
     { label: "Payslips", to: "/hr/payslips" },
     { label: "Salary packages", to: "/hr/packages" },
     { label: "Leave", to: "/hr/leave" },
