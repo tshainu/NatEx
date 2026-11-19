@@ -40,7 +40,7 @@ export async function clockIn(principal: Principal) {
   if (current?.clockInAt && !current.clockOutAt) errors.conflict("You are already clocked in for today.");
   if (current?.clockOutAt) errors.conflict("Today's attendance is already clocked out.");
   const minute = localMinute(now);
-  const attendanceStatus = minute <= SHORT_LEAVE_CUTOFF ? "present" : minute <= HALF_DAY_CUTOFF ? "present" : "present";
+  const attendanceStatus = minute <= START_MINUTE ? "present" : minute <= SHORT_LEAVE_CUTOFF ? "short_leave" : minute <= HALF_DAY_CUTOFF ? "half_day" : "absent";
   const values = { clockInAt: now, attendanceStatus, approvalStatus: "pending", source: "rider", regularMinutes: 0, overtimeMinutes: 0, note: minute > START_MINUTE ? `Clocked in at ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}` : null, updatedBy: principal.userId, updatedAt: now } as const;
   if (current) {
     const [row] = await db.update(hrTimesheet).set(values).where(eq(hrTimesheet.id, current.id)).returning();
@@ -107,5 +107,6 @@ export async function riderSummary(principal: Principal, year: number) {
   const shortLeaveDays = rows.filter((row) => row.attendanceStatus === "short_leave").length;
   const halfDays = rows.filter((row) => row.attendanceStatus === "half_day").length;
   const fullLeaveDays = rows.filter((row) => row.attendanceStatus === "leave").length;
-  return { employeeId: employee.id, year, shortLeaveDays, halfDays, fullLeaveDays, rows: rows.slice(0, 60), policy: { regularStart: "08:30", regularEnd: "17:00", shortLeaveCutoff: "09:30", halfDayCutoff: "12:30", monthlyShortLeaveLimit: 2, conversion: "2 short leave = 1 half day; 2 half days = 1 day; 2 short + 1 half day = 1 day" } };
+  const convertedLeaveDays = Math.floor((shortLeaveDays / 2 + halfDays + fullLeaveDays * 2) / 2);
+  return { employeeId: employee.id, year, shortLeaveDays, halfDays, fullLeaveDays, convertedLeaveDays, rows: rows.slice(0, 60), policy: { regularStart: "08:30", regularEnd: "17:00", shortLeaveCutoff: "09:30", halfDayCutoff: "12:30", monthlyShortLeaveLimit: 2, conversion: "2 short leave = 1 half day; 2 half days = 1 day; 2 short + 1 half day = 1 day" } };
 }
