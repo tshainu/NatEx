@@ -236,86 +236,61 @@ export default function HrEmployees() {
       {error ? <ErrorNote>{apiMessage(error, "The HR data could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
       <Card className="border-2 border-brand/25 shadow-sm" title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users. Complete each outlined section before saving.">
-        <form className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" onSubmit={submit}>
-          <div className="border-b border-brand/20 pb-2 pt-1 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Personal and contact details</p><p className="mt-1 text-[11px] text-muted-foreground">Keep identity, communication, and official-account information together.</p></div>
-          {editingId ? <Field label="Employee number"><Input readOnly value={employees.data?.find((employee) => employee.id === editingId)?.employeeCode ?? ""} /></Field> : <p className="self-center text-[12px] text-muted-foreground">Employee number is assigned automatically when you save. The next available number starts at N26002.</p>}
-          <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
-          <Field label="Official courier-staff login" hint="Optional. Link this HR record to an active official account (Rider, Transport, Ops, Finance, Admin, HR, or any combination). Inactive accounts and Merchant portal users are excluded.">
-            <select className={HR_CONTROL_CLASS} value={form.identityUserId} onChange={(e) => setField("identityUserId", e.target.value)}>
-              <option value="">No login linked</option>
-              {(staffAccounts.data ?? []).filter((account) => !employees.data?.some((employee) => employee.identityUserId === account.id && employee.id !== editingId)).map((account) => (
-                <option key={account.id} value={account.id}>{account.name} · {account.roles.join(" / ")} · {account.phone} · {account.status}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="National ID"><Input maxLength={40} value={form.nationalId} onChange={(e) => setField("nationalId", e.target.value)} /></Field>
-          <Field label="Phone"><Input maxLength={30} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
-          <Field label="Email"><Input type="email" maxLength={200} value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
-          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Employment assignment</p><p className="mt-1 text-[11px] text-muted-foreground">Assign the employee to the operational location and role used by HR reporting.</p></div>
-          <Field label="Branch / hub">
-            <select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}>
-              <option value="">Select branch or hub</option>
-              {(branches.data ?? []).filter((branch) => branch.status === "active" || branch.id === form.branchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}{branch.status === "active" ? "" : " · inactive"}</option>)}
-            </select>
-          </Field>
-          <Field label="Department"><Input required value={form.department} onChange={(e) => setField("department", e.target.value)} /></Field>
-          <Field label="Job title"><Input required value={form.jobTitle} onChange={(e) => setField("jobTitle", e.target.value)} /></Field>
-          <Field label="Employment type">
-            <select className={HR_CONTROL_CLASS} value={form.employmentType} onChange={(e) => setField("employmentType", e.target.value)}>
-              {(["permanent", "probation", "contract", "temporary", "casual", "intern", "other"] as const).map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </Field>
-          <Field label="Joined on"><Input type="date" required value={form.joinedOn} onChange={(e) => setField("joinedOn", e.target.value)} /></Field>
-          {editingId ? <Field label="End date"><Input type="date" value={form.endedOn} onChange={(e) => setField("endedOn", e.target.value)} /></Field> : null}
-          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Compliance and payroll settings</p><p className="mt-1 text-[11px] text-muted-foreground">These values affect statutory payroll, APIT eligibility, and overtime calculations.</p></div>
-          <Field label="EPF member number"><Input maxLength={50} value={form.epfNumber} onChange={(e) => setField("epfNumber", e.target.value)} /></Field>
-          <Field label="Taxpayer identification number"><Input maxLength={50} value={form.tin} onChange={(e) => setField("tin", e.target.value)} /></Field>
-          <Field label="Overtime classification" hint="Select the employee's applicable legal arrangement. No overtime is paid until a rule is configured.">
-            <select className={HR_CONTROL_CLASS} value={form.overtimePolicy} onChange={(e) => setField("overtimePolicy", e.target.value as EmployeeForm["overtimePolicy"])}>
-              <option value="none">Not configured</option>
-              <option value="shop_office">Shop & Office (1.5×)</option>
-              <option value="custom">Custom validated rule</option>
-            </select>
-          </Field>
-          {form.overtimePolicy === "custom" ? <>
-            <Field label="Custom overtime multiplier"><Input type="number" min="0.1" max="5" step="0.01" value={form.overtimeMultiplier} onChange={(e) => setField("overtimeMultiplier", e.target.value)} /></Field>
-            <Field label="Monthly hourly divisor"><Input type="number" min="1" max="2400" step="1" value={form.overtimeDivisorHours} onChange={(e) => setField("overtimeDivisorHours", e.target.value)} /></Field>
-          </> : null}
-          {editingId ? <>
-            <Field label="New salary package" hint={`Monthly net is an estimate using package earnings/deductions, employee EPF and the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}. Secondary-employment estimates exclude manual APIT. Daily/hourly net varies with actual days/hours. Changing packages preserves effective-dated salary history.`}>
-              <select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}>
-                <option value="">Keep current salary history</option>
-                {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}
-              </select>
-            </Field>
-            <Field label="Salary effective from" hint="The existing package closes the day before this date; payroll snapshots are never recalculated."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field>
-            {editingSalary.isPending ? <p className="self-end text-[12px] text-muted-foreground">Loading salary history…</p> : null}
-          </> : null}
-          {editingId ? <Field label="Employment status">
-            <select className={HR_CONTROL_CLASS} value={form.status} onChange={(e) => setField("status", e.target.value as EmployeeForm["status"])}>
-              <option value="active">Active</option><option value="inactive">Inactive</option>
-            </select>
-          </Field> : null}
-          {!editingId ? <Field label="Starting salary package" hint={`Optional; assignment starts on the joined date. Monthly net is estimated using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}; secondary-employment estimates exclude manual APIT. Daily/hourly net varies with actual days/hours.`}>
-            <select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}>
-              <option value="">Create employee without a package</option>
-              {(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}
-            </select>
-          </Field> : null}
-          <label className="flex items-center gap-2 self-center text-[13px]">
-            <input type="checkbox" aria-label="Primary employment for APIT" checked={form.primaryEmployment} onChange={(e) => setField("primaryEmployment", e.target.checked)} />
-            Primary employment for APIT
-          </label>
-          <div className="border-b border-brand/20 pb-2 pt-3 md:col-span-2 xl:col-span-3"><p className="text-[13px] font-semibold text-brand">Address details</p><p className="mt-1 text-[11px] text-muted-foreground">Record the permanent home address and the current living address when they differ.</p></div>
-          <Field label="Permanent address" hint="The employee's long-term or registered home address." className="md:col-span-2"><Textarea value={form.permanentAddress} onChange={(e) => { setField("permanentAddress", e.target.value); if (form.sameAsPermanent) setField("currentAddress", e.target.value); }} maxLength={500} /></Field>
-          <label className="flex items-start gap-2 rounded-md border border-brand/20 bg-brand/5 p-3 text-[12px] md:mt-6"><input type="checkbox" checked={form.sameAsPermanent} onChange={(e) => { const checked = e.target.checked; setField("sameAsPermanent", checked); if (checked) setField("currentAddress", form.permanentAddress); }} /><span><span className="block font-medium">Current address is the same</span><span className="text-muted-foreground">Use the permanent address as the employee's current living address.</span></span></label>
-          {!form.sameAsPermanent ? <Field label="Current living address" hint="Required when the employee currently lives somewhere different." className="md:col-span-2 xl:col-span-3"><Textarea value={form.currentAddress} onChange={(e) => setField("currentAddress", e.target.value)} maxLength={500} /></Field> : null}
-          {!editingId && initialPackage ? <div className="rounded-md border border-brand/25 bg-brand/5 p-3 text-[12px] md:col-span-2 xl:col-span-3"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s). The full breakdown will appear in the employee's Salary record.</p></div> : null}
-          <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
-            <Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>
-            {!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-[12px] font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}
-            {editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}
+        <form className="space-y-5" onSubmit={submit}>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand/[0.04] px-4 py-3">
+            <div><p className="text-sm font-semibold text-foreground">{editingId ? "Employee profile" : "New employee profile"}</p><p className="mt-0.5 text-xs text-muted-foreground">Required fields are marked by the browser. You can complete salary assignment later.</p></div>
+            {editingId ? <div className="rounded-lg border border-brand/20 bg-background px-3 py-2 text-right"><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Employee number</p><p className="font-mono text-sm font-semibold text-brand">{employees.data?.find((employee) => employee.id === editingId)?.employeeCode ?? "—"}</p></div> : <span className="text-xs text-muted-foreground">Number assigned automatically on save</span>}
           </div>
+
+          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">01</span><div><h3 className="text-sm font-semibold">Personal and contact details</h3><p className="mt-0.5 text-xs text-muted-foreground">Basic identity and official account information.</p></div></div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
+              <Field label="National ID"><Input maxLength={40} value={form.nationalId} onChange={(e) => setField("nationalId", e.target.value)} /></Field>
+              <Field label="Phone"><Input maxLength={30} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
+              <Field label="Email"><Input type="email" maxLength={200} value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
+              <Field label="Official courier-staff login" className="md:col-span-2" hint="Optional. Link this HR record to an active official staff account. Merchant portal users are excluded.">
+                <select className={HR_CONTROL_CLASS} value={form.identityUserId} onChange={(e) => setField("identityUserId", e.target.value)}><option value="">No login linked</option>{(staffAccounts.data ?? []).filter((account) => !employees.data?.some((employee) => employee.identityUserId === account.id && employee.id !== editingId)).map((account) => <option key={account.id} value={account.id}>{account.name} · {account.roles.join(" / ")} · {account.phone} · {account.status}</option>)}</select>
+              </Field>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">02</span><div><h3 className="text-sm font-semibold">Employment assignment</h3><p className="mt-0.5 text-xs text-muted-foreground">Where this employee works and what they do.</p></div></div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Field label="Branch / hub"><select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}><option value="">Select branch or hub</option>{(branches.data ?? []).filter((branch) => branch.status === "active" || branch.id === form.branchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}{branch.status === "active" ? "" : " · inactive"}</option>)}</select></Field>
+              <Field label="Department"><Input required value={form.department} onChange={(e) => setField("department", e.target.value)} /></Field>
+              <Field label="Job title"><Input required value={form.jobTitle} onChange={(e) => setField("jobTitle", e.target.value)} /></Field>
+              <Field label="Employment type"><select className={HR_CONTROL_CLASS} value={form.employmentType} onChange={(e) => setField("employmentType", e.target.value)}>{(["permanent", "probation", "contract", "temporary", "casual", "intern", "other"] as const).map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
+              <Field label="Joined on"><Input type="date" required value={form.joinedOn} onChange={(e) => setField("joinedOn", e.target.value)} /></Field>
+              {editingId ? <Field label="End date"><Input type="date" value={form.endedOn} onChange={(e) => setField("endedOn", e.target.value)} /></Field> : null}
+              {editingId ? <Field label="Employment status"><select className={HR_CONTROL_CLASS} value={form.status} onChange={(e) => setField("status", e.target.value as EmployeeForm["status"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field> : null}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">03</span><div><h3 className="text-sm font-semibold">Compliance and payroll</h3><p className="mt-0.5 text-xs text-muted-foreground">Statutory identifiers, APIT, overtime, and salary setup.</p></div></div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <Field label="EPF member number"><Input maxLength={50} value={form.epfNumber} onChange={(e) => setField("epfNumber", e.target.value)} /></Field>
+              <Field label="Taxpayer identification number"><Input maxLength={50} value={form.tin} onChange={(e) => setField("tin", e.target.value)} /></Field>
+              <label className="flex items-start gap-2 rounded-xl border border-brand/20 bg-brand/[0.04] p-3 text-xs"><input type="checkbox" aria-label="Primary employment for APIT" checked={form.primaryEmployment} onChange={(e) => setField("primaryEmployment", e.target.checked)} /><span><span className="block font-medium">Primary employment for APIT</span><span className="mt-0.5 block text-muted-foreground">Use automatic primary-employment APIT when eligible.</span></span></label>
+              <Field label="Overtime classification" className="md:col-span-2" hint="No overtime is paid until a rule is configured."><select className={HR_CONTROL_CLASS} value={form.overtimePolicy} onChange={(e) => setField("overtimePolicy", e.target.value as EmployeeForm["overtimePolicy"])}><option value="none">Not configured</option><option value="shop_office">Shop & Office (1.5×)</option><option value="custom">Custom validated rule</option></select></Field>
+              {form.overtimePolicy === "custom" ? <><Field label="Custom overtime multiplier"><Input type="number" min="0.1" max="5" step="0.01" value={form.overtimeMultiplier} onChange={(e) => setField("overtimeMultiplier", e.target.value)} /></Field><Field label="Monthly hourly divisor"><Input type="number" min="1" max="2400" step="1" value={form.overtimeDivisorHours} onChange={(e) => setField("overtimeDivisorHours", e.target.value)} /></Field></> : null}
+              {editingId ? <><Field label="New salary package" className="md:col-span-2" hint={`Changing packages preserves effective-dated salary history. Net is an estimate using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}.`}><select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}><option value="">Keep current salary history</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}</select></Field><Field label="Salary effective from" hint="The existing package closes the day before this date."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field></> : <Field label="Starting salary package" className="md:col-span-2" hint={`Optional. Net is estimated using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}.`}><select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}><option value="">Create employee without a package</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}</select></Field>}
+            </div>
+            {editingSalary.isPending ? <p className="mt-3 text-xs text-muted-foreground">Loading salary history…</p> : null}
+            {!editingId && initialPackage ? <div className="mt-4 rounded-xl border border-brand/25 bg-brand/5 p-3 text-xs"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s).</p></div> : null}
+          </section>
+
+          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">04</span><div><h3 className="text-sm font-semibold">Address details</h3><p className="mt-0.5 text-xs text-muted-foreground">Keep the registered address and current living address accurate for HR records.</p></div></div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Permanent address" hint="Long-term or registered home address."><Textarea value={form.permanentAddress} onChange={(e) => { setField("permanentAddress", e.target.value); if (form.sameAsPermanent) setField("currentAddress", e.target.value); }} maxLength={500} /></Field>
+              <div className="space-y-3"><label className="flex items-start gap-2 rounded-xl border border-brand/20 bg-brand/[0.04] p-3 text-xs"><input type="checkbox" checked={form.sameAsPermanent} onChange={(e) => { const checked = e.target.checked; setField("sameAsPermanent", checked); if (checked) setField("currentAddress", form.permanentAddress); }} /><span><span className="block font-medium">Current address is the same</span><span className="mt-0.5 block text-muted-foreground">Use the permanent address as the living address.</span></span></label>{!form.sameAsPermanent ? <Field label="Current living address" hint="Required when the employee currently lives elsewhere."><Textarea value={form.currentAddress} onChange={(e) => setField("currentAddress", e.target.value)} maxLength={500} /></Field> : <div className="rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">Current living address will be saved from the permanent address.</div>}</div>
+            </div>
+          </section>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/20 p-4"><div className="text-xs text-muted-foreground">Review the sections above before saving this confidential HR record.</div><div className="flex flex-wrap gap-2"><Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>{!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-xs font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}{editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}</div></div>
         </form>
       </Card>
 
