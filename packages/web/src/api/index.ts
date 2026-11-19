@@ -19,6 +19,7 @@ import { hrLeave } from "./routes/hr-leave";
 import { hrCalendar } from "./routes/hr-calendar";
 import { hrPayroll } from "./routes/hr-payroll";
 import { hrTimesheets } from "./routes/hr-timesheets";
+import { hrTermination } from "./routes/hr-termination";
 import { audit } from "./routes/audit";
 import { identity } from "./routes/identity";
 import { identityAdmin } from "./routes/identity-admin";
@@ -76,7 +77,7 @@ export const router = {
   cod: { ...cod, ...codReport },
   finance,
   freight,
-  hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll, ...hrCalendar },
+  hr: { ...hrEmployees, ...hrDocuments, ...hrTimesheets, ...hrLeave, ...hrPayroll, ...hrCalendar, ...hrTermination },
   disputes,
   sync,
   // M5 — admin portal & hardening (§10 M5).

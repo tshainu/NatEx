@@ -48,6 +48,29 @@ export const hrEmployee = sqliteTable(
   ],
 );
 
+export const hrTermination = sqliteTable(
+  "hr_termination",
+  {
+    id: text("id").primaryKey(),
+    employeeId: text("employee_id").notNull().references(() => hrEmployee.id),
+    terminationType: text("termination_type").notNull(),
+    status: text("status").notNull().default("draft"),
+    noticeGivenOn: text("notice_given_on"),
+    lastWorkingOn: text("last_working_on").notNull(),
+    reason: text("reason").notNull(),
+    notes: text("notes"),
+    rehireDecision: text("rehire_decision").notNull().default("not_assessed"),
+    checklistJson: text("checklist_json").notNull().default("{}"),
+    createdBy: text("created_by").notNull(),
+    submittedBy: text("submitted_by"),
+    decidedBy: text("decided_by"),
+    decisionNote: text("decision_note"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [index("hr_termination_employee_idx").on(t.employeeId), index("hr_termination_status_idx").on(t.status)],
+);
+
 export const hrSalaryPackage = sqliteTable(
   "hr_salary_package",
   {

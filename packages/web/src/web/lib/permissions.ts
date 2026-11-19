@@ -92,7 +92,6 @@ const ADMIN: PortalConfig = {
     { label: "Templates", to: "/admin/templates" },
     { label: "Audit log", to: "/admin/audit" },
     { label: "System monitor", to: "/admin/monitor" },
-    { label: "HR & payroll", to: "/hr/dashboard" },
   ],
 };
 
@@ -127,7 +126,7 @@ const HR: PortalConfig = {
   name: "HR & Payroll",
   home: "/hr/dashboard",
   nav: [
-    { label: "Overview", to: "/hr/dashboard" },
+    { label: "Dashboard", to: "/hr/dashboard" },
     { label: "Attendance", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
     { label: "Payslips", to: "/hr/payslips" },
@@ -135,9 +134,27 @@ const HR: PortalConfig = {
     { label: "Leave", to: "/hr/leave" },
     { label: "Calendar & payout", to: "/hr/calendar" },
     { label: "Timesheets", to: "/hr/timesheets" },
+    { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },
   ],
 };
+
+const HR_NAV: NavItem[] = [
+  { label: "Dashboard", to: "/hr/dashboard" },
+  { label: "Employees", to: "/hr/employees" },
+  { label: "Attendance", to: "/hr/attendance" },
+  { label: "Leave", to: "/hr/leave" },
+  { label: "Calendar & payout", to: "/hr/calendar" },
+  { label: "Timesheets", to: "/hr/timesheets" },
+  { label: "Terminations", to: "/hr/terminations" },
+];
+
+const PAYROLL_NAV: NavItem[] = [
+  { label: "Salary operations", to: "/hr/payroll" },
+  { label: "Salary packages", to: "/hr/packages" },
+  { label: "Payslips", to: "/hr/payslips" },
+  { label: "Star delivery payouts", to: "/ops/reports/performance" },
+];
 
 const MERCHANT: PortalConfig = {
   portal: "merchant",
@@ -192,6 +209,8 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
+      { title: "HR", items: HR_NAV },
+      { title: "Payroll", items: PAYROLL_NAV },
       { title: "Finance", items: FINANCE.nav },
       { title: "Reports", items: REPORTS_NAV },
     ];
@@ -212,6 +231,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Field staff", items: FIELD.nav },
     ];
   }
+  if (role === "hr") return [{ title: "HR", items: HR_NAV }, { title: "Payroll", items: PAYROLL_NAV }];
   const config = portalFor(role);
   return [{ title: config.name, items: config.nav }];
 }

@@ -58,6 +58,7 @@ import HrLeave from "./pages/hr/leave";
 import HrCalendar from "./pages/hr/calendar";
 import HrPayslips from "./pages/hr/payslips";
 import HrPayroll from "./pages/hr/payroll";
+import HrTerminations from "./pages/hr/terminations";
 import MerchantDisputes from "./pages/merchant/disputes";
 import MerchantStatement from "./pages/merchant/statement";
 import MerchantAccount from "./pages/merchant/account";
@@ -302,6 +303,7 @@ function Routes() {
       <Portal path="/hr/calendar"><HrCalendar /></Portal>
       <Portal path="/hr/payroll"><HrPayroll /></Portal>
       <Portal path="/hr/payslips"><HrPayslips /></Portal>
+      <Portal path="/hr/terminations"><HrTerminations /></Portal>
 
       {/* Merchant portal — Milestone 3: dashboard, booking, bulk CSV, pickups, tracking, NDR */}
       <Portal path="/merchant">
