@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "../database";
 import { nightlyStatus } from "../jobs/nightly";
 import { workerStatus } from "../jobs/worker";
-import { adminProc, mutate } from "../middleware/pipeline";
+import { ultimateAdminProc, mutate } from "../middleware/pipeline";
 import { listInvariantRuns } from "../modules/cod/service";
 import { listOutbox, outboxSummary, retryFailed } from "../shared/outbox";
 import { errors } from "../shared/errors";
@@ -19,7 +19,7 @@ import { errors } from "../shared/errors";
 /** When this server process loaded the API (no `process.uptime()`: the mobile and desktop typecheck has no Node types). */
 const STARTED_AT = Date.now();
 
-export const health = adminProc.handler(async () => {
+export const health = ultimateAdminProc.handler(async () => {
   const started = performance.now();
   await db.run(sql`select 1`);
   const dbMs = Math.round(performance.now() - started);
@@ -41,7 +41,7 @@ export const health = adminProc.handler(async () => {
   };
 });
 
-export const jobs = adminProc
+export const jobs = ultimateAdminProc
   .input(
     z.object({
       state: z.enum(["pending", "processing", "done", "failed"]).optional(),
@@ -52,7 +52,7 @@ export const jobs = adminProc
   )
   .handler(({ input }) => listOutbox(input));
 
-export const retryJob = adminProc.input(z.object({ id: z.string().min(1) })).handler(({ input, context }) =>
+export const retryJob = ultimateAdminProc.input(z.object({ id: z.string().min(1) })).handler(({ input, context }) =>
   mutate(
     context,
     input,
@@ -65,7 +65,7 @@ export const retryJob = adminProc.input(z.object({ id: z.string().min(1) })).han
   ),
 );
 
-export const invariantRuns = adminProc
+export const invariantRuns = ultimateAdminProc
   .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }))
   .handler(({ input }) => listInvariantRuns(input.limit));
 

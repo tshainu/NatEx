@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc, mutate, staffProc } from "../middleware/pipeline";
+import { ultimateAdminProc, mutate, staffProc } from "../middleware/pipeline";
 import { getBranch } from "../modules/identity/service";
 import * as routingService from "../modules/routing/service";
 import { errors } from "../shared/errors";
@@ -28,11 +28,11 @@ export const nearestBranch = staffProc
   )
   .handler(({ input }) => routingService.findNearestBranch(input));
 
-export const listZones = staffProc
+export const listZones = ultimateAdminProc
   .input(z.object({ branchId: z.string().optional() }))
   .handler(({ input }) => routingService.listZones(input.branchId));
 
-export const createZone = adminProc
+export const createZone = ultimateAdminProc
   .input(
     z.object({
       name: z.string().min(2).max(120),
@@ -58,7 +58,7 @@ export const createZone = adminProc
     ),
   );
 
-export const updateZone = adminProc
+export const updateZone = ultimateAdminProc
   .input(
     z.object({
       id: z.string().min(1),

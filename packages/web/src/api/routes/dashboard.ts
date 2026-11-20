@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc } from "../middleware/pipeline";
+import { ultimateAdminProc } from "../middleware/pipeline";
 import * as parcelsService from "../modules/parcels/service";
 import * as codService from "../modules/cod/service";
 import { alertCounts } from "../modules/cod/alerts";
@@ -20,7 +20,7 @@ import { merchantNames, merchantStatusCounts } from "../modules/merchants/servic
  * one is aggregated server-side, never summed in the browser from a page of
  * rows. Admin only: it is network-wide by definition.
  */
-export const company = adminProc
+export const company = ultimateAdminProc
   .input(z.object({ days: z.number().int().min(7).max(90).default(30) }))
   .handler(async ({ input, context }) => {
     const scope = context.principal;

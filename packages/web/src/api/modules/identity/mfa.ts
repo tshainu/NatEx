@@ -30,7 +30,7 @@ import { isDevelopment } from "../../shared/env";
  * seeder refuses, and a seeded factor is refused at sign-in.
  */
 
-export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance", "hr"];
+export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance", "hr", "super_admin", "nos_admin"];
 export const RECOVERY_CODE_COUNT = 10;
 
 /** Fail-closed: anything that is not an explicit dev/test process counts as production (shared/env.ts). */
@@ -44,7 +44,7 @@ export async function mfaRequiredForAny(roles: readonly (Role | string)[]): Prom
 
 export async function mfaRequiredFor(role: Role | string): Promise<boolean> {
   if (!(MFA_ROLES as readonly string[]).includes(role)) return false;
-  if (role === "hr") return true;
+  if (role === "hr" || role === "super_admin" || role === "nos_admin") return true;
   return settingFlag(SETTING_KEYS.MFA_ENFORCED);
 }
 

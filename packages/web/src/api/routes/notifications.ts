@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc, deskProc, mutate, readProc } from "../middleware/pipeline";
+import { ultimateAdminProc, deskProc, mutate, readProc } from "../middleware/pipeline";
 import * as notifyService from "../modules/notifications/service";
 import { errors } from "../shared/errors";
 
@@ -15,11 +15,11 @@ import { errors } from "../shared/errors";
  * The log shows each attempted channel and state.
  */
 
-export const templates = deskProc
+export const templates = ultimateAdminProc
   .input(z.object({}))
   .handler(() => notifyService.listTemplates());
 
-export const template = deskProc
+export const template = ultimateAdminProc
   .input(z.object({ key: z.string().min(3).max(60) }))
   .handler(({ input }) => notifyService.getTemplate(input.key));
 
@@ -28,7 +28,7 @@ export const template = deskProc
  * `version` and stamps who made it, because a consignee complaint about what a
  * message said has to be answerable months later.
  */
-export const templateUpdate = adminProc
+export const templateUpdate = ultimateAdminProc
   .input(
     z.object({
       key: z.string().min(3).max(60),
@@ -63,7 +63,7 @@ export const templateUpdate = adminProc
  * message may use, the problems the save would be refused for, and each
  * channel rendered with sample values (§10 M5 template editor).
  */
-export const templatePreview = deskProc
+export const templatePreview = ultimateAdminProc
   .input(
     z.object({
       key: z.string().min(3).max(60),

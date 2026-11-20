@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc, mutate, deskProc, authedProc } from "../middleware/pipeline";
+import { ultimateAdminProc, mutate, authedProc } from "../middleware/pipeline";
 import * as settingsService from "../modules/settings/service";
 import { errors } from "../shared/errors";
 
@@ -14,15 +14,15 @@ import { errors } from "../shared/errors";
 
 const key = z.enum(Object.values(settingsService.SETTING_KEYS) as [settingsService.SettingKey, ...settingsService.SettingKey[]]);
 
-export const list = deskProc.handler(() => settingsService.listSettings());
+export const list = ultimateAdminProc.handler(() => settingsService.listSettings());
 
 /** Only this non-sensitive cap is exposed to app clients; edits remain Admin-only. */
 export const bookingLimits = authedProc.handler(() => settingsService.bookingLimits());
 
 /** Contact metadata is needed by desk-side receipt printing; the phone is blank until configured. */
-export const receiptContact = deskProc.handler(() => settingsService.getReceiptContact());
+export const receiptContact = ultimateAdminProc.handler(() => settingsService.getReceiptContact());
 
-export const set = adminProc
+export const set = ultimateAdminProc
   .input(z.object({ key, value: z.number(), reason: z.string().trim().min(5).max(500) }))
   .handler(({ input, context }) => {
     const why = settingsService.settingProblem(input.key, input.value);
@@ -44,7 +44,7 @@ export const set = adminProc
     );
   });
 
-export const setReceiptContact = adminProc
+export const setReceiptContact = ultimateAdminProc
   .input(
     z.object({
       website: z.string().trim().max(200).nullish(),

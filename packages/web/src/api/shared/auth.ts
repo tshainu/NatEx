@@ -15,7 +15,7 @@ import { isDevelopment } from "./env";
 export const ACCESS_TTL_SECONDS = 15 * 60;
 export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "merchant" | "hr";
+export type Role = "rider" | "transport" | "ops" | "finance" | "admin" | "super_admin" | "nos_admin" | "merchant" | "hr";
 
 export const ROLES: readonly Role[] = [
   "rider",
@@ -23,6 +23,8 @@ export const ROLES: readonly Role[] = [
   "ops",
   "finance",
   "admin",
+  "super_admin",
+  "nos_admin",
   "merchant",
   "hr",
 ] as const;
@@ -80,6 +82,17 @@ export function resolveRequestedRole(
   if (!(ROLES as readonly string[]).includes(requested)) return null;
   const role = requested as Role;
   return assignedRoles.includes(role) ? role : null;
+}
+
+/** The two backend-created roles with unrestricted company-wide access. */
+export const ULTIMATE_ADMIN_ROLES: readonly Role[] = ["super_admin", "nos_admin"];
+
+export function isUltimateAdminRole(role: Role): boolean {
+  return ULTIMATE_ADMIN_ROLES.includes(role);
+}
+
+export function isAdminRole(role: Role): boolean {
+  return role === "admin" || isUltimateAdminRole(role);
 }
 
 /**
@@ -270,7 +283,7 @@ export function bearerFrom(headers: Headers): string | null {
 }
 
 /** Roles that see every branch (PROJECT.md §5 row-level scoping). */
-const GLOBAL_ROLES: ReadonlySet<Role> = new Set<Role>(["admin", "finance", "hr"]);
+const GLOBAL_ROLES: ReadonlySet<Role> = new Set<Role>(["admin", "super_admin", "nos_admin", "finance", "hr"]);
 
 export function isGlobalScope(role: Role): boolean {
   return GLOBAL_ROLES.has(role);

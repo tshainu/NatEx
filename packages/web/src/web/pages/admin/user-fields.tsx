@@ -11,7 +11,7 @@ export const OFFICIAL_ROLES: Role[] = ["rider", "transport", "ops", "finance", "
  * Highest privilege first: when several roles are checked the earliest in this
  * order becomes the primary role (home portal, branch scope).
  */
-const PRIMARY_ORDER: Role[] = ["admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
+const PRIMARY_ORDER: Role[] = ["super_admin", "nos_admin", "admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
 
 export function orderRoles(selected: readonly Role[]): Role[] {
   return PRIMARY_ORDER.filter((r) => selected.includes(r));

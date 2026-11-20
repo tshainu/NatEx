@@ -209,6 +209,9 @@ export const createUser = adminProc
     }),
   )
   .handler(async ({ input, context }) => {
+    if (input.roles.some((r) => r === "super_admin" || r === "nos_admin")) {
+      errors.forbidden("Super Admin and NOS Admin accounts can only be provisioned by the backend.");
+    }
     if (input.roles.includes("merchant")) {
       errors.badRequest("Create Merchant portal accounts from Administration → Merchant users.");
     }

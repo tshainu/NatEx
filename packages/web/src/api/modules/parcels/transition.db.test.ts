@@ -60,6 +60,8 @@ const principal = (role: Role, extra: Partial<Principal> = {}): Principal => ({
   ...extra,
 });
 const AS: Record<Role, Principal> = {
+  super_admin: principal("super_admin"),
+  nos_admin: principal("nos_admin"),
   admin: principal("admin"),
   ops: principal("ops"),
   rider: principal("rider"),

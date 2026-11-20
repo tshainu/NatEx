@@ -29,8 +29,11 @@ export const createEmployeeLogin = adminProc
       password: z.string().min(6).max(200).nullish(),
     }),
   )
-  .handler(({ input, context }) =>
-    mutate(
+  .handler(({ input, context }) => {
+    if (input.roles.some((r) => r === "super_admin" || r === "nos_admin")) {
+      errors.forbidden("Super Admin and NOS Admin accounts can only be provisioned by the backend.");
+    }
+    return mutate(
       context,
       input,
       {
@@ -40,8 +43,8 @@ export const createEmployeeLogin = adminProc
         action: "user.created_for_employee",
       },
       () => adminService.createEmployeeLogin(context.principal, input),
-    ),
-  );
+    );
+  });
 
 export const listMerchantUsers = adminProc
   .input(
@@ -132,6 +135,9 @@ export const updateUser = adminProc
   .handler(async ({ input, context }) => {
     const { userId, ...patch } = input;
     const rolePatch = patch.roles ?? (patch.role ? [patch.role] : undefined);
+    if (rolePatch?.some((r) => r === "super_admin" || r === "nos_admin")) {
+      errors.forbidden("Super Admin and NOS Admin accounts can only be provisioned by the backend.");
+    }
     if (rolePatch?.includes("merchant")) {
       errors.badRequest("Merchant portal roles are managed from Administration → Merchant users.");
     }

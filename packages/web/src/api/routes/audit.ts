@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { adminProc } from "../middleware/pipeline";
+import { ultimateAdminProc } from "../middleware/pipeline";
 import { auditEntities, listAudit } from "../shared/audit-reader";
 
 /**
@@ -7,7 +7,7 @@ import { auditEntities, listAudit } from "../shared/audit-reader";
  * (§5/§11) and this namespace has no write. Rows are returned as stored, which
  * means already redacted (shared/redact.ts).
  */
-export const list = adminProc
+export const list = ultimateAdminProc
   .input(
     z.object({
       entity: z.string().max(60).optional(),
@@ -29,6 +29,6 @@ export const list = adminProc
     }),
   );
 
-export const entities = adminProc.handler(() => auditEntities());
+export const entities = ultimateAdminProc.handler(() => auditEntities());
 
 export const audit = { list, entities };

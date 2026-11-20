@@ -86,6 +86,20 @@ const ADMIN: PortalConfig = {
     { label: "Users", to: "/admin/users" },
     { label: "Merchant users", to: "/admin/merchant-users" },
     { label: "Branches", to: "/admin/branches" },
+    { label: "Rate cards", to: "/admin/rate-cards" },
+    { label: "Tracking Number & Label Management", to: "/admin/awb-batches" },
+  ],
+};
+
+const ULTIMATE_ADMIN: PortalConfig = {
+  portal: "admin",
+  name: "Super Administration",
+  home: "/admin/dashboard",
+  nav: [
+    { label: "Company dashboard", to: "/admin/dashboard" },
+    { label: "Users", to: "/admin/users" },
+    { label: "Merchant users", to: "/admin/merchant-users" },
+    { label: "Branches", to: "/admin/branches" },
     { label: "Zones", to: "/admin/zones" },
     { label: "Rate cards", to: "/admin/rate-cards" },
     { label: "Tracking Number & Label Management", to: "/admin/awb-batches" },
@@ -101,8 +115,7 @@ const ADMIN: PortalConfig = {
  * The audit log and the job monitor are adminProc reads, so ops never sees
  * them — keep this list and ADMIN_ONLY_PATHS in step with the server gates.
  */
-const OPS_REFERENCE_PATHS = ["/admin/users", "/admin/branches", "/admin/zones", "/admin/rate-cards", "/admin/settings", "/admin/templates"];
-const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/audit", "/admin/monitor", "/admin/awb-batches", "/admin/merchant-users"];
+const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/zones", "/admin/settings", "/admin/templates", "/admin/audit", "/admin/monitor"];
 
 /** The whole-company view — adminProc server-side, so admin's sidebar only. */
 const OVERVIEW_NAV: NavItem[] = [{ label: "Company dashboard", to: "/admin/dashboard" }];
@@ -173,6 +186,9 @@ export function portalFor(role: Role): PortalConfig {
       return OPS;
     case "admin":
       return ADMIN;
+    case "super_admin":
+    case "nos_admin":
+      return ULTIMATE_ADMIN;
     case "finance":
       return FINANCE;
     case "hr":
@@ -190,9 +206,19 @@ export function portalFor(role: Role): PortalConfig {
  * get a read-only look at the admin lists (the server refuses their writes).
  */
 export function navFor(role: Role): { title: string; items: NavItem[] }[] {
-  if (role === "admin") {
+  if (role === "super_admin" || role === "nos_admin") {
     return [
       { title: "Overview", items: OVERVIEW_NAV },
+      { title: "Operations", items: OPS.nav },
+      { title: "Transport", items: TRANSPORT_NAV },
+      { title: "Administration", items: ULTIMATE_ADMIN.nav },
+      { title: "HR & Payroll", items: HR.nav },
+      { title: "Finance", items: FINANCE.nav },
+      { title: "Reports", items: REPORTS_NAV },
+    ];
+  }
+  if (role === "admin") {
+    return [
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
@@ -201,14 +227,11 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Reports", items: REPORTS_NAV },
     ];
   }
-  if (role === "ops") {
-    return [
-      { title: "Operations", items: OPS.nav },
-      { title: "Transport", items: TRANSPORT_NAV },
-      { title: "Reference", items: ADMIN.nav.filter((item) => OPS_REFERENCE_PATHS.includes(item.to)) },
-      { title: "Reports", items: REPORTS_NAV },
-    ];
-  }
+  if (role === "ops") return [
+    { title: "Operations", items: OPS.nav },
+    { title: "Transport", items: TRANSPORT_NAV },
+    { title: "Reports", items: REPORTS_NAV },
+  ];
   if (role === "transport") {
     // A transport clerk's real tool is the mobile app; the web sidebar gives
     // them the desk-side view of the same custody screens.
@@ -228,6 +251,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   ops: "Hub Manager",
   finance: "Accountant",
   admin: "Administrator",
+  super_admin: "Super Admin",
+  nos_admin: "NOS Admin",
   merchant: "Merchant",
   hr: "HR",
 };
@@ -241,10 +266,9 @@ export function mayVisit(role: Role, path: string): boolean {
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));
   }
   if (path.startsWith("/admin")) {
-    // Ops may read the admin reference lists; only admin sees the write
-    // controls, and the audit log and job monitor are admin-only reads.
-    if (role === "admin") return true;
-    return role === "ops" && !ADMIN_ONLY_PATHS.some((prefix) => path.startsWith(prefix));
+    if (role === "super_admin" || role === "nos_admin") return true;
+    if (role === "admin") return !ADMIN_ONLY_PATHS.some((prefix) => path.startsWith(prefix));
+    return false;
   }
   if (path.startsWith("/finance")) return role === "finance" || role === "admin";
   if (path.startsWith("/hr")) {
@@ -264,7 +288,7 @@ export function rolesOfUser(user: { role: Role; roles?: Role[] }): Role[] {
 }
 
 /** Priority order for choosing a multi-role user's home portal. */
-const PORTAL_PRIORITY: Role[] = ["admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
+const PORTAL_PRIORITY: Role[] = ["super_admin", "nos_admin", "admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
 
 /** Home portal for a role set: the highest-privilege portal the user holds. */
 export function portalForRoles(roles: readonly Role[]): PortalConfig {

@@ -50,6 +50,8 @@ export const performanceReadProc = authedProc.use(requireRole("ops", "hr", "fina
  */
 export const transportProc = authedProc.use(requireRole("transport", "ops", "admin"));
 export const adminProc = authedProc.use(requireRole("admin"));
+/** Company dashboard and system-control surfaces are restricted to roles created in the backend. */
+export const ultimateAdminProc = authedProc.use(requireRole("super_admin", "nos_admin"));
 export const merchantProc = authedProc.use(requireRole("merchant"));
 /**
  * Doorstep actions (§6 role table for Delivered / DeliveryAttempted /

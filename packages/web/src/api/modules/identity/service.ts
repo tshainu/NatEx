@@ -129,7 +129,7 @@ function isDemoAdminAccount(account: IdentityUser | null): boolean {
     account.name === "Demo Admin" &&
     account.status === "active" &&
     account.roles.length === 1 &&
-    account.roles[0] === "admin",
+    account.roles[0] === "super_admin",
   );
 }
 
@@ -137,23 +137,36 @@ async function ensureDemoAccount(): Promise<void> {
   if (!isDevelopment()) throw new Error("Demo account provisioning is only available in development or tests.");
   const [existing] = await db.select().from(user).where(eq(user.phone, DEMO_PHONE));
   if (existing) {
-    // Rows predating username/password sign-in get the demo credentials
-    // backfilled on first use; an admin-renamed account is left alone.
-    if (existing.username !== DEMO_USERNAME || !existing.passwordHash) {
+    // The seeded demo identity is the only development Super Admin. Repair
+    // legacy rows so demo login and the role contract remain deterministic.
+    if (
+      existing.username !== DEMO_USERNAME ||
+      !existing.passwordHash ||
+      existing.role !== "super_admin" ||
+      existing.roles !== JSON.stringify(["super_admin"]) ||
+      existing.name !== "Demo Admin"
+    ) {
       await db
         .update(user)
-        .set({ username: DEMO_USERNAME, passwordHash: await hashSecret("demo123") })
+        .set({
+          username: DEMO_USERNAME,
+          passwordHash: await hashSecret("demo123"),
+          role: "super_admin",
+          roles: JSON.stringify(["super_admin"]),
+          name: "Demo Admin",
+          status: "active",
+        })
         .where(eq(user.id, existing.id));
     }
     return;
   }
-  const [anyAdmin] = await db.select().from(user).where(eq(user.role, "admin"));
+  const [anyAdmin] = await db.select().from(user).where(or(eq(user.role, "admin"), eq(user.role, "super_admin")));
   if (!anyAdmin) return;
   await db.insert(user).values({
     id: "usr_demo_admin",
     branchId: anyAdmin.branchId,
-    role: "admin",
-    roles: JSON.stringify(["admin"]),
+    role: "super_admin",
+    roles: JSON.stringify(["super_admin"]),
     name: "Demo Admin",
     phone: DEMO_PHONE,
     username: DEMO_USERNAME,

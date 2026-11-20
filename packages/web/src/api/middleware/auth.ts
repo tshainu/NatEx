@@ -1,5 +1,5 @@
 import { base } from "../__core/app";
-import { bearerFrom, MOBILE_FIELD_ROLES, PENDING_MFA, resolveRequestedRole, verifyAccessToken, type MfaLevel, type Principal, type Role, type SessionScope } from "../shared/auth";
+import { bearerFrom, isUltimateAdminRole, MOBILE_FIELD_ROLES, PENDING_MFA, resolveRequestedRole, verifyAccessToken, type MfaLevel, type Principal, type Role, type SessionScope } from "../shared/auth";
 import { errors, fail, problem } from "../shared/errors";
 import { getUserById, rolesOf } from "../modules/identity/service";
 import { mfaRequiredForAny } from "../modules/identity/mfa";
@@ -121,7 +121,7 @@ export function requireRole(...allowed: Role[]) {
   return tag(base.middleware(async ({ context, next }) => {
     const principal = (context as { principal?: Principal }).principal;
     if (!principal) errors.unauthenticated();
-    if (!principal!.roles.some((r) => allowed.includes(r))) {
+    if (!principal!.roles.some((r) => isUltimateAdminRole(r) || allowed.includes(r))) {
       errors.forbidden(
         `Role ${principal!.roles.join("+")} may not perform this action. Allowed: ${allowed.join(", ")}.`,
         { requiredRoles: allowed },
