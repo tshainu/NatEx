@@ -13,6 +13,10 @@ function localDateTime(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
+function todayDateTime(value: string) {
+  return value ? localDateTime(`${todayInColombo()}T${value}:00`) : null;
+}
+
 export default function HrAttendanceManagement() {
   const { session } = useAuth();
   const roles = session?.user.roles ?? (session ? [session.user.role] : []);
@@ -23,9 +27,8 @@ export default function HrAttendanceManagement() {
   const [to, setTo] = React.useState(range.to);
   const [status, setStatus] = React.useState<"pending" | "approved" | "rejected" | "">("pending");
   const [employeeId, setEmployeeId] = React.useState("");
-  const [workDate, setWorkDate] = React.useState(todayInColombo());
-  const [clockInAt, setClockInAt] = React.useState("");
-  const [clockOutAt, setClockOutAt] = React.useState("");
+  const [clockInTime, setClockInTime] = React.useState("");
+  const [clockOutTime, setClockOutTime] = React.useState("");
   const [attendanceStatus, setAttendanceStatus] = React.useState<"present" | "absent" | "leave" | "off_duty">("present");
   const [note, setNote] = React.useState("");
   const [leaveTypeId, setLeaveTypeId] = React.useState("");
@@ -87,11 +90,10 @@ export default function HrAttendanceManagement() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="border-2 border-brand/25" title="Add manual attendance" description="Every manual entry is approval pending until HR decides.">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ employeeId, workDate, clockInAt: localDateTime(clockInAt), clockOutAt: localDateTime(clockOutAt), attendanceStatus, note: note || null }); }}>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ employeeId, workDate: todayInColombo(), clockInAt: todayDateTime(clockInTime), clockOutAt: todayDateTime(clockOutTime), attendanceStatus, note: note || null }); }}>
             <Field label="Employee"><select required className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}><option value="">Select employee</option>{employeeList.map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeCode} · {employee.fullName}</option>)}</select></Field>
-            <Field label="Work date"><Input type="date" required value={workDate} onChange={(e) => setWorkDate(e.target.value)} /></Field>
-            <Field label="Clock in"><Input type="datetime-local" value={clockInAt} onChange={(e) => setClockInAt(e.target.value)} /></Field>
-            <Field label="Clock out"><Input type="datetime-local" value={clockOutAt} onChange={(e) => setClockOutAt(e.target.value)} /></Field>
+            <Field label="Clock in"><Input type="time" step="60" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} /></Field>
+            <Field label="Clock out"><Input type="time" step="60" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} /></Field>
             <Field label="Attendance status"><select className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={attendanceStatus} onChange={(e) => setAttendanceStatus(e.target.value as typeof attendanceStatus)}><option value="present">Present</option><option value="absent">Absent</option><option value="leave">Leave</option><option value="off_duty">Off duty</option></select></Field>
             <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></Field>
             <Button type="submit" pending={save.isPending}>Save as pending</Button>
