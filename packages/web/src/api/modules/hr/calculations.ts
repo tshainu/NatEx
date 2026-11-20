@@ -223,13 +223,11 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   }
 
   const employeeEpfCents = roundDiv(epfBaseCents * 800, 10_000);
-  // NatEx payroll policy: ETF is deducted from staff basic/contribution pay.
-  // Keep employerEtfCents in the snapshot shape for historical compatibility,
-  // but do not create a second company-paid ETF liability for new runs.
-  const employeeEtfCents = roundDiv(etfBaseCents * 300, 10_000);
+  // ETF is paid by the employer and never deducted from employee pay. Keep the
+  // employee field for historical snapshot compatibility; new runs store zero.
+  const employeeEtfCents = 0;
   const employerEpfCents = roundDiv(epfBaseCents * 1200, 10_000);
-  const employerEtfCents = 0;
-  lines.push({ label: "ETF staff deduction", kind: "deduction", amountCents: employeeEtfCents });
+  const employerEtfCents = roundDiv(etfBaseCents * 300, 10_000);
   const automaticApitEligible = input.automaticApitEligible ?? true;
   const apitCents = input.manualApitCents ?? (input.primaryEmployment && automaticApitEligible ? calculateApit(apitBaseCents, input.apitSchedule) : 0);
   assertNonNegativeInteger(apitCents, "APIT");
@@ -241,7 +239,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   }
   if (input.manualApitCents !== undefined) warnings.push("APIT was manually overridden; retain the supporting calculation or instruction.");
 
-  const netCents = grossCents - employeeEpfCents - employeeEtfCents - apitCents - otherDeductionsCents;
+  const netCents = grossCents - employeeEpfCents - apitCents - otherDeductionsCents;
   if (!Number.isSafeInteger(netCents)) throw new Error("Net pay exceeded the safe integer range.");
   return {
     grossCents,

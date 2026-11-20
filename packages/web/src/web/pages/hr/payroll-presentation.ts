@@ -45,9 +45,8 @@ export function payrollPaySummary(amounts: StoredPayAmounts): {
     employeeDeductionsCents: amounts.employeeEpfCents + amounts.apitCents + amounts.otherDeductionsCents,
     netCents: amounts.netCents,
   };
-  return amounts.employeeEtfCents === undefined ? legacy : {
+  return {
     ...legacy,
-    earningsAfterStaffDeductionsCents: amounts.grossCents - amounts.employeeEpfCents - amounts.employeeEtfCents,
-    employeeDeductionsCents: legacy.employeeDeductionsCents + amounts.employeeEtfCents,
+    earningsAfterStaffDeductionsCents: amounts.grossCents - amounts.employeeEpfCents,
   };
 }

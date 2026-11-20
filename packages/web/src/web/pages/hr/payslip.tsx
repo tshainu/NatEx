@@ -47,22 +47,21 @@ export function Payslip({ line, status, periodStart, periodEnd }: PayslipProps) 
       <dl>
         <PayslipAmount label="Gross earnings" amountCents={line.grossCents} />
         <PayslipAmount label="EPF staff deduction · 8%" amountCents={line.employeeEpfCents} />
-        <PayslipAmount label="ETF staff deduction · 3%" amountCents={line.employeeEtfCents ?? 0} />
-        <PayslipAmount label="Take-home after staff EPF + ETF" amountCents={summary.earningsAfterStaffDeductionsCents ?? summary.earningsAfterStaffEpfCents} strong />
+        <PayslipAmount label="Take-home after staff EPF" amountCents={summary.earningsAfterStaffDeductionsCents ?? summary.earningsAfterStaffEpfCents} strong />
         <PayslipAmount label="APIT withheld" amountCents={line.apitCents} />
         <PayslipAmount label="Other deductions" amountCents={line.otherDeductionsCents} />
         <PayslipAmount label="Net pay / take-home pay" amountCents={summary.netCents} strong />
       </dl>
-      <p style={{ margin: "4px 0 8px", fontSize: 10, color: "#555" }}>The displayed take-home-before-tax amount is after staff EPF and ETF, but before APIT and other employee deductions.</p>
+      <p style={{ margin: "4px 0 8px", fontSize: 10, color: "#555" }}>The displayed take-home-before-tax amount is after staff EPF, but before APIT and other employee deductions. ETF is employer-paid.</p>
     </section>
     <section aria-label="Employer contributions" style={{ marginTop: 20, borderTop: "1px solid #bbb", paddingTop: 12 }}>
       <h2 style={{ fontSize: 14, fontWeight: 700 }}>Employer contributions</h2>
       <dl>
         <PayslipAmount label="EPF Company contribution · 12%" amountCents={line.employerEpfCents} />
-        <PayslipAmount label="ETF employer contribution (legacy)" amountCents={line.employerEtfCents} />
+        <PayslipAmount label="ETF employer contribution · 3%" amountCents={line.employerEtfCents} />
         <PayslipAmount label="Total employer contributions" amountCents={summary.companyContributionsCents} strong />
       </dl>
-      <p style={{ marginTop: 8, fontSize: 11 }}>Employer EPF remains separate. New payroll runs deduct ETF from employee pay; the employer ETF value is retained only for historical compatibility.</p>
+      <p style={{ marginTop: 8, fontSize: 11 }}>Employer EPF and ETF remain separate from employee pay. ETF is paid by the employer and is never deducted from the employee.</p>
     </section>
     {snapshot.warnings.length ? <p style={{ marginTop: 18, fontSize: 11 }}>Review notes: {snapshot.warnings.join(" · ")}</p> : null}
     <p style={{ marginTop: 24, fontSize: 10, color: "#555" }}>This payslip is a NatEx payroll record. Statutory submissions and withholding remain subject to current law and accountant review.</p>

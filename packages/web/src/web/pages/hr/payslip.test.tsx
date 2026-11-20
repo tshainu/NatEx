@@ -29,7 +29,7 @@ function valueFor(document: Document, section: string, label: string) {
 describe("printable payroll contribution display", () => {
   test("shows staff earnings after EPF and final net separately", () => {
     const doc = render();
-    expect(valueFor(doc, "Employee pay summary", "Take-home after staff EPF + ETF")).toBe("LKR 46000.00");
+    expect(valueFor(doc, "Employee pay summary", "Take-home after staff EPF")).toBe("LKR 46000.00");
     expect(valueFor(doc, "Employee pay summary", "Net pay / take-home pay")).toBe("LKR 44500.00");
     expect(valueFor(doc, "Employee pay summary", "EPF staff deduction · 8%")).toBe("LKR 4000.00");
   });
@@ -37,10 +37,10 @@ describe("printable payroll contribution display", () => {
   test("shows company EPF and ETF in a separate company-paid section", () => {
     const doc = render();
     expect(valueFor(doc, "Employer contributions", "EPF Company contribution · 12%")).toBe("LKR 6000.00");
-    expect(valueFor(doc, "Employer contributions", "ETF employer contribution (legacy)")).toBe("LKR 1500.00");
+    expect(valueFor(doc, "Employer contributions", "ETF employer contribution · 3%")).toBe("LKR 1500.00");
     expect(valueFor(doc, "Employer contributions", "Total employer contributions")).toBe("LKR 7500.00");
     expect(doc.querySelector('section[aria-label="Employee pay summary"]')?.textContent).not.toContain("Company contribution");
-    expect(doc.querySelector('section[aria-label="Employer contributions"]')?.textContent).toContain("New payroll runs deduct ETF from employee pay");
+    expect(doc.querySelector('section[aria-label="Employer contributions"]')?.textContent).toContain("ETF is paid by the employer");
   });
 
   test("prints saved contribution and net amounts rather than applying current percentages again", () => {

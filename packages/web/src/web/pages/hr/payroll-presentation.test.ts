@@ -12,9 +12,10 @@ const amounts = {
 };
 
 describe("stored payroll pay presentation", () => {
-  test("shows earnings after only staff EPF, before APIT and other deductions", () => {
+  test("shows earnings after staff EPF, before APIT and other deductions", () => {
     expect(payrollPaySummary(amounts)).toEqual({
       earningsAfterStaffEpfCents: 4_600_000,
+      earningsAfterStaffDeductionsCents: 4_600_000,
       companyContributionsCents: 750_000,
       employeeDeductionsCents: 550_000,
       netCents: 4_450_000,

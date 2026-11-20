@@ -39,13 +39,13 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(validateApitBands([{ maxMonthlyCents: 20_000_000, rateBps: 600, offsetCents: 0 }])).toMatch(/open-ended/);
   });
 
-  test("calculates employee EPF and staff ETF deductions independently", () => {
+  test("deducts employee EPF while keeping ETF employer-paid", () => {
     const result = calculatePayroll(monthly);
     expect(result.employeeEpfCents).toBe(2_000_000);
     expect(result.employerEpfCents).toBe(3_000_000);
-    expect(result.employeeEtfCents).toBe(750_000);
-    expect(result.employerEtfCents).toBe(0);
-    expect(result.netCents).toBe(21_450_000);
+    expect(result.employeeEtfCents).toBe(0);
+    expect(result.employerEtfCents).toBe(750_000);
+    expect(result.netCents).toBe(22_200_000);
   });
 
   test("excludes a non-contributory fixed deduction from gross and statutory bases", () => {
@@ -65,8 +65,8 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(result.grossCents).toBe(25_000_000);
     expect(result.otherDeductionsCents).toBe(250_000);
     expect(result.employeeEpfCents).toBe(2_000_000);
-    expect(result.employeeEtfCents).toBe(750_000);
-    expect(result.netCents).toBe(21_200_000);
+    expect(result.employeeEtfCents).toBe(0);
+    expect(result.netCents).toBe(21_950_000);
   });
 
   test("prorates monthly base and package lines for unpaid leave without floating-point money", () => {

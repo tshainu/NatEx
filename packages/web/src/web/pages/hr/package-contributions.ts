@@ -23,7 +23,7 @@ export interface PackageContributionEstimate {
   employeeEtfCents: number;
   employerEpfCents: number;
   employerEtfCents: number;
-  /** Earnings less staff EPF and ETF; APIT and other deductions are not subtracted. */
+  /** Earnings less staff EPF; employer ETF is not deducted from employee pay. */
   earningsAfterEmployeeDeductionsCents: number;
   /** Recurring component totals are reported separately from daily/hourly rate estimates. */
   recurringEarningsCents: number;
@@ -105,10 +105,10 @@ export function calculatePackageContributionEstimate(
 
   try {
     const employeeEpfCents = roundDiv(epfBaseCents * 800, 10_000);
-    const employeeEtfCents = roundDiv(etfBaseCents * 300, 10_000);
+    const employeeEtfCents = 0;
     const employerEpfCents = roundDiv(epfBaseCents * 1200, 10_000);
-    const employerEtfCents = 0;
-    const earningsAfterEmployeeDeductionsCents = grossCents - employeeEpfCents - employeeEtfCents;
+    const employerEtfCents = roundDiv(etfBaseCents * 300, 10_000);
+    const earningsAfterEmployeeDeductionsCents = grossCents - employeeEpfCents;
     if (!Number.isSafeInteger(earningsAfterEmployeeDeductionsCents)) return null;
     return {
       grossCents,

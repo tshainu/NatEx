@@ -390,7 +390,7 @@ export async function setManualApit(input: { runId: string; employeeId: string; 
   snapshot.warnings = snapshot.warnings.filter((warning) => !warning.startsWith("Automatic APIT is configured") && !warning.startsWith("Automatic monthly APIT was not applied") && !warning.startsWith("APIT was manually overridden"));
   snapshot.warnings.push(`APIT was manually overridden; supporting reference: ${input.reason.trim()}.`);
   snapshot.manualApitReason = input.reason.trim();
-  const netCents = line!.grossCents - line!.employeeEpfCents - line!.employeeEtfCents - input.amountCents - line!.otherDeductionsCents;
+  const netCents = line!.grossCents - line!.employeeEpfCents - input.amountCents - line!.otherDeductionsCents;
   await db.update(hrPayrollLine).set({ apitCents: input.amountCents, netCents, breakdownJson: JSON.stringify(snapshot) }).where(eq(hrPayrollLine.id, line!.id));
   await refreshRunTotals(input.runId);
   return getPayrollRun(input.runId, actor);
@@ -424,13 +424,14 @@ export async function editDraftPayrollLine(input: { runId: string; employeeId: s
   const nextGross = input.grossCents ?? (input.allowancesCents === undefined ? line!.grossCents : line!.grossCents + input.allowancesCents - line!.allowancesCents);
   const nextOther = input.otherDeductionsCents ?? line!.otherDeductionsCents;
   const nextApit = input.apitCents ?? line!.apitCents;
-  const nextEtf = input.employeeEtfCents ?? (input.grossCents === undefined ? line!.employeeEtfCents : Math.max(0, Math.round(line!.employeeEtfCents * nextGross / Math.max(1, line!.grossCents))));
+  // ETF is employer-paid. New and edited lines must never deduct it from pay.
+  const nextEtf = 0;
   const snapshot = parseSnapshot(line!);
   snapshot.warnings = [...snapshot.warnings, `Draft payroll line edited by HR; reason: ${input.reason.trim()}.`];
   if (input.paidLeaveHalfDays !== undefined || input.unpaidLeaveHalfDays !== undefined) {
     snapshot.leave = { ...snapshot.leave, paidHalfDays: input.paidLeaveHalfDays ?? snapshot.leave.paidHalfDays, unpaidHalfDays: input.unpaidLeaveHalfDays ?? snapshot.leave.unpaidHalfDays };
   }
-  const nextNet = nextGross - line!.employeeEpfCents - nextEtf - nextApit - nextOther;
+  const nextNet = nextGross - line!.employeeEpfCents - nextApit - nextOther;
   await db.update(hrPayrollLine).set({ grossCents: nextGross, allowancesCents: input.allowancesCents ?? line!.allowancesCents, otherDeductionsCents: nextOther, apitCents: nextApit, employeeEtfCents: nextEtf, paidLeaveHalfDays: input.paidLeaveHalfDays ?? line!.paidLeaveHalfDays, unpaidLeaveHalfDays: input.unpaidLeaveHalfDays ?? line!.unpaidLeaveHalfDays, netCents: nextNet, breakdownJson: JSON.stringify(snapshot) }).where(eq(hrPayrollLine.id, line!.id));
   await refreshRunTotals(input.runId);
   return getPayrollRun(input.runId, actor);
