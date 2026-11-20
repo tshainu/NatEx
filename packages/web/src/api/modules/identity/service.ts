@@ -114,7 +114,7 @@ export async function getUserByUsername(username: string): Promise<(IdentityUser
   return row ? ({ ...toIdentityUser(row), passwordHash: row.passwordHash ?? null }) : null;
 }
 
-/** Seeded Demo Admin identity; the narrowly scoped demo login exception is audited. */
+/** Seeded Demo Admin identity; only its SMS OTP delivery is suppressed. */
 const DEMO_PHONE = "+94711336666";
 const DEMO_CODE = "121212";
 const DEMO_USERNAME = "demo";
@@ -131,18 +131,6 @@ function isDemoAdminAccount(account: IdentityUser | null): boolean {
     account.roles.length === 1 &&
     account.roles[0] === "admin",
   );
-}
-
-async function issueDemoAdminSession(account: IdentityUser, deviceId: string | null, scope: SessionScope | null, method: "phone_otp" | "password"): Promise<Session> {
-  const session = await issueSession(account, deviceId ?? account.deviceId, { mfaLevel: "none", scope });
-  await writeAudit({
-    entity: "identity_user",
-    entityId: account.id,
-    action: "demo.admin.login",
-    after: { method, sms: "skipped", authenticator: "skipped" },
-    deviceId,
-  });
-  return session;
 }
 
 async function ensureDemoAccount(): Promise<void> {
@@ -473,9 +461,6 @@ export async function verifyOtp(params: {
   const deviceId = params.deviceId ?? null;
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
   await bindDevice(account!, deviceId, scope);
-  if (isDemoAdminAccount(account!)) {
-    return issueDemoAdminSession(account!, deviceId, scope, "phone_otp");
-  }
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, {
     mfaLevel: scope?.mfaExempt ? "none" : level,
@@ -553,9 +538,6 @@ export async function loginWithPassword(params: {
   const deviceId = params.deviceId ?? null;
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
   await bindDevice(account!, deviceId, scope);
-  if (isDemoAdminAccount(account!)) {
-    return issueDemoAdminSession(account!, deviceId, scope, "password");
-  }
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, {
     mfaLevel: scope?.mfaExempt ? "none" : level,
