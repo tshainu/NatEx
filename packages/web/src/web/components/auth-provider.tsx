@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getSession, setSession, subscribe, type StoredSession, type Role } from "@/lib/session";
+import { client } from "@/lib/api";
 
 /**
  * Bridges the framework-free session store (lib/session.ts) into React. The
@@ -19,6 +20,42 @@ const AuthContext = React.createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const session = React.useSyncExternalStore(subscribe, getSession, () => null);
   const queryClient = useQueryClient();
+
+  // Role assignments can be changed by a backend administrator while a browser
+  // still has an older session snapshot in localStorage. Re-read the live
+  // identity so navigation reflects current authorization without requiring a
+  // manual logout/login cycle.
+  React.useEffect(() => {
+    if (!session?.accessToken) return;
+    let current = true;
+    void client.identity.me().then((live) => {
+      if (!current || !getSession() || getSession()!.user.id !== live.userId) return;
+      const stored = getSession()!;
+      const roles = live.roles as Role[];
+      if (
+        stored.user.role === live.role &&
+        JSON.stringify(stored.user.roles ?? [stored.user.role]) === JSON.stringify(roles)
+      ) return;
+      setSession({
+        ...stored,
+        user: {
+          ...stored.user,
+          name: live.name,
+          role: live.role as Role,
+          roles,
+          branchId: live.branchId,
+          merchantId: live.merchantId ?? null,
+          deviceId: live.deviceId,
+        },
+      });
+    }).catch(() => {
+      // The API interceptor handles expired/revoked sessions. A transient
+      // identity refresh failure should not discard an otherwise usable session.
+    });
+    return () => {
+      current = false;
+    };
+  }, [session?.accessToken]);
 
   const signOut = React.useCallback(() => {
     setSession(null);
