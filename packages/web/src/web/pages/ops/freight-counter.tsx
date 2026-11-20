@@ -214,7 +214,7 @@ export default function RetailFreightCounter() {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const discountResult = rupeesToCents(form.discount);
+  const discountResult = form.discount.trim() ? rupeesToCents(form.discount) : { cents: 0 };
   const discountAmountCents = "cents" in discountResult ? discountResult.cents : null;
   const discountError = "error" in discountResult
     ? discountResult.error
