@@ -32,8 +32,7 @@ export default function HrAttendanceManagement() {
   const [attendanceStatus, setAttendanceStatus] = React.useState<"present" | "absent" | "leave" | "off_duty">("present");
   const [note, setNote] = React.useState("");
   const [leaveTypeId, setLeaveTypeId] = React.useState("");
-  const [leaveStartsOn, setLeaveStartsOn] = React.useState(todayInColombo());
-  const [leaveEndsOn, setLeaveEndsOn] = React.useState(todayInColombo());
+  const [leaveDay, setLeaveDay] = React.useState(todayInColombo());
   const [leaveHalfDays, setLeaveHalfDays] = React.useState("1");
   const [leaveReason, setLeaveReason] = React.useState("");
   const [selected, setSelected] = React.useState<string[]>([]);
@@ -101,11 +100,10 @@ export default function HrAttendanceManagement() {
         </Card>
 
         <Card title="Apply leave on behalf" description="Submit a prior leave request for a staff member; HR receives it as pending approval.">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); applyLeave.mutate({ employeeId, leaveTypeId, startsOn: leaveStartsOn, endsOn: leaveEndsOn, halfDays: Number(leaveHalfDays), reason: leaveReason }); }}>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); applyLeave.mutate({ employeeId, leaveTypeId, startsOn: leaveDay, endsOn: leaveDay, halfDays: Number(leaveHalfDays), reason: leaveReason }); }}>
             <Field label="Employee"><select required className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}><option value="">Select employee</option>{employeeList.map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeCode} · {employee.fullName}</option>)}</select></Field>
             <Field label="Leave type"><select required className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)}><option value="">Select leave type</option>{(leaveTypes.data ?? []).map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select></Field>
-            <Field label="Starts on"><Input type="date" value={leaveStartsOn} onChange={(e) => setLeaveStartsOn(e.target.value)} /></Field>
-            <Field label="Ends on"><Input type="date" value={leaveEndsOn} onChange={(e) => setLeaveEndsOn(e.target.value)} /></Field>
+            <Field label="Day"><Input type="date" required value={leaveDay} onChange={(e) => setLeaveDay(e.target.value)} /></Field>
             <Field label="Half-day units"><Input type="number" min="1" value={leaveHalfDays} onChange={(e) => setLeaveHalfDays(e.target.value)} /></Field>
             <Field label="Reason"><Textarea required value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} /></Field>
             <Button type="submit" pending={applyLeave.isPending}>Send to HR</Button>
