@@ -114,10 +114,36 @@ export async function getUserByUsername(username: string): Promise<(IdentityUser
   return row ? ({ ...toIdentityUser(row), passwordHash: row.passwordHash ?? null }) : null;
 }
 
-/** Development/test-only demo admin identity; production always uses real OTP and MFA. */
+/** Seeded Demo Admin identity; the narrowly scoped demo login exception is audited. */
 const DEMO_PHONE = "+94711336666";
 const DEMO_CODE = "121212";
 const DEMO_USERNAME = "demo";
+
+/** The demo exception is bound to the seeded account, not to a phone number alone. */
+function isDemoAdminAccount(account: IdentityUser | null): boolean {
+  return Boolean(
+    account &&
+    account.id === "usr_demo_admin" &&
+    account.phone === DEMO_PHONE &&
+    account.username === DEMO_USERNAME &&
+    account.name === "Demo Admin" &&
+    account.status === "active" &&
+    account.roles.length === 1 &&
+    account.roles[0] === "admin",
+  );
+}
+
+async function issueDemoAdminSession(account: IdentityUser, deviceId: string | null, scope: SessionScope | null, method: "phone_otp" | "password"): Promise<Session> {
+  const session = await issueSession(account, deviceId ?? account.deviceId, { mfaLevel: "none", scope });
+  await writeAudit({
+    entity: "identity_user",
+    entityId: account.id,
+    action: "demo.admin.login",
+    after: { method, sms: "skipped", authenticator: "skipped" },
+    deviceId,
+  });
+  return session;
+}
 
 async function ensureDemoAccount(): Promise<void> {
   if (!isDevelopment()) throw new Error("Demo account provisioning is only available in development or tests.");
@@ -169,13 +195,14 @@ export async function requestOtp(phoneInput: string): Promise<{
   devCode?: string;
 }> {
   const phone = normaliseLkPhone(phoneInput);
-  const isDemoLogin = isDevelopment() && phone === DEMO_PHONE;
-  if (isDemoLogin) await ensureDemoAccount();
+  const isDemoLogin = phone === DEMO_PHONE;
+  if (isDevelopment() && isDemoLogin) await ensureDemoAccount();
   const account = await getUserByPhone(phone);
   if (!account) errors.notFound("Account for that phone number");
   if (account!.status !== "active") errors.forbidden("This account is suspended.");
 
-  const code = isDemoLogin ? DEMO_CODE : sixDigitCode();
+  const demoAdminLogin = isDemoLogin && isDemoAdminAccount(account);
+  const code = demoAdminLogin ? DEMO_CODE : sixDigitCode();
   const challengeId = prefixedId("otp");
   await db.insert(otpChallenge).values({
     id: challengeId,
@@ -184,19 +211,26 @@ export async function requestOtp(phoneInput: string): Promise<{
     expiresAt: new Date(Date.now() + OTP_TTL_SECONDS * 1000),
   });
 
-  const sms = await sendSms({
-    to: phone,
-    purpose: "otp",
-    body: `NatEx verification code: ${code}. Valid ${OTP_TTL_SECONDS / 60} minutes. Do not share it.`,
-  });
+  let smsState = "not_required";
+  let smsGatewayRef: string | null = null;
+  if (!demoAdminLogin) {
+    const sms = await sendSms({
+      to: phone,
+      purpose: "otp",
+      body: `NatEx verification code: ${code}. Valid ${OTP_TTL_SECONDS / 60} minutes. Do not share it.`,
+    });
+    smsState = sms.state;
+    smsGatewayRef = sms.gatewayRef;
+  }
+  if (smsGatewayRef) {
+    await db.update(otpChallenge).set({ smsRef: smsGatewayRef }).where(eq(otpChallenge.id, challengeId));
+  }
 
-  await db.update(otpChallenge).set({ smsRef: sms.gatewayRef }).where(eq(otpChallenge.id, challengeId));
-
-  const exposeCode = isDevelopment() && (isDemoLogin || sms.state !== "sent");
+  const exposeCode = isDevelopment() && (demoAdminLogin || smsState !== "sent");
   return {
     challengeId,
     expiresInSeconds: OTP_TTL_SECONDS,
-    smsState: sms.state,
+    smsState,
     ...(exposeCode ? { devCode: code } : {}),
   };
 }
@@ -439,8 +473,8 @@ export async function verifyOtp(params: {
   const deviceId = params.deviceId ?? null;
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
   await bindDevice(account!, deviceId, scope);
-  if (isDevelopment() && account!.phone === DEMO_PHONE) {
-    return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
+  if (isDemoAdminAccount(account!)) {
+    return issueDemoAdminSession(account!, deviceId, scope, "phone_otp");
   }
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, {
@@ -519,8 +553,8 @@ export async function loginWithPassword(params: {
   const deviceId = params.deviceId ?? null;
   const scope = params.context?.client === "mobile" ? resolveMobileSessionScope(account!.roles, params.context.role) : null;
   await bindDevice(account!, deviceId, scope);
-  if (isDevelopment() && account!.phone === DEMO_PHONE) {
-    return issueSession(account!, deviceId ?? account!.deviceId, { mfaLevel: "none", scope });
+  if (isDemoAdminAccount(account!)) {
+    return issueDemoAdminSession(account!, deviceId, scope, "password");
   }
   const { level, devCode } = await signInLevel(account!);
   return issueSession(account!, deviceId ?? account!.deviceId, {
