@@ -67,10 +67,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
               className="h-[33.6px] w-auto max-w-full object-contain"
             />
           </Link>
-          <p className="mt-2.5 text-[12px] text-text-lo">{user.name}</p>
+          <p className="mt-2.5 text-[15px] font-medium leading-tight text-text-hi">{user.name}</p>
           <div className="mt-1.5 flex flex-wrap gap-1">
             {userRoles.map((r) => (
-              <Badge key={r} variant="brand" className="border-brand/40 bg-brand/15 text-brand">
+              <Badge key={r} variant="brand" className="border-brand/40 bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-brand">
                 {ROLE_LABEL[r]}
               </Badge>
             ))}
