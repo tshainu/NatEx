@@ -193,15 +193,20 @@ export default function RetailFreightCounter() {
     ? `Chargeable weight including parcel size cannot exceed ${kilogramsLabel(maxWeightGrams)} kg.`
     : null;
   const destinationAddress = formatAddress(form.destAddress);
+  const destinationDistrictReady = Boolean(
+    form.destAddress.district &&
+    form.destAddress.province &&
+    provinceForDistrict(form.destAddress.district) === form.destAddress.province,
+  );
   const quoteInput = {
     branchId: form.branchId || "_",
     weightGrams: "grams" in weight ? weight.grams : 0,
     lengthCm,
     widthCm,
     heightCm,
-    destinationAddress: destinationAddress || "____",
+    destinationAddress: destinationAddress || `${form.destAddress.district}, ${form.destAddress.province}`,
   };
-  const canQuote = Boolean(form.branchId && "grams" in weight && weight.grams > 0 && dimensionsValid && !weightLimitError && isCompleteAddress(form.destAddress));
+  const canQuote = Boolean(form.branchId && "grams" in weight && weight.grams > 0 && dimensionsValid && !weightLimitError && destinationDistrictReady);
   const priceQuote = useQuery({
     ...orpc.freight.counterQuote.queryOptions({ input: quoteInput }),
     enabled: canQuote,
