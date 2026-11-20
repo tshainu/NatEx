@@ -76,6 +76,9 @@ export async function saveManualAttendance(input: { employeeId: string; workDate
   if (!isValidIsoDate(input.workDate)) errors.badRequest("Attendance date is invalid.");
   const [employee] = await db.select().from(hrEmployee).where(and(eq(hrEmployee.id, input.employeeId), eq(hrEmployee.status, "active"))).limit(1);
   if (!employee) errors.notFound("Active employee");
+  if (actor.roles.includes("ops") && employee!.branchId !== actor.branchId) {
+    errors.forbidden("Hub Managers may only record attendance for staff in their assigned hub.");
+  }
   const clockInAt = input.clockInAt ? new Date(input.clockInAt) : null;
   const clockOutAt = input.clockOutAt ? new Date(input.clockOutAt) : null;
   if (clockInAt && Number.isNaN(clockInAt.getTime())) errors.badRequest("Clock-in time is invalid.");

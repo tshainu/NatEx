@@ -225,8 +225,8 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
 export const ROLE_LABEL: Record<Role, string> = {
   rider: "Rider",
   transport: "Transport",
-  ops: "Operations",
-  finance: "Finance",
+  ops: "Hub Manager",
+  finance: "Accountant",
   admin: "Administrator",
   merchant: "Merchant",
   hr: "HR",

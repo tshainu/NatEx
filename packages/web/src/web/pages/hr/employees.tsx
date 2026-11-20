@@ -53,6 +53,20 @@ const DEPARTMENT_OPTIONS = [
   "Security",
 ] as const;
 
+const JOB_TITLE_OPTIONS = [
+  "CEO",
+  "HR Executive",
+  "Accountant",
+  "Hub Manager",
+  "Rider",
+  "Tech Support",
+  "Software Engineer",
+  "Marketing Executive",
+  "Customer Care Officer",
+  "Driver",
+  "Security",
+] as const;
+
 const emptyForm = (): EmployeeForm => ({
   fullName: "",
   identityUserId: "",
@@ -275,7 +289,7 @@ export default function HrEmployees() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="Branch / hub"><select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}><option value="">Select branch or hub</option>{(branches.data ?? []).filter((branch) => branch.status === "active" || branch.id === form.branchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}{branch.status === "active" ? "" : " · inactive"}</option>)}</select></Field>
               <Field label="Department"><select required className={HR_CONTROL_CLASS} value={form.department} onChange={(e) => setField("department", e.target.value)}><option value="">Select department</option>{form.department && !DEPARTMENT_OPTIONS.includes(form.department as typeof DEPARTMENT_OPTIONS[number]) ? <option value={form.department}>{form.department} · existing</option> : null}{DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department}>{department}</option>)}</select></Field>
-              <Field label="Job title"><Input required value={form.jobTitle} onChange={(e) => setField("jobTitle", e.target.value)} /></Field>
+              <Field label="Job title" hint="Select the employee's designation. NOS access is assigned separately to the linked login."><select required className={HR_CONTROL_CLASS} value={form.jobTitle} onChange={(e) => setField("jobTitle", e.target.value)}><option value="">Select job title</option>{form.jobTitle && !JOB_TITLE_OPTIONS.includes(form.jobTitle as typeof JOB_TITLE_OPTIONS[number]) ? <option value={form.jobTitle}>{form.jobTitle} · existing</option> : null}{JOB_TITLE_OPTIONS.map((jobTitle) => <option key={jobTitle} value={jobTitle}>{jobTitle}</option>)}</select></Field>
               <Field label="Employment type"><select className={HR_CONTROL_CLASS} value={form.employmentType} onChange={(e) => setField("employmentType", e.target.value)}>{(["permanent", "probation", "contract", "temporary", "casual", "intern", "other"] as const).map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>
               <Field label="Joined on"><Input type="date" required value={form.joinedOn} onChange={(e) => setField("joinedOn", e.target.value)} /></Field>
               {editingId ? <Field label="End date"><Input type="date" value={form.endedOn} onChange={(e) => setField("endedOn", e.target.value)} /></Field> : null}

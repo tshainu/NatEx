@@ -180,6 +180,9 @@ export async function createLeaveRequest(input: {
   if (!isValidIsoDate(input.startsOn) || !isValidIsoDate(input.endsOn)) errors.badRequest("Leave dates must be real calendar dates in YYYY-MM-DD format.");
   const employee = await getEmployee(input.employeeId);
   if (employee.status !== "active") errors.conflict("Leave can only be recorded for an active employee.");
+  if (actor.roles.includes("ops") && employee.branchId !== actor.branchId) {
+    errors.forbidden("Hub Managers may only request leave for staff in their assigned hub.");
+  }
   const [type] = await db.select().from(hrLeaveType).where(and(eq(hrLeaveType.id, input.leaveTypeId), eq(hrLeaveType.active, true)));
   if (!type) errors.notFound("Active leave type");
   if (input.startsOn > input.endsOn) errors.badRequest("Leave end date must be on or after the start date.");
