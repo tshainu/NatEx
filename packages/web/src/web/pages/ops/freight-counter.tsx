@@ -111,6 +111,11 @@ export default function RetailFreightCounter() {
     enabled: !canChooseBranch && Boolean(session?.user.branchId),
     staleTime: 60_000,
   });
+  const rateCards = useQuery({
+    ...orpc.rateCards.list.queryOptions(),
+    enabled: Boolean(session?.user),
+    staleTime: 60_000,
+  });
   const receiptContact = useQuery(orpc.settings.receiptContact.queryOptions());
   const [form, setForm] = React.useState<FormState>(() => empty(session?.user.branchId ?? ""));
   const [booking, setBooking] = React.useState<Booking | null>(null);
@@ -138,6 +143,9 @@ export default function RetailFreightCounter() {
       ? [homeBranch.data]
       : [];
   const selectedBranch = branches.find((branch) => branch.id === form.branchId) ?? null;
+  const assignedRateCard = selectedBranch?.counterRateCardId
+    ? (rateCards.data ?? []).find((card) => card.id === selectedBranch.counterRateCardId)
+    : null;
   const originParts = addressPartsFromLegacy(selectedBranch?.address);
   const originDistrict = originParts.district;
   const originProvince = provinceForDistrict(originDistrict);
@@ -511,6 +519,19 @@ export default function RetailFreightCounter() {
               </Card>
               <Card title="Courier Payment & Receipt" description="The charge is calculated from this location's approved rate card. The payer determines when it is collected.">
                 <div className="space-y-4">
+                  {selectedBranch ? (
+                    <div className={`rounded-md border px-3 py-2 text-[12px] ${assignedRateCard?.counterReady ? "border-status-good/40 bg-status-good/5" : "border-status-warn/40 bg-status-warn/5"}`}>
+                      <p className="font-medium">Assigned Counter rate card</p>
+                      <p className="mt-0.5 text-muted-foreground">
+                        {assignedRateCard
+                          ? `${assignedRateCard.code} — ${assignedRateCard.name}${assignedRateCard.activeVersion ? ` · v${assignedRateCard.activeVersion.version}` : ""}`
+                          : selectedBranch.counterRateCardId
+                            ? "Assigned card details are loading…"
+                            : "No Counter rate card is assigned to this branch / hub."}
+                      </p>
+                      {assignedRateCard && !assignedRateCard.counterReady ? <p className="mt-1 text-status-warn">This card is assigned but is not ready for automatic Counter pricing.</p> : null}
+                    </div>
+                  ) : null}
                   <Field
                     label="Courier charge (rate-card price)"
                     error={priceQuote.error ? apiMessage(priceQuote.error, "Could not calculate the Counter price.") : null}
