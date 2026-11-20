@@ -130,6 +130,7 @@ const HR: PortalConfig = {
     { label: "Dashboard", to: "/hr/dashboard" },
     { label: "Attendance", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
+    { label: "Salary operations", to: "/hr/payroll" },
     { label: "Payslips", to: "/hr/payslips" },
     { label: "Salary packages", to: "/hr/packages" },
     { label: "Leave", to: "/hr/leave" },
@@ -141,25 +142,6 @@ const HR: PortalConfig = {
     { label: "Rider performance", to: "/ops/reports/performance" },
   ],
 };
-
-const HR_NAV: NavItem[] = [
-  { label: "Dashboard", to: "/hr/dashboard" },
-  { label: "Employees", to: "/hr/employees" },
-  { label: "Attendance", to: "/hr/attendance" },
-  { label: "Leave", to: "/hr/leave" },
-  { label: "Calendar & payout", to: "/hr/calendar" },
-    { label: "Timesheets", to: "/hr/timesheets" },
-    { label: "Attendance management", to: "/hr/attendance-management" },
-    { label: "Approvals", to: "/hr/approvals" },
-    { label: "Terminations", to: "/hr/terminations" },
-];
-
-const PAYROLL_NAV: NavItem[] = [
-  { label: "Salary operations", to: "/hr/payroll" },
-  { label: "Salary packages", to: "/hr/packages" },
-  { label: "Payslips", to: "/hr/payslips" },
-  { label: "Star delivery payouts", to: "/ops/reports/performance" },
-];
 
 const MERCHANT: PortalConfig = {
   portal: "merchant",
@@ -214,8 +196,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Operations", items: OPS.nav },
       { title: "Transport", items: TRANSPORT_NAV },
       { title: "Administration", items: ADMIN.nav },
-      { title: "HR", items: HR_NAV },
-      { title: "Payroll", items: PAYROLL_NAV },
+      { title: "HR & Payroll", items: HR.nav },
       { title: "Finance", items: FINANCE.nav },
       { title: "Reports", items: REPORTS_NAV },
     ];
@@ -236,7 +217,7 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Field staff", items: FIELD.nav },
     ];
   }
-  if (role === "hr") return [{ title: "HR", items: HR_NAV }, { title: "Payroll", items: PAYROLL_NAV }];
+  if (role === "hr") return [{ title: "HR & Payroll", items: HR.nav }];
   const config = portalFor(role);
   return [{ title: config.name, items: config.nav }];
 }

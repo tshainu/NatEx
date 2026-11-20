@@ -1,14 +1,14 @@
 import * as React from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck2, CalendarDays, ClipboardList, CircleDollarSign, Filter, Users } from "lucide-react";
+import { CalendarCheck2, CalendarDays, ClipboardCheck, ClipboardList, CircleDollarSign, Filter, Users } from "lucide-react";
 import { orpc } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page } from "@/components/natex/page";
 import { CategoryBars, DailyBars } from "@/components/natex/charts";
-import { centsToLkr, todayInColombo } from "./shared";
+import { centsToLkr, currentMonthRange, todayInColombo } from "./shared";
 import { HrNavigation } from "./navigation";
 
 const DAY = 86_400_000;
@@ -65,6 +65,7 @@ export default function HrDashboard() {
   const rangeDays = range === "30" ? 30 : range === "custom" ? 0 : 7;
   const fromDate = range === "custom" ? customFrom : daysBefore(today, rangeDays)[0]!;
   const toDate = range === "custom" ? customTo : today;
+  const approvalRange = currentMonthRange();
 
   const employees = useQuery({ ...orpc.hr.employees.queryOptions({ input: { limit: 5000 } }) });
   const branches = useQuery({ ...orpc.identity.listBranches.queryOptions({ input: { includeInactive: true } }) });
@@ -72,6 +73,7 @@ export default function HrDashboard() {
   const leave = useQuery({ ...orpc.hr.leaveRequests.queryOptions({ input: { year, hubId: hubId || undefined, branchId: branchId || undefined } }) });
   const balances = useQuery({ ...orpc.hr.leaveBalances.queryOptions({ input: { year, hubId: hubId || undefined, branchId: branchId || undefined } }) });
   const runs = useQuery({ ...orpc.hr.payrollRuns.queryOptions() });
+  const pendingAttendance = useQuery({ ...orpc.hr.attendanceRows.queryOptions({ input: { ...approvalRange, approvalStatus: "pending" } }) });
   const holidays = useQuery({ ...orpc.hr.holidays.queryOptions({ input: { year } }) });
   const payoutRuns = useQuery({ ...orpc.hr.leavePayoutRuns.queryOptions() });
 
@@ -89,6 +91,7 @@ export default function HrDashboard() {
   const approvedLeave = leaveRows.filter((item) => item.request.status === "approved").length;
   const latestRun = (runs.data ?? []).find((run) => run.status !== "cancelled");
   const openRuns = (runs.data ?? []).filter((run) => ["draft", "submitted"].includes(run.status));
+  const submittedRuns = (runs.data ?? []).filter((run) => run.status === "submitted");
   const recordsAtEnd = attendanceRows.filter((row) => row.workDate === toDate);
   const presentAtEnd = recordsAtEnd.filter((row) => row.attendanceStatus === "present").length;
   const attendanceCoverage = employeeMatches.length ? Math.round((recordsAtEnd.length / employeeMatches.length) * 100) : 0;
@@ -111,7 +114,7 @@ export default function HrDashboard() {
   }).sort((a, b) => a.coverage - b.coverage);
   const missingAttendance = employeeMatches.filter((employee) => !recordsAtEnd.some((row) => row.employeeId === employee.id));
   const exceptions = [...missingAttendance.slice(0, 5).map((employee) => ({ label: `${employee.employeeCode} · ${employee.fullName}`, detail: "Attendance not submitted", href: "/hr/attendance" })), ...paidBalances.filter((row) => row.availableHalfDays <= 2).slice(0, 5).map((row) => ({ label: row.employeeCode, detail: `${row.leaveType} balance is ${row.availableHalfDays / 2} days`, href: "/hr/leave" }))];
-  const loadError = employees.error ?? branches.error ?? attendance.error ?? leave.error ?? balances.error ?? runs.error ?? holidays.error ?? payoutRuns.error;
+  const loadError = employees.error ?? branches.error ?? attendance.error ?? pendingAttendance.error ?? leave.error ?? balances.error ?? runs.error ?? holidays.error ?? payoutRuns.error;
 
   return (
     <Page title="HR & Payroll" description={`Workforce decision dashboard · ${today} · Filters apply to the operational summaries below.`} actions={<div className="flex gap-2"><Button variant="outline" asChild><Link href="/hr/calendar"><CalendarDays aria-hidden /> Year calendar</Link></Button><Button asChild><Link href="/hr/attendance"><CalendarCheck2 aria-hidden /> Take attendance</Link></Button></div>}>
@@ -121,6 +124,10 @@ export default function HrDashboard() {
       <Card title="Dashboard filters" description="Use one location and department scope to review the same workforce slice across attendance, leave, payroll readiness, and exceptions.">
         <div className="grid gap-3 md:grid-cols-5"><Field label="Period"><select className="h-9 rounded-md border border-input bg-background px-3 text-[13px]" value={range} onChange={(event) => setRange(event.target.value)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Custom range</option></select></Field><Field label="Hub"><select className="h-9 rounded-md border border-input bg-background px-3 text-[13px]" value={hubId} onChange={(event) => { setHubId(event.target.value); setBranchId(""); }}><option value="">All hubs</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.code} · {hub.name}</option>)}</select></Field><Field label="Branch"><select className="h-9 rounded-md border border-input bg-background px-3 text-[13px]" value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">All branches</option>{visibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.code} · {branch.name}</option>)}</select></Field><Field label="Department"><select className="h-9 rounded-md border border-input bg-background px-3 text-[13px]" value={department} onChange={(event) => setDepartment(event.target.value)}><option value="">All departments</option>{departments.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field>{range === "custom" ? <div className="grid grid-cols-2 gap-2"><Field label="From"><Input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></Field><Field label="To"><Input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></Field></div> : <div className="flex items-end"><span className="flex h-9 items-center gap-2 text-[12px] text-muted-foreground"><Filter className="size-3.5" /> {fromDate} → {toDate}</span></div>}</div>
       </Card>
+
+      <section aria-label="Approval queue" className="grid gap-4 lg:grid-cols-3"><ApprovalCard label="Pending leave" value={leave.isPending ? "—" : pendingLeave.toLocaleString("en-LK")} detail="Requests awaiting HR decision" href="/hr/approvals" tone="text-status-warn" /><ApprovalCard label="Pending attendance" value={pendingAttendance.isPending ? "—" : (pendingAttendance.data?.length ?? 0).toLocaleString("en-LK")} detail="Attendance entries awaiting review" href="/hr/approvals" tone="text-status-warn" /><ApprovalCard label="Submitted payroll" value={runs.isPending ? "—" : submittedRuns.length.toLocaleString("en-LK")} detail="Payroll runs ready for approval" href="/hr/payroll" tone="text-brand" /></section>
+
+      <Card title="Quick links" description="Open the HR desk for the next workforce task."><div className="flex flex-wrap gap-2"><Button variant="outline" asChild><Link href="/hr/employees">Employees</Link></Button><Button variant="outline" asChild><Link href="/hr/leave">Leave</Link></Button><Button variant="outline" asChild><Link href="/hr/attendance">Attendance</Link></Button><Button variant="outline" asChild><Link href="/hr/payroll">Salary operations</Link></Button><Button variant="outline" asChild><Link href="/hr/approvals">Approvals</Link></Button></div></Card>
 
       <section aria-label="HR summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Active staff" value={employees.isPending ? "—" : employeeMatches.length.toLocaleString("en-LK")} detail={`${allEmployees.length - activeEmployees.length} inactive in register`} meta={`${new Set(employeeMatches.map((employee) => employee.branchId)).size} branches`} icon={Users} href="/hr/employees" />
@@ -148,6 +155,10 @@ export default function HrDashboard() {
 
 function ActionRow({ priority, label, href }: { priority: string; label: string; href: string }) {
   return <Link href={href} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 hover:border-brand/50"><span className="text-[13px]">{label}</span><StatusBadge status={priority} /></Link>;
+}
+
+function ApprovalCard({ label, value, detail, href, tone }: { label: string; value: string; detail: string; href: string; tone: string }) {
+  return <Card className="border-2 border-brand/20 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">{label}</p><p className={`mt-2 font-mono text-[30px] font-semibold tracking-tight ${tone}`}>{value}</p><p className="mt-1 text-[12px] text-muted-foreground">{detail}</p><Link href={href} className="mt-3 inline-block text-[12px] font-semibold text-brand underline-offset-2 hover:underline">Review queue →</Link></div><ClipboardCheck className={`size-5 ${tone}`} aria-hidden /></div></Card>;
 }
 
 function ReadinessRow({ label, value, good }: { label: string; value: string; good: boolean }) {

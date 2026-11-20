@@ -7,16 +7,13 @@ const HR_SECTIONS = [
   { label: "Attendance", href: "/hr/attendance" },
   { label: "Leave", href: "/hr/leave" },
   { label: "Calendar & payout", href: "/hr/calendar" },
+  { label: "Salary operations", href: "/hr/payroll" },
+  { label: "Salary packages", href: "/hr/packages" },
+  { label: "Payslips", href: "/hr/payslips" },
   { label: "Timesheets", href: "/hr/timesheets" },
   { label: "Attendance management", href: "/hr/attendance-management" },
   { label: "Approvals", href: "/hr/approvals" },
   { label: "Terminations", href: "/hr/terminations" },
-] as const;
-
-const PAYROLL_SECTIONS = [
-  { label: "Salary operations", href: "/hr/payroll" },
-  { label: "Salary packages", href: "/hr/packages" },
-  { label: "Payslips", href: "/hr/payslips" },
 ] as const;
 
 function SectionRow({ title, sections, location }: { title: string; sections: readonly { label: string; href: string }[]; location: string }) {
@@ -32,5 +29,5 @@ export function HrNavigation() {
   const roles = session?.user.roles?.length ? session.user.roles : session ? [session.user.role] : [];
   const canManageHr = roles.includes("hr") || roles.includes("admin");
   const canSeePayroll = canManageHr || roles.includes("finance");
-  return <nav aria-label="HR and Payroll sections" className="-mx-1 overflow-x-auto pb-1"><div className="flex min-w-max flex-col">{canManageHr ? <SectionRow title="HR" sections={HR_SECTIONS} location={location} /> : null}{canSeePayroll ? <SectionRow title="Payroll" sections={PAYROLL_SECTIONS} location={location} /> : null}</div></nav>;
+  return <nav aria-label="HR and Payroll sections" className="-mx-1 overflow-x-auto pb-1"><div className="flex min-w-max flex-col">{canManageHr ? <SectionRow title="HR & Payroll" sections={HR_SECTIONS} location={location} /> : canSeePayroll ? <SectionRow title="HR & Payroll" sections={HR_SECTIONS.filter((section) => ["/hr/payroll", "/hr/payslips"].includes(section.href))} location={location} /> : null}</div></nav>;
 }

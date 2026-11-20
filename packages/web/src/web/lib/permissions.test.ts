@@ -11,8 +11,8 @@ function paths(roles: readonly Role[]): string[] {
 }
 
 describe("department navigation", () => {
-  test("HR users receive HR and Payroll menus", () => {
-    expect(groupTitles(["hr"])).toEqual(["HR", "Payroll"]);
+  test("HR users receive one HR & Payroll menu", () => {
+    expect(groupTitles(["hr"])).toEqual(["HR & Payroll"]);
     expect(paths(["hr"])).toContain("/hr/dashboard");
     expect(paths(["hr"])).toContain("/hr/payroll");
     expect(paths(["hr"])).not.toContain("/admin/users");
@@ -24,8 +24,7 @@ describe("department navigation", () => {
       "Operations",
       "Transport",
       "Administration",
-      "HR",
-      "Payroll",
+      "HR & Payroll",
       "Finance",
       "Reports",
     ]);
@@ -36,6 +35,6 @@ describe("department navigation", () => {
   test("primary role is retained if a stale session omits it from roles", () => {
     expect(rolesOfUser({ role: "admin", roles: ["hr"] })).toEqual(["admin", "hr"]);
     expect(groupTitles(rolesOfUser({ role: "admin", roles: ["hr"] }))).toContain("Administration");
-    expect(groupTitles(rolesOfUser({ role: "admin", roles: ["hr"] }))).toContain("Payroll");
+    expect(groupTitles(rolesOfUser({ role: "admin", roles: ["hr"] }))).toContain("HR & Payroll");
   });
 });
