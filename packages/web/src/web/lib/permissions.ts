@@ -276,7 +276,10 @@ export function mayVisit(role: Role, path: string): boolean {
 
 /** Every role a user holds, oldest sessions fall back to [role]. */
 export function rolesOfUser(user: { role: Role; roles?: Role[] }): Role[] {
-  return user.roles?.length ? user.roles : [user.role];
+  // Keep the primary role even when an older/stale session has an incomplete
+  // secondary-role array. This is important for department logins: HR must
+  // retain HR + Payroll, and HR + Admin must retain Administration too.
+  return [...new Set([user.role, ...(user.roles ?? [])])];
 }
 
 /** Priority order for choosing a multi-role user's home portal. */
