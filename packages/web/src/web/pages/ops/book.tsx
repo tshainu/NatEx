@@ -19,7 +19,7 @@ import { Field, Input } from "@/components/ui/input";
 import { StatusPill } from "@/components/natex/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { AddressFields } from "@/components/natex/address-fields";
-import { EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
+import { EMPTY_ADDRESS, addressPartsFromLegacy, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
 
 /**
  * Counter booking. Money is entered in rupees and converted to integer cents
@@ -29,6 +29,7 @@ import { EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } fr
 
 interface Form {
   merchantId: string;
+  initialStatus: "Booked" | "AtOriginHub";
   awb: string;
   weightKg: string;
   lengthCm: string;
@@ -46,6 +47,7 @@ interface Form {
 
 const EMPTY: Form = {
   merchantId: "",
+  initialStatus: "Booked",
   awb: "",
   weightKg: "1",
   lengthCm: "",
@@ -185,6 +187,7 @@ export default function OpsBook() {
     mutationFn: () =>
       client.parcels.create({
         merchantId: form.merchantId,
+        initialStatus: form.initialStatus,
         awb: form.awb.trim() || null,
         weightGrams: "grams" in weight ? weight.grams : 0,
         lengthCm: form.lengthCm ? Number(form.lengthCm) : null,
@@ -285,7 +288,7 @@ export default function OpsBook() {
   return (
     <Page
       title="Book a parcel"
-      description="Creates the parcel at Booked and writes the first custody event. A supplied tracking number must be an unused sticker allocated to the selected merchant."
+      description="Creates the parcel at the selected starting custody state and writes the first custody event. A supplied tracking number must be an unused sticker allocated to the selected merchant."
     >
       {receiptContact.error ? <ErrorNote>{apiMessage(receiptContact.error, "Receipt contact details could not be loaded.")}</ErrorNote> : null}
       {booked ? (
@@ -333,11 +336,33 @@ export default function OpsBook() {
               <MerchantPicker
                 merchants={bookableMerchants}
                 value={form.merchantId}
-                onChange={(merchantId) => setForm((prev) => ({ ...prev, merchantId }))}
+                onChange={(merchantId) => {
+                  const merchant = bookableMerchants.find((item) => item.id === merchantId);
+                  setForm((prev) => ({
+                    ...prev,
+                    merchantId,
+                    originAddress: merchant
+                      ? addressPartsFromLegacy(merchant.address)
+                      : { ...EMPTY_ADDRESS },
+                  }));
+                }}
                 loading={merchants.isLoading}
                 error={merchants.isError ? apiMessage(merchants.error, "Merchants could not be loaded.") : null}
               />
             </Field>
+            <fieldset className="rounded-md border border-border p-3">
+              <legend className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Starting custody</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[13px]">
+                  <input type="checkbox" checked={form.initialStatus === "Booked"} onChange={() => setForm((prev) => ({ ...prev, initialStatus: "Booked" }))} />
+                  <span><strong>Book a parcel</strong><span className="block text-xs text-muted-foreground">Normal flow; awaiting pickup.</span></span>
+                </label>
+                <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-[13px]">
+                  <input type="checkbox" checked={form.initialStatus === "AtOriginHub"} onChange={() => setForm((prev) => ({ ...prev, initialStatus: "AtOriginHub" }))} />
+                  <span><strong>Make it At Origin Hub</strong><span className="block text-xs text-muted-foreground">Use when it is already physically at this hub.</span></span>
+                </label>
+              </div>
+            </fieldset>
             <Field label="Preprinted tracking number sticker" hint={awbFieldHint} error={awbFieldError}>
               <Input value={form.awb} onChange={(event) => setForm((prev) => ({ ...prev, awb: event.target.value.toUpperCase() }))} placeholder="NX1234567890" autoCapitalize="characters" className={`font-mono ${awbOutlineClass}`} aria-invalid={Boolean(awbFieldError)} />
             </Field>

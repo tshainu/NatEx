@@ -24,8 +24,9 @@ describe("salary package contribution estimates", () => {
       grossCents: 400_000,
       employeeEpfCents: 28_000,
       employerEpfCents: 42_000,
-      employerEtfCents: 10_500,
-      earningsAfterEmployeeEpfCents: 372_000,
+      employeeEtfCents: 10_500,
+      employerEtfCents: 0,
+      earningsAfterEmployeeDeductionsCents: 361_500,
       recurringEarningsCents: 300_000,
       recurringDeductionsCents: 40_000,
     });
@@ -42,7 +43,8 @@ describe("salary package contribution estimates", () => {
       employeeEpfCents: 0,
       employerEpfCents: 0,
       employerEtfCents: 0,
-      earningsAfterEmployeeEpfCents: 125_000,
+      employeeEtfCents: 0,
+      earningsAfterEmployeeDeductionsCents: 125_000,
     });
   });
 
@@ -59,8 +61,9 @@ describe("salary package contribution estimates", () => {
       grossCents: 9_999,
       employeeEpfCents: 800,
       employerEpfCents: 1_200,
-      employerEtfCents: 300,
-      earningsAfterEmployeeEpfCents: 9_199,
+      employeeEtfCents: 300,
+      employerEtfCents: 0,
+      earningsAfterEmployeeDeductionsCents: 8_899,
       recurringEarningsCents: 12_000,
       recurringDeductionsCents: 2_000,
     });
@@ -72,7 +75,7 @@ describe("salary package contribution estimates", () => {
       baseEpfEligible: false,
       baseEtfEligible: true,
     }));
-    expect(estimate?.employerEtfCents).toBe(2); // 3% of 50 cents is 1.5 cents.
+    expect(estimate?.employeeEtfCents).toBe(2); // 3% of 50 cents is 1.5 cents.
   });
 
   test.each([

@@ -98,7 +98,6 @@ export default function OpsLinehaul() {
   const [station, setStation] = React.useState("");
   const [destHubId, setDestHubId] = React.useState("");
   const [route, setRoute] = React.useState("");
-  const [seal, setSeal] = React.useState("");
   const [bagToLoad, setBagToLoad] = React.useState("");
   const [notice, setNotice] = React.useState<string | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
@@ -160,7 +159,6 @@ export default function OpsLinehaul() {
 
   const depart = useTripDepart({
     onSuccess: () => {
-      setSeal("");
       ok("Trip despatched. Every parcel aboard is now In transit.");
     },
     onError: fail,
@@ -452,7 +450,7 @@ export default function OpsLinehaul() {
                   .map((b) => (
                     <li key={b.id} className="flex items-center gap-3 px-5 py-3">
                       <span className="min-w-0 flex-1">
-                        <span className="block font-mono text-[13px] font-medium">{b.code}</span>
+                        <span className="block font-mono text-[13px] font-medium">{b.sealNumber ?? "Not sealed"}</span>
                         <span className="block truncate text-[12px] text-muted-foreground">
                           → {b.destHubName} · seal {b.sealNumber}
                         </span>
@@ -490,9 +488,6 @@ export default function OpsLinehaul() {
               <KeyValueGrid>
                 <KeyValue label="Status">
                   <TripStatusBadge status={detail.trip.status} />
-                </KeyValue>
-                <KeyValue label="Vehicle seal" mono>
-                  {detail.trip.seal ?? "Not sealed"}
                 </KeyValue>
                 <KeyValue label="Vehicle">
                   {vehicleLabel(detail.trip.vehicleType, detail.trip.busOperator)}
@@ -550,7 +545,7 @@ export default function OpsLinehaul() {
                         className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
                       >
                         <span className="min-w-0 flex-1">
-                          <span className="block font-mono text-[13px] font-medium">{b.code}</span>
+                          <span className="block font-mono text-[13px] font-medium">{b.sealNumber ?? "Not sealed"}</span>
                           <span className="block truncate text-[12px] text-muted-foreground">
                             → {b.destHubName} · seal {b.sealNumber ?? "none"}
                           </span>
@@ -559,7 +554,7 @@ export default function OpsLinehaul() {
                         <BagStatusBadge status={b.status} />
                         <BagPhoto
                           bagId={b.id}
-                          code={b.code}
+                          code={b.sealNumber ?? "Not sealed"}
                           hasPhoto={Boolean(b.photoRef)}
                           onDone={ok}
                           onError={fail}
@@ -578,10 +573,15 @@ export default function OpsLinehaul() {
                       <option value="">Choose a sealed bag…</option>
                       {loadable.map((b) => (
                         <option key={b.id} value={b.id}>
-                          {b.code} — {b.itemCount} parcels → {b.destHubName}
+                          {b.sealNumber ?? "Not sealed"} — {b.itemCount} parcels → {b.destHubName}
                         </option>
                       ))}
                     </Select>
+                    {bagToLoad ? (
+                      <p className="rounded-md bg-brand/8 px-3 py-2 text-[13px] font-medium">
+                        Parcels inside selected bag: {loadable.find((b) => b.id === bagToLoad)?.itemCount ?? 0}
+                      </p>
+                    ) : null}
                     {loadable.length === 0 ? (
                       <p className="text-[12px] text-muted-foreground">
                         No sealed bag for {detail.destHubName} is waiting. Seal one on the Bagging
@@ -607,18 +607,10 @@ export default function OpsLinehaul() {
                       Moves every parcel aboard to In transit. Refused while any loaded bag is
                       unsealed, or while the trip is empty.
                     </p>
-                    <Field label="Vehicle seal">
-                      <Input
-                        value={seal}
-                        onChange={(e) => setSeal(e.target.value.toUpperCase())}
-                        placeholder="VS-771204"
-                        className="font-mono"
-                      />
-                    </Field>
                     <Button
-                      disabled={seal.trim().length < 3 || detail.bags.length === 0}
+                      disabled={detail.bags.length === 0}
                       pending={depart.isPending}
-                      onClick={() => depart.mutate({ tripId: detail.trip.id, seal: seal.trim() })}
+                      onClick={() => depart.mutate({ tripId: detail.trip.id })}
                     >
                       <Send aria-hidden />
                       Depart

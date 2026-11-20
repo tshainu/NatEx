@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Building2, ShieldCheck, ChevronDown } from "lucide-react";
+import { LogOut, Building2, ShieldCheck, ChevronDown, Bell, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orpc } from "@/lib/api";
 import { navForRoles, rolesOfUser, ROLE_LABEL } from "@/lib/permissions";
@@ -160,6 +160,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
 function TopBar({ onSignOut }: { onSignOut: () => void }) {
   const user = useAuth().session!.user;
+  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
+  const roles = rolesOfUser(user);
+  const canSeeApprovals = roles.some((role) => ["hr", "finance", "admin"].includes(role));
+  const pendingLeaves = useQuery({ ...orpc.hr.leaveRequests.queryOptions({ input: { status: "pending", year: new Date().getFullYear() } }), enabled: canSeeApprovals, refetchInterval: 30_000 });
+  const payrollRuns = useQuery({ ...orpc.hr.payrollRuns.queryOptions(), enabled: canSeeApprovals, refetchInterval: 30_000 });
+  const pendingPayroll = (payrollRuns.data ?? []).filter((run) => run.status === "submitted");
+  const pendingCount = (pendingLeaves.data?.length ?? 0) + pendingPayroll.length;
 
   // Branch scope. M1 scopes every read to the signed-in user's branch on the
   // server, so this reports the scope rather than pretending to switch it.
@@ -189,6 +196,7 @@ function TopBar({ onSignOut }: { onSignOut: () => void }) {
           </span>
         ) : null}
         <span className="text-[13px] text-text-hi">{user.name}</span>
+        {canSeeApprovals ? <div className="relative"><button type="button" aria-label={`${pendingCount} pending HR approval${pendingCount === 1 ? "" : "s"}`} onClick={() => setNotificationsOpen((open) => !open)} className={cn("relative inline-flex size-9 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", pendingCount ? "text-status-bad hover:bg-status-bad/15" : "text-status-good hover:bg-status-good/15")}><Bell className="size-4" aria-hidden />{pendingCount ? <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-status-bad px-1 text-center text-[10px] font-semibold leading-4 text-white">{pendingCount > 9 ? "9+" : pendingCount}</span> : null}</button>{notificationsOpen ? <div className="absolute right-0 top-11 z-40 w-80 rounded-lg border border-border bg-card p-3 text-foreground shadow-xl"><div className="mb-2 flex items-center justify-between"><strong className="text-[13px]">HR approvals</strong><span className={cn("text-[11px] font-medium", pendingCount ? "text-status-bad" : "text-status-good")}>{pendingCount ? `${pendingCount} new` : "All clear"}</span></div>{pendingLeaves.data?.slice(0, 6).map(({ request, employeeName, leaveTypeName }) => <Link key={request.id} href="/hr/leave" onClick={() => setNotificationsOpen(false)} className="block rounded-md border-b border-border/60 px-2 py-2 text-[12px] hover:bg-muted/50"><span className="font-medium">Leave approval</span><span className="block text-muted-foreground">{employeeName} · {leaveTypeName} · {request.startsOn}</span></Link>)}{pendingPayroll.slice(0, 4).map((run) => <Link key={run.id} href="/hr/payroll" onClick={() => setNotificationsOpen(false)} className="block rounded-md border-b border-border/60 px-2 py-2 text-[12px] hover:bg-muted/50"><span className="font-medium">Payroll approval</span><span className="block text-muted-foreground">{run.code} · {run.periodStart} – {run.periodEnd}</span></Link>)}{pendingCount === 0 ? <div className="flex items-center gap-2 px-2 py-4 text-[12px] text-status-good"><CheckCircle2 className="size-4" /> No approvals waiting.</div> : null}<Link href="/hr/approvals" onClick={() => setNotificationsOpen(false)} className="mt-2 block rounded-md bg-muted/40 px-2 py-2 text-center text-[12px] font-medium hover:bg-muted">Open approvals desk</Link></div> : null}</div> : null}
         <Link
           href="/security"
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-text-lo transition-colors hover:bg-ink-700 hover:text-text-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

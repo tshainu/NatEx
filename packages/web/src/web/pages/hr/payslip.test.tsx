@@ -29,23 +29,23 @@ function valueFor(document: Document, section: string, label: string) {
 describe("printable payroll contribution display", () => {
   test("shows staff earnings after EPF and final net separately", () => {
     const doc = render();
-    expect(valueFor(doc, "Employee pay summary", "Total earnings after staff EPF")).toBe("LKR 46000.00");
+    expect(valueFor(doc, "Employee pay summary", "Take-home after staff EPF + ETF")).toBe("LKR 46000.00");
     expect(valueFor(doc, "Employee pay summary", "Net pay / take-home pay")).toBe("LKR 44500.00");
     expect(valueFor(doc, "Employee pay summary", "EPF staff deduction · 8%")).toBe("LKR 4000.00");
   });
 
   test("shows company EPF and ETF in a separate company-paid section", () => {
     const doc = render();
-    expect(valueFor(doc, "Company-paid contributions", "EPF Company contribution · 12%")).toBe("LKR 6000.00");
-    expect(valueFor(doc, "Company-paid contributions", "ETF Company contribution · 3%")).toBe("LKR 1500.00");
-    expect(valueFor(doc, "Company-paid contributions", "Total Company contributions")).toBe("LKR 7500.00");
+    expect(valueFor(doc, "Employer contributions", "EPF Company contribution · 12%")).toBe("LKR 6000.00");
+    expect(valueFor(doc, "Employer contributions", "ETF employer contribution (legacy)")).toBe("LKR 1500.00");
+    expect(valueFor(doc, "Employer contributions", "Total employer contributions")).toBe("LKR 7500.00");
     expect(doc.querySelector('section[aria-label="Employee pay summary"]')?.textContent).not.toContain("Company contribution");
-    expect(doc.querySelector('section[aria-label="Company-paid contributions"]')?.textContent).toContain("not deducted from or added to your net pay");
+    expect(doc.querySelector('section[aria-label="Employer contributions"]')?.textContent).toContain("New payroll runs deduct ETF from employee pay");
   });
 
   test("prints saved contribution and net amounts rather than applying current percentages again", () => {
     const doc = render("paid", { ...line, employerEpfCents: 599_999, netCents: 4_449_999 });
-    expect(valueFor(doc, "Company-paid contributions", "EPF Company contribution · 12%")).toBe("LKR 5999.99");
+    expect(valueFor(doc, "Employer contributions", "EPF Company contribution · 12%")).toBe("LKR 5999.99");
     expect(valueFor(doc, "Employee pay summary", "Net pay / take-home pay")).toBe("LKR 44499.99");
     expect(doc.querySelector("header")?.textContent).toContain("Paid");
   });

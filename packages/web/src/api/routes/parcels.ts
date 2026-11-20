@@ -185,6 +185,7 @@ export const create = authedProc
   .input(
     z.object({
       merchantId: z.string().min(1),
+      initialStatus: z.enum(["Booked", "AtOriginHub"]).default("Booked"),
       awb: z.string().trim().min(1).max(24).nullish(),
       branchId: z.string().min(1).optional(),
       weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
@@ -213,7 +214,7 @@ export const create = authedProc
         route: "parcels.create",
         entity: "parcels_parcel",
         entityId: (r) => (r as parcelsService.ParcelDetail).parcel.id,
-        action: "parcel.booked",
+        action: input.initialStatus === "AtOriginHub" ? "parcel.at_origin_hub" : "parcel.booked",
       },
       () =>
         parcelsService.createParcel(

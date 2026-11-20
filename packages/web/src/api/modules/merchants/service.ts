@@ -106,7 +106,15 @@ export async function listMerchants(
 /** Every merchant in the caller's scope, for pickers and dropdowns. */
 export async function merchantOptions(scope: Principal) {
   return db
-    .select({ id: merchant.id, name: merchant.name, codEnabled: merchant.codEnabled, status: merchant.status })
+    .select({
+      id: merchant.id,
+      name: merchant.name,
+      address: merchant.address,
+      lat: merchant.lat,
+      lng: merchant.lng,
+      codEnabled: merchant.codEnabled,
+      status: merchant.status,
+    })
     .from(merchant)
     .where(scopeFilter(scope));
 }

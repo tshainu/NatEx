@@ -133,11 +133,11 @@ export default function HrPackages() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[780px] text-left text-[12px]">
-                <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF Company contribution · 3%</th><th className="p-2 text-right">Total earnings after staff EPF</th></tr></thead>
-                <tbody><tr className="font-mono"><td className="p-2">{estimate ? lkr(estimate.grossCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEtfCents) : "—"}</td><td className="p-2 text-right font-semibold">{estimate ? lkr(estimate.earningsAfterEmployeeEpfCents) : "—"}</td></tr></tbody>
+                <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">ETF staff deduction · 3%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">Take-home before APIT/other deductions</th></tr></thead>
+                <tbody><tr className="font-mono"><td className="p-2">{estimate ? lkr(estimate.grossCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEtfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEpfCents) : "—"}</td><td className="p-2 text-right font-semibold">{estimate ? lkr(estimate.earningsAfterEmployeeDeductionsCents) : "—"}</td></tr></tbody>
               </table>
             </div>
-            {estimate ? <p className="text-[12px] text-muted-foreground">Fixed recurring components per pay period: {lkr(estimate.recurringEarningsCents)} earnings and {lkr(estimate.recurringDeductionsCents)} deductions{monthly ? " (earnings included above; deductions not subtracted from the after-staff-EPF total)." : " (reported separately; excluded from the per-unit figures)."} Company EPF/ETF are employer costs, not deductions from employee pay. “Earnings after staff EPF” subtracts only employee EPF; APIT and other deductions are not subtracted.</p> : <p className="text-[12px] text-muted-foreground">Enter a positive base pay and valid positive amounts for every component to see exact LKR estimates.</p>}
+            {estimate ? <p className="text-[12px] text-muted-foreground">Fixed recurring components per pay period: {lkr(estimate.recurringEarningsCents)} earnings and {lkr(estimate.recurringDeductionsCents)} deductions{monthly ? " (earnings included above; deductions not subtracted from the statutory-deduction total)." : " (reported separately; excluded from the per-unit figures)."} Staff ETF is deducted at 3% from ETF-eligible pay; employer ETF is not added as a second cost in new payroll runs.</p> : <p className="text-[12px] text-muted-foreground">Enter a positive base pay and valid positive amounts for every component to see exact LKR estimates.</p>}
           </section>
 
           <div className="space-y-3 border-t pt-4">
@@ -183,8 +183,8 @@ export default function HrPackages() {
               <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.grossCents) : "—"}</td>
               <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employeeEpfCents) : "—"}</td>
               <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employerEpfCents) : "—"}</td>
-              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employerEtfCents) : "—"}</td>
-              <td className="p-2 text-right font-mono font-semibold">{packageEstimate ? lkr(packageEstimate.earningsAfterEmployeeEpfCents) : "—"}</td>
+              <td className="p-2 text-right font-mono">{packageEstimate ? lkr(packageEstimate.employeeEtfCents) : "—"}</td>
+              <td className="p-2 text-right font-mono font-semibold">{packageEstimate ? lkr(packageEstimate.earningsAfterEmployeeDeductionsCents) : "—"}</td>
               <td className="p-2 text-[11px]">{packageEstimate ? <>{lkr(packageEstimate.recurringEarningsCents)} earnings · {lkr(packageEstimate.recurringDeductionsCents)} deductions{pkg.payBasis === "monthly" ? " (earnings included; deductions not subtracted above)" : " (excluded from per-unit estimate)"}</> : "—"}</td>
               <td className="p-2">{pkg.items.length} components</td>
               <td className="p-2"><Badge variant={pkg.active ? "good" : "outline"}>{pkg.active ? "active" : "inactive"}</Badge></td>
@@ -192,7 +192,7 @@ export default function HrPackages() {
             </tr>;
           })}</tbody>
         </table>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
-        <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. Company EPF and ETF are employer contributions—not employee deductions. Earnings after staff EPF deducts only employee EPF; APIT and other deductions are not deducted from that total.</p>
+        <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. ETF is shown as a 3% staff deduction from ETF-eligible pay; employer EPF remains separate. APIT and other deductions are not deducted from the displayed estimate.</p>
       </Card>
     </Page>
   );

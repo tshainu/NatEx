@@ -1036,7 +1036,7 @@ export async function loadBagOntoTrip(
  * seal AND this trip. A bag with no seal cannot depart, full stop.
  */
 export async function departTrip(
-  input: { tripId: string; seal: string; lat?: number; lng?: number },
+  input: { tripId: string; seal?: string | null; lat?: number; lng?: number },
   actor: Principal,
 ): Promise<{
   trip: TripRow;
@@ -1100,7 +1100,7 @@ export async function departTrip(
     .update(trip)
     .set({
       status: "departed",
-      seal: input.seal.trim().toUpperCase(),
+      seal: input.seal?.trim().toUpperCase() || null,
       departedAt: now,
     })
     .where(and(eq(trip.id, tripRow!.id), inArray(trip.status, ["planned", "loading"])))

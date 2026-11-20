@@ -906,6 +906,7 @@ export async function parcelsByIds(ids: string[]): Promise<ParcelRow[]> {
 
 export interface CreateParcelInput {
   merchantId: string;
+  initialStatus?: "Booked" | "AtOriginHub";
   /** Physical sticker tracking number typed/scanned by a merchant; omitted for staff auto-mint. */
   awb?: string | null;
   branchId: string;
@@ -927,7 +928,7 @@ export interface CreateParcelInput {
 }
 
 /**
- * Books a parcel. Entry state is always `Booked` and it gets its genesis
+ * Books a parcel at the requested starting custody state and gets its genesis
  * parcel_event, so every parcel has a complete custody chain from row one.
  */
 export async function createParcel(
@@ -951,8 +952,9 @@ export async function createParcel(
   if (!Number.isInteger(input.codAmountCents) || input.codAmountCents < 0) {
     errors.badRequest("COD must be a non-negative integer number of cents.");
   }
-  if (!roleMayCommand(actor.role, "Booked")) {
-    errors.forbidden(`Role ${actor.role} may not book parcels.`);
+  const initialStatus = input.initialStatus ?? "Booked";
+  if (!roleMayCommand(actor.role, initialStatus)) {
+    errors.forbidden(`Role ${actor.role} may not create parcels at ${initialStatus}.`);
   }
   // §5: a merchant principal books for itself only. Refused, never re-scoped —
   // silently swapping the merchantId would hide a client bug or an attack.
@@ -1015,7 +1017,7 @@ export async function createParcel(
             merchantId: input.merchantId,
             branchId: input.branchId,
             originBranchId: input.branchId,
-            status: "Booked",
+            status: initialStatus,
             weightGrams: input.weightGrams,
             lengthCm: input.lengthCm ?? null,
             widthCm: input.widthCm ?? null,
@@ -1039,9 +1041,11 @@ export async function createParcel(
         await appendParcelEvent({
           parcelId: saved.id,
           fromStatus: null,
-          toStatus: "Booked",
+          toStatus: initialStatus,
           actor,
-          notes: "Parcel booked.",
+          notes: initialStatus === "AtOriginHub"
+            ? "Parcel booked and marked At Origin Hub by the counter operator."
+            : "Parcel booked.",
         }, tx);
         // Booking creates the record and custody event only. Tracking-number
         // SMS is disabled; delivery/POD communications use their own flow.
@@ -1061,7 +1065,7 @@ export async function createParcel(
   // Merchant bookings with a configured default Rider are automatically added
   // to that Rider's open pickup manifest. Custody still requires Rider scan and
   // formal handover through the collection workflow.
-  if (actor.role === "merchant" && owner!.pickupRiderId && pickupRider) {
+  if (initialStatus === "Booked" && actor.role === "merchant" && owner!.pickupRiderId && pickupRider) {
     const assignment = await addBookingToAutoManifest({
       merchantId: owner!.id,
       merchantName: owner!.name,
@@ -1095,9 +1099,9 @@ export async function createParcel(
       .from(parcelEvent)
       .where(eq(parcelEvent.parcelId, row!.id))
       .orderBy(asc(parcelEvent.ts)),
-    legalNext: legalNext("Booked"),
-    commandable: legalNext("Booked").filter((to) =>
-      isGenericallyCommandable("Booked", to, actor.role),
+    legalNext: legalNext(initialStatus),
+    commandable: legalNext(initialStatus).filter((to) =>
+      isGenericallyCommandable(initialStatus, to, actor.role),
     ),
     readOnlyReason: null,
   };

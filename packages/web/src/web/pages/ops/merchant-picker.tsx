@@ -6,6 +6,9 @@ import { ChevronDown } from "lucide-react";
 export interface BookableMerchantOption {
   id: string;
   name: string;
+  address?: string;
+  lat?: number | null;
+  lng?: number | null;
   codEnabled: boolean;
   status: string;
 }

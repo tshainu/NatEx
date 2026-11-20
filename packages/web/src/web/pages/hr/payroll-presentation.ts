@@ -9,6 +9,7 @@ export interface PayrollLine {
   etfBaseCents: number;
   apitBaseCents: number;
   employeeEpfCents: number;
+  employeeEtfCents?: number;
   employerEpfCents: number;
   employerEtfCents: number;
   apitCents: number;
@@ -26,16 +27,27 @@ export interface PayrollSnapshot {
 }
 
 type StoredPayAmounts = Pick<PayrollLine,
-  "grossCents" | "employeeEpfCents" | "employerEpfCents" | "employerEtfCents" |
+  "grossCents" | "employeeEpfCents" | "employeeEtfCents" | "employerEpfCents" | "employerEtfCents" |
   "apitCents" | "otherDeductionsCents" | "netCents"
 >;
 
 /** Presentation only: never recalculate the saved statutory amounts or final net pay. */
-export function payrollPaySummary(amounts: StoredPayAmounts) {
-  return {
+export function payrollPaySummary(amounts: StoredPayAmounts): {
+  earningsAfterStaffEpfCents: number;
+  earningsAfterStaffDeductionsCents?: number;
+  companyContributionsCents: number;
+  employeeDeductionsCents: number;
+  netCents: number;
+} {
+  const legacy = {
     earningsAfterStaffEpfCents: amounts.grossCents - amounts.employeeEpfCents,
     companyContributionsCents: amounts.employerEpfCents + amounts.employerEtfCents,
     employeeDeductionsCents: amounts.employeeEpfCents + amounts.apitCents + amounts.otherDeductionsCents,
     netCents: amounts.netCents,
+  };
+  return amounts.employeeEtfCents === undefined ? legacy : {
+    ...legacy,
+    earningsAfterStaffDeductionsCents: amounts.grossCents - amounts.employeeEpfCents - amounts.employeeEtfCents,
+    employeeDeductionsCents: legacy.employeeDeductionsCents + amounts.employeeEtfCents,
   };
 }

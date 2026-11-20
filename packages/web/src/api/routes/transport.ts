@@ -266,7 +266,7 @@ export const tripDepart = transportProc
   .input(
     z.object({
       tripId: z.string().min(1),
-      seal: z.string().min(3).max(32),
+      seal: z.string().trim().min(3).max(32).nullish(),
       lat: geo.lat,
       lng: geo.lng,
     }),

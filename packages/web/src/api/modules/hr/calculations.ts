@@ -85,6 +85,8 @@ export interface PayrollCalculationInput {
   unpaidLeaveHalfDays: number;
   /** Total non-payable half-days, including unpaid leave and days outside employment. */
   payProrationHalfDays?: number;
+  /** No-pay leave is deducted at one basic-salary day per 25-day divisor. */
+  noPayLeaveHalfDays?: number;
   periodDays: number;
   overtimePolicy: OvertimePolicy;
   overtimeMultiplierBps: number;
@@ -101,6 +103,7 @@ export interface PayrollCalculation {
   etfBaseCents: number;
   apitBaseCents: number;
   employeeEpfCents: number;
+  employeeEtfCents: number;
   employerEpfCents: number;
   employerEtfCents: number;
   apitCents: number;
@@ -160,8 +163,11 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   let baseCents: number;
   let overtimeRateDivisor: number;
 
+  const noPayLeaveHalfDays = input.noPayLeaveHalfDays ?? input.unpaidLeaveHalfDays;
+  const employmentProrationHalfDays = Math.max(0, payProrationHalfDays - noPayLeaveHalfDays);
   if (input.payBasis === "monthly") {
-    baseCents = prorateByUnpaidLeave(input.basePayCents, payProrationHalfDays, input.periodDays);
+    baseCents = prorateByUnpaidLeave(input.basePayCents, employmentProrationHalfDays, input.periodDays);
+    baseCents = Math.max(0, baseCents - roundDiv(input.basePayCents * noPayLeaveHalfDays, 50));
     overtimeRateDivisor = input.overtimeDivisorMinutes;
   } else if (input.payBasis === "daily") {
     baseCents = roundDiv(input.basePayCents * payableMinutes, 480);
@@ -182,7 +188,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   for (const item of input.components) {
     assertNonNegativeInteger(item.amountCents, `Component ${item.label}`);
     const amountCents = item.proration === "unpaid_leave_prorated"
-      ? prorateByUnpaidLeave(item.amountCents, payProrationHalfDays, input.periodDays)
+      ? Math.max(0, prorateByUnpaidLeave(item.amountCents, employmentProrationHalfDays, input.periodDays) - roundDiv(item.amountCents * noPayLeaveHalfDays, 50))
       : item.amountCents;
     lines.push({ label: item.label, kind: item.kind, amountCents });
     if (item.kind === "deduction") {
@@ -217,8 +223,13 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   }
 
   const employeeEpfCents = roundDiv(epfBaseCents * 800, 10_000);
+  // NatEx payroll policy: ETF is deducted from staff basic/contribution pay.
+  // Keep employerEtfCents in the snapshot shape for historical compatibility,
+  // but do not create a second company-paid ETF liability for new runs.
+  const employeeEtfCents = roundDiv(etfBaseCents * 300, 10_000);
   const employerEpfCents = roundDiv(epfBaseCents * 1200, 10_000);
-  const employerEtfCents = roundDiv(etfBaseCents * 300, 10_000);
+  const employerEtfCents = 0;
+  lines.push({ label: "ETF staff deduction", kind: "deduction", amountCents: employeeEtfCents });
   const automaticApitEligible = input.automaticApitEligible ?? true;
   const apitCents = input.manualApitCents ?? (input.primaryEmployment && automaticApitEligible ? calculateApit(apitBaseCents, input.apitSchedule) : 0);
   assertNonNegativeInteger(apitCents, "APIT");
@@ -230,7 +241,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   }
   if (input.manualApitCents !== undefined) warnings.push("APIT was manually overridden; retain the supporting calculation or instruction.");
 
-  const netCents = grossCents - employeeEpfCents - apitCents - otherDeductionsCents;
+  const netCents = grossCents - employeeEpfCents - employeeEtfCents - apitCents - otherDeductionsCents;
   if (!Number.isSafeInteger(netCents)) throw new Error("Net pay exceeded the safe integer range.");
   return {
     grossCents,
@@ -238,6 +249,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
     etfBaseCents,
     apitBaseCents,
     employeeEpfCents,
+    employeeEtfCents,
     employerEpfCents,
     employerEtfCents,
     apitCents,

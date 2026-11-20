@@ -23,13 +23,13 @@ const monthlyPackage = {
 
 describe("salary package net estimates", () => {
   test("uses payroll's employee EPF, APIT and package deductions for primary employment", () => {
-    expect(estimateMonthlyPackageNetCents(monthlyPackage, true, schedule)).toBe(9_440_000);
+    expect(estimateMonthlyPackageNetCents(monthlyPackage, true, schedule)).toBe(9_080_000);
   });
 
   test("labels secondary-employment estimates as before manual APIT", () => {
-    expect(estimateMonthlyPackageNetCents(monthlyPackage, false, schedule)).toBe(10_540_000);
+    expect(estimateMonthlyPackageNetCents(monthlyPackage, false, schedule)).toBe(10_180_000);
     expect(salaryPackageNetOptionSuffix(monthlyPackage, false, schedule, (cents) => (cents / 100).toFixed(2)))
-      .toBe("(est. net LKR 105400.00 before manual APIT)");
+      .toBe("(est. net LKR 101800.00 before manual APIT)");
   });
 
   test("does not claim a fixed net for daily/hourly packages", () => {

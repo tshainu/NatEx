@@ -39,12 +39,13 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(validateApitBands([{ maxMonthlyCents: 20_000_000, rateBps: 600, offsetCents: 0 }])).toMatch(/open-ended/);
   });
 
-  test("calculates employee EPF, employer EPF and employer-only ETF independently", () => {
+  test("calculates employee EPF and staff ETF deductions independently", () => {
     const result = calculatePayroll(monthly);
     expect(result.employeeEpfCents).toBe(2_000_000);
     expect(result.employerEpfCents).toBe(3_000_000);
-    expect(result.employerEtfCents).toBe(750_000);
-    expect(result.netCents).toBe(22_200_000);
+    expect(result.employeeEtfCents).toBe(750_000);
+    expect(result.employerEtfCents).toBe(0);
+    expect(result.netCents).toBe(21_450_000);
   });
 
   test("excludes a non-contributory fixed deduction from gross and statutory bases", () => {
@@ -64,7 +65,8 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(result.grossCents).toBe(25_000_000);
     expect(result.otherDeductionsCents).toBe(250_000);
     expect(result.employeeEpfCents).toBe(2_000_000);
-    expect(result.netCents).toBe(21_950_000);
+    expect(result.employeeEtfCents).toBe(750_000);
+    expect(result.netCents).toBe(21_200_000);
   });
 
   test("prorates monthly base and package lines for unpaid leave without floating-point money", () => {
@@ -82,8 +84,15 @@ describe("NatEx Sri Lankan payroll calculations", () => {
         proration: "unpaid_leave_prorated",
       }],
     });
-    expect(result.grossCents).toBe(27_066_667);
+    expect(result.grossCents).toBe(26_880_000);
     expect(result.epfBaseCents).toBe(result.grossCents);
+  });
+
+  test("paid leave consumes leave units without reducing salary, while no-pay leave deducts one day", () => {
+    const paid = calculatePayroll({ ...monthly, paidLeaveHalfDays: 2 });
+    const unpaid = calculatePayroll({ ...monthly, unpaidLeaveHalfDays: 2, payProrationHalfDays: 2 });
+    expect(paid.grossCents).toBe(monthly.basePayCents);
+    expect(unpaid.grossCents).toBe(24_000_000);
   });
 
   test("computes shop-office overtime from monthly pay divided by the statutory hourly divisor", () => {

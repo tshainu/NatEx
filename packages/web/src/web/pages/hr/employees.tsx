@@ -10,6 +10,7 @@ import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
 import { shouldAssignSalaryPackage } from "./salary-edit";
 import { salaryPackageNetOptionSuffix } from "./salary-net-estimate";
+import { Dialog } from "@/components/ui/dialog";
 
 type EmployeeForm = {
   fullName: string;
@@ -340,7 +341,7 @@ export default function HrEmployees() {
       {selectedEmployeeId ? (() => {
         const selected = employees.data?.find((employee) => employee.id === selectedEmployeeId);
         if (!selected) return null;
-        return <EmployeeDetails key={`${selected.id}-${detailSection}`} employee={selected} branchName={(branches.data ?? []).find((branch) => branch.id === selected.branchId)?.name ?? selected.branchId} packages={packages.data ?? []} initialSection={detailSection} onClose={() => setSelectedEmployeeId(null)} />;
+        return <Dialog open onOpenChange={(open) => { if (!open) setSelectedEmployeeId(null); }} title={`${selected.employeeCode} · ${selected.fullName}`} description={`${selected.department} · ${selected.jobTitle}`} className="w-[1000px]"><EmployeeDetails key={`${selected.id}-${detailSection}`} employee={selected} branchName={(branches.data ?? []).find((branch) => branch.id === selected.branchId)?.name ?? selected.branchId} packages={packages.data ?? []} initialSection={detailSection} onClose={() => setSelectedEmployeeId(null)} /></Dialog>;
       })() : null}
     </Page>
   );

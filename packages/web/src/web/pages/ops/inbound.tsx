@@ -91,7 +91,7 @@ export default function OpsInbound() {
   });
 
   const columns: Column<InboundRow>[] = [
-    { key: "code", header: "Bag", width: "w-[130px]", cell: (r) => <MonoCell>{r.code}</MonoCell> },
+    { key: "code", header: "Seal number", width: "w-[130px]", cell: (r) => <MonoCell>{r.sealNumber ?? "Not sealed"}</MonoCell> },
     {
       key: "seal",
       header: "Seal on manifest",
@@ -183,7 +183,7 @@ export default function OpsInbound() {
 
           {detail ? (
             <Card
-              title={`Manifest for ${detail.bag.code}`}
+              title={`Manifest for seal ${detail.bag.sealNumber ?? "not sealed"}`}
               description={`What ${detail.originHubName} says it sent. Scan the bag out against this.`}
               bodyClassName="p-0"
             >
@@ -282,7 +282,7 @@ export default function OpsInbound() {
         <div className="flex flex-col gap-4">
           {detail ? (
             <Card
-              title={`Receive ${detail.bag.code}`}
+              title={`Receive seal ${detail.bag.sealNumber ?? "not sealed"}`}
               description={`${detail.originHubName} → ${detail.destHubName}`}
             >
               <div className="flex flex-col gap-4">

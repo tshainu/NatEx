@@ -109,7 +109,7 @@ export default function OpsBagging() {
     onSuccess: (row) => {
       setActiveBagId(row.id);
       setScanResult(null);
-      ok(`Bag ${row.code} is open. Scan parcels into it.`);
+      ok("Open bag created. Scan parcels into it; its physical seal number appears after sealing.");
     },
     onError: fail,
   });
@@ -234,8 +234,8 @@ export default function OpsBagging() {
       actions={
         detail ? (
           <>
-            <Badge variant="outline">Bag</Badge>
-            <span className="font-mono text-[14px] font-medium">{detail.bag.code}</span>
+            <Badge variant="outline">Seal</Badge>
+            <span className="font-mono text-[14px] font-medium">{detail.bag.sealNumber ?? "Not sealed"}</span>
             <BagStatusBadge status={detail.bag.status} />
           </>
         ) : null
@@ -280,7 +280,7 @@ export default function OpsBagging() {
         <div className="flex min-w-0 flex-col gap-5">
           {detail ? (
             <Card
-              title={`Inside ${detail.bag.code}`}
+              title={`Inside seal ${detail.bag.sealNumber ?? "not sealed"}`}
               description={`${detail.originHubName} → ${detail.destHubName} · ${liveItems.length} parcel${liveItems.length === 1 ? "" : "s"}${detail.bag.sealNumber ? ` · seal ${detail.bag.sealNumber}` : ""}`}
               bodyClassName="p-0"
             >
@@ -512,7 +512,7 @@ export default function OpsBagging() {
                       }`}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block font-mono text-[13px] font-medium">{b.code}</span>
+                        <span className="block font-mono text-[13px] font-medium">{b.sealNumber ?? "Not sealed"}</span>
                         <span className="block truncate text-[12px] text-muted-foreground">
                           → {b.destHubName}
                         </span>
@@ -529,8 +529,8 @@ export default function OpsBagging() {
           {detail ? (
             <Card title="Bag record">
               <KeyValueGrid>
-                <KeyValue label="Bag" mono>
-                  {detail.bag.code}
+                <KeyValue label="Seal number" mono>
+                  {detail.bag.sealNumber ?? "Not sealed"}
                 </KeyValue>
                 <KeyValue label="Seal" mono>
                   {detail.bag.sealNumber ?? "Not sealed"}
