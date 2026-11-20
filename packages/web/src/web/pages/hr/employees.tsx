@@ -121,6 +121,7 @@ export default function HrEmployees() {
   }
 
   function editEmployee(employee: NonNullable<typeof employees.data>[number]) {
+    setSelectedEmployeeId(null);
     setEditingId(employee.id);
     setForm({
       fullName: employee.fullName,
@@ -148,7 +149,6 @@ export default function HrEmployees() {
       salaryPackageId: "",
       salaryEffectiveFrom: todayInColombo(),
     });
-    setSelectedEmployeeId(employee.id);
     setNote(null);
   }
 
