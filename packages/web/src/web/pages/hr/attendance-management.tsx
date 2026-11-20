@@ -13,8 +13,45 @@ function localDateTime(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
-function todayDateTime(value: string) {
-  return value ? localDateTime(`${todayInColombo()}T${value}:00`) : null;
+function dateTimeForDay(day: string, value: string) {
+  return value ? localDateTime(`${day}T${value}:00`) : null;
+}
+
+function displayTime(value: string) {
+  if (!value) return "Select time";
+  const [hour, minute] = value.split(":").map(Number);
+  const period = hour >= 12 ? "PM" : "AM";
+  return `${String(hour % 12 || 12).padStart(2, "0")} : ${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function TimePicker({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [step, setStep] = React.useState<"hour" | "minute">("hour");
+  const [draft, setDraft] = React.useState(value || "08:30");
+  const [hour, minute] = draft.split(":").map(Number);
+  const period = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  const chooseHour = (next: number) => {
+    const nextHour = period === "PM" ? (next % 12) + 12 : next % 12;
+    setDraft(`${String(nextHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+    setStep("minute");
+  };
+  const chooseMinute = (next: number) => setDraft(`${String(hour).padStart(2, "0")}:${String(next).padStart(2, "0")}`);
+  const togglePeriod = (next: "AM" | "PM") => {
+    const nextHour = next === "PM" ? (hour % 12) + 12 : hour % 12;
+    setDraft(`${String(nextHour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+  };
+  return <>
+    <Field label={label}><button type="button" className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left text-[13px]" onClick={() => { setDraft(value || "08:30"); setStep("hour"); setOpen(true); }}><span>{displayTime(value)}</span><span className="text-muted-foreground">◷</span></button></Field>
+    {open ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
+      <div className="w-full max-w-[360px] rounded-2xl bg-background p-5 shadow-2xl" role="dialog" aria-label={`${label} picker`}>
+        <p className="mb-4 text-xs font-medium uppercase tracking-wider text-muted-foreground">Select time</p>
+        <div className="mb-5 flex items-center justify-center gap-2 text-4xl font-light"><button type="button" className={`rounded-md px-4 py-2 ${step === "hour" ? "bg-brand/20 text-brand" : "bg-muted"}`} onClick={() => setStep("hour")}>{String(hour12).padStart(2, "0")}</button><span>:</span><button type="button" className={`rounded-md px-4 py-2 ${step === "minute" ? "bg-brand/20 text-brand" : "bg-muted"}`} onClick={() => setStep("minute")}>{String(minute).padStart(2, "0")}</button><div className="ml-2 flex flex-col text-sm"><button type="button" className={`rounded-t border px-3 py-1 ${period === "AM" ? "bg-brand/20 text-brand" : ""}`} onClick={() => togglePeriod("AM")}>AM</button><button type="button" className={`rounded-b border border-t-0 px-3 py-1 ${period === "PM" ? "bg-brand/20 text-brand" : ""}`} onClick={() => togglePeriod("PM")}>PM</button></div></div>
+        <div className="relative mx-auto aspect-square w-64 rounded-full bg-muted/70"><div className="absolute inset-0 flex items-center justify-center"><div className="h-1/2 origin-bottom border-l-2 border-brand" style={{ transform: `rotate(${step === "hour" ? (hour12 % 12) * 30 : minute * 6}deg)` }} /><span className="absolute h-3 w-3 rounded-full bg-brand" /></div>{(step === "hour" ? Array.from({ length: 12 }, (_, index) => index + 1) : Array.from({ length: 12 }, (_, index) => index * 5)).map((number, index) => { const angle = index * 30; return <button key={number} type="button" className={`absolute h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full text-sm ${step === "hour" ? number === hour12 : number === minute ? "bg-brand text-white" : ""}`} style={{ left: `${50 + 40 * Math.sin(angle * Math.PI / 180)}%`, top: `${50 - 40 * Math.cos(angle * Math.PI / 180)}%` }} onClick={() => step === "hour" ? chooseHour(number) : chooseMinute(number)}>{step === "hour" ? number : String(number).padStart(2, "0")}</button>; })}</div>
+        <div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button type="button" onClick={() => { onChange(draft); setOpen(false); }}>OK</Button></div>
+      </div>
+    </div> : null}
+  </>;
 }
 
 export default function HrAttendanceManagement() {
@@ -27,6 +64,7 @@ export default function HrAttendanceManagement() {
   const [to, setTo] = React.useState(range.to);
   const [status, setStatus] = React.useState<"pending" | "approved" | "rejected" | "">("pending");
   const [employeeId, setEmployeeId] = React.useState("");
+  const [workDate, setWorkDate] = React.useState(todayInColombo());
   const [clockInTime, setClockInTime] = React.useState("");
   const [clockOutTime, setClockOutTime] = React.useState("");
   const [attendanceStatus, setAttendanceStatus] = React.useState<"present" | "absent" | "leave" | "off_duty">("present");
@@ -89,10 +127,11 @@ export default function HrAttendanceManagement() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card className="border-2 border-brand/25" title="Add manual attendance" description="Every manual entry is approval pending until HR decides.">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ employeeId, workDate: todayInColombo(), clockInAt: todayDateTime(clockInTime), clockOutAt: todayDateTime(clockOutTime), attendanceStatus, note: note || null }); }}>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ employeeId, workDate, clockInAt: dateTimeForDay(workDate, clockInTime), clockOutAt: dateTimeForDay(workDate, clockOutTime), attendanceStatus, note: note || null }); }}>
             <Field label="Employee"><select required className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}><option value="">Select employee</option>{employeeList.map((employee) => <option key={employee.id} value={employee.id}>{employee.employeeCode} · {employee.fullName}</option>)}</select></Field>
-            <Field label="Clock in"><Input type="time" step="60" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} /></Field>
-            <Field label="Clock out"><Input type="time" step="60" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} /></Field>
+            <Field label="Day"><Input type="date" required value={workDate} onChange={(e) => setWorkDate(e.target.value)} /></Field>
+            <TimePicker label="Clock in" value={clockInTime} onChange={setClockInTime} />
+            <TimePicker label="Clock out" value={clockOutTime} onChange={setClockOutTime} />
             <Field label="Attendance status"><select className="h-9 rounded-md border border-input bg-background px-3 py-2 text-[13px]" value={attendanceStatus} onChange={(e) => setAttendanceStatus(e.target.value as typeof attendanceStatus)}><option value="present">Present</option><option value="absent">Absent</option><option value="leave">Leave</option><option value="off_duty">Off duty</option></select></Field>
             <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></Field>
             <Button type="submit" pending={save.isPending}>Save as pending</Button>
