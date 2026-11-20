@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, like, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, ne, or, sql } from "drizzle-orm";
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
 import {
@@ -95,6 +95,16 @@ export async function listEmployees(input: { q?: string; status?: string; limit?
   let query = db.select().from(hrEmployee).orderBy(asc(hrEmployee.employeeCode)).$dynamic();
   if (filters.length) query = query.where(and(...filters));
   return query.limit(input.limit ?? 500);
+}
+
+/** Hub Manager employee picker: active employees in the caller's hub scope only. */
+export async function listEmployeesForPrincipal(principal: Principal) {
+  const branchIds = await identity.operationsBranchScope(principal.branchId);
+  return db
+    .select()
+    .from(hrEmployee)
+    .where(and(inArray(hrEmployee.branchId, branchIds), eq(hrEmployee.status, "active")))
+    .orderBy(asc(hrEmployee.employeeCode));
 }
 
 export async function getEmployee(employeeId: string, executor: HrExecutor = db): Promise<EmployeeRow> {
