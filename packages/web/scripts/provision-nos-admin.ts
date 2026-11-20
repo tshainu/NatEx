@@ -10,7 +10,7 @@ const password = process.env.NOSADMIN_PASSWORD;
 const phoneInput = process.env.NOSADMIN_PHONE;
 const name = process.env.NOSADMIN_NAME ?? "NOS Admin";
 
-if (!password || password.length < 12) throw new Error("NOSADMIN_PASSWORD must be set and contain at least 12 characters.");
+if (!password || password.length < 8) throw new Error("NOSADMIN_PASSWORD must be set and contain at least 8 characters.");
 if (!phoneInput) throw new Error("NOSADMIN_PHONE must be set to a valid required phone number.");
 const phone = normaliseLkPhone(phoneInput);
 if (phone.length < 9) throw new Error("NOSADMIN_PHONE is invalid.");
