@@ -115,9 +115,10 @@ const BAGGABLE_FROM: readonly ParcelStatus[] = ["AtOriginHub", "AtDestHub"];
 
 // ------------------------------------------------------------------- scoping
 
-function bagScope(scope: Principal) {
+function bagScope(scope: Principal, branchIds?: string[]) {
   if (isGlobalScope(scope.role)) return undefined;
-  return or(eq(bag.branchId, scope.branchId), eq(bag.destHubId, scope.branchId));
+  const ids = branchIds?.length ? branchIds : [scope.branchId];
+  return or(inArray(bag.branchId, ids), inArray(bag.destHubId, ids));
 }
 
 function tripScope(scope: Principal) {
@@ -130,9 +131,10 @@ function tripScope(scope: Principal) {
  * the receiving hub must be able to see an inbound bag before it arrives,
  * otherwise it cannot detect one that never does.
  */
-function assertBagVisible(row: BagRow, scope: Principal): void {
+async function assertBagVisible(row: BagRow, scope: Principal): Promise<void> {
   if (isGlobalScope(scope.role)) return;
-  if (row.branchId === scope.branchId || row.destHubId === scope.branchId) return;
+  const branchIds = await identity.operationsBranchScope(scope.branchId);
+  if (branchIds.includes(row.branchId) || branchIds.includes(row.destHubId)) return;
   errors.forbidden("This bag belongs to another branch.", { bagBranchId: row.branchId });
 }
 
@@ -361,7 +363,7 @@ export interface BagDetail {
 export async function getBagDetail(bagId: string, scope: Principal): Promise<BagDetail> {
   const [row] = await db.select().from(bag).where(eq(bag.id, bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, scope);
+  await assertBagVisible(row!, scope);
 
   const [items, tripRow, origin, dest] = await Promise.all([
     db
@@ -398,7 +400,8 @@ export async function listBags(
   scope: Principal,
   filter: { status?: string[]; destHubId?: string; tripId?: string } = {},
 ) {
-  const filters = [bagScope(scope)];
+  const branchIds = isGlobalScope(scope.role) ? undefined : await identity.operationsBranchScope(scope.branchId);
+  const filters = [bagScope(scope, branchIds)];
   if (filter.status?.length) filters.push(inArray(bag.status, filter.status));
   if (filter.destHubId) filters.push(eq(bag.destHubId, filter.destHubId));
   if (filter.tripId) filters.push(eq(bag.tripId, filter.tripId));
@@ -455,7 +458,7 @@ export async function bulkScanIntoBag(
 ): Promise<BulkScanResult> {
   const [row] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, actor);
+  await assertBagVisible(row!, actor);
   if (row!.status !== "open") {
     errors.conflict(`Bag ${row!.code} is ${row!.status} and no longer accepts scans.`, {
       bagCode: row!.code,
@@ -682,7 +685,7 @@ export async function removeFromBag(
 ): Promise<BulkScanResult> {
   const [row] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, actor);
+  await assertBagVisible(row!, actor);
   if (row!.status !== "open") {
     errors.conflict(`Bag ${row!.code} is ${row!.status}; break the seal first.`, {
       bagStatus: row!.status,
@@ -750,7 +753,7 @@ export async function sealBag(
 ): Promise<BagRow> {
   const [row] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, actor);
+  await assertBagVisible(row!, actor);
   if (row!.status !== "open") {
     errors.conflict(`Bag ${row!.code} is already ${row!.status}.`, { bagStatus: row!.status });
   }
@@ -789,7 +792,7 @@ export async function breakSeal(
 ): Promise<BagRow> {
   const [row] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, actor);
+  await assertBagVisible(row!, actor);
   if (row!.status !== "sealed") {
     errors.conflict(`Only a sealed bag can have its seal broken; this one is ${row!.status}.`);
   }
@@ -946,7 +949,7 @@ export function bagPhotoPrefix(bagCode: string): string {
 export async function bagForPhoto(bagId: string, actor: Principal): Promise<BagRow> {
   const [row] = await db.select().from(bag).where(eq(bag.id, bagId));
   if (!row) errors.notFound("Bag");
-  assertBagVisible(row!, actor);
+  await assertBagVisible(row!, actor);
   if (row!.status === "cancelled") errors.conflict(`Bag ${row!.code} is cancelled.`);
   return row!;
 }
@@ -989,7 +992,7 @@ export async function loadBagOntoTrip(
 
   const [bagRow] = await db.select().from(bag).where(eq(bag.id, input.bagId));
   if (!bagRow) errors.notFound("Bag");
-  assertBagVisible(bagRow!, actor);
+  await assertBagVisible(bagRow!, actor);
   if (bagRow!.status !== "sealed") {
     errors.conflict(`Bag ${bagRow!.code} must be sealed before loading; it is ${bagRow!.status}.`, {
       bagStatus: bagRow!.status,
@@ -1646,7 +1649,7 @@ export async function rollbackBagReceipt(
   return db.transaction(async (tx): Promise<RollbackBagReceiptResult> => {
     const [row] = await tx.select().from(bag).where(eq(bag.id, input.bagId)).limit(1);
     if (!row) errors.notFound("Bag");
-    assertBagVisible(row!, actor);
+    await assertBagVisible(row!, actor);
     const expectedCode = input.expectedBagCode.trim().toUpperCase();
     const expectedTripCode = input.expectedTripCode.trim().toUpperCase();
     if (
@@ -2027,11 +2030,12 @@ export async function baggableParcels(scope: Principal) {
 
 /** Counts for the transport dashboard header. */
 export async function transportCounts(scope: Principal) {
+  const branchIds = isGlobalScope(scope.role) ? undefined : await identity.operationsBranchScope(scope.branchId);
   const [bagRows, tripRows, exceptions] = await Promise.all([
     db
       .select({ status: bag.status, value: count() })
       .from(bag)
-      .where(and(...[bagScope(scope)].filter((f) => f !== undefined)))
+      .where(and(...[bagScope(scope, branchIds)].filter((f) => f !== undefined)))
       .groupBy(bag.status),
     db
       .select({ status: trip.status, value: count() })

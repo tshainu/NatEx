@@ -25,8 +25,6 @@ const FILTERS = [
   { key: "moving", label: "In transit", status: ["in_transit"] as const },
   { key: "done", label: "Closed", status: ["received", "reconciled", "cancelled"] as const },
 ] as const;
-const VISIBLE_TEST_FLOOR_BAG = "1010";
-
 export default function TransportBagsScreen() {
   const colors = useColors();
   const queryClient = useQueryClient();
@@ -54,13 +52,9 @@ export default function TransportBagsScreen() {
 
   // A bag can only go to another hub, never back to the one it is standing in.
   const destinations = (branches.data ?? []).filter((b) => b.id !== user?.branchId);
-  // Testing cleanup: keep every backend record and audit trail, but show only
-  // the requested sealed test bag in the floor view. Other lifecycle tabs are intact.
-  const rows = (bags.data ?? []).filter(
-    (row) =>
-      active.key !== "live" ||
-      (row.code === VISIBLE_TEST_FLOOR_BAG && row.status === "sealed"),
-  );
+  // The API scopes rows to this transport user's hub, so all open and sealed
+  // outbound bags remain available for the next trip.
+  const rows = bags.data ?? [];
   const visibleOpenCount = rows.filter((row) => row.status === "open").length;
   const visibleSealedCount = rows.filter((row) => row.status === "sealed").length;
 
@@ -205,12 +199,6 @@ export default function TransportBagsScreen() {
               : "Nothing in this state right now."
           }
         />
-      ) : null}
-
-      {bags.isSuccess && active.key === "live" ? (
-        <Small>
-          Testing view: showing sealed floor bag {VISIBLE_TEST_FLOOR_BAG} only. Other bag records are preserved.
-        </Small>
       ) : null}
 
       <Section>
