@@ -21,7 +21,7 @@ function displayTime(value: string) {
   if (!value) return "Select time";
   const [hour, minute] = value.split(":").map(Number);
   const period = hour >= 12 ? "PM" : "AM";
-  return `${String(hour % 12 || 12).padStart(2, "0")} : ${String(minute).padStart(2, "0")} ${period}`;
+  return `${String(hour % 12 || 12).padStart(2, "0")}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
 function TimePicker({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
