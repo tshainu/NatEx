@@ -5,19 +5,32 @@ interface PayslipProps { line: PayrollLine; status: string; periodStart: string;
 const money = (cents: number) => `LKR ${new Intl.NumberFormat("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(centsToLkr(cents)))}`;
 
 export function printPayslipInWindow(target: Window, source: HTMLElement, onAfterPrint?: () => void) {
-  const sourceStyle = source.querySelector("style")?.textContent ?? "";
-  const bodyMarkup = source.innerHTML;
+  const printable = source.cloneNode(true) as HTMLElement;
+  printable.querySelectorAll("style").forEach((style) => style.remove());
+  const bodyMarkup = printable.outerHTML;
   target.document.open();
-  target.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>NatEx Salary Slip</title><style>${sourceStyle}
-    @media print { @page { size: A5 portrait; margin: 8mm; } }
-    html, body { margin: 0; padding: 0; background: #fff; }
-    .hr-print-slip { display: block !important; position: relative !important; inset: auto !important; left: auto !important; top: auto !important; width: 100% !important; max-width: 132mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; visibility: visible !important; }
-    .hr-print-slip, .hr-print-slip * { visibility: visible !important; }
+  target.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>NatEx Salary Slip</title><style>
+    @page { size: A5 portrait; margin: 8mm; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #101513; }
+    .hr-print-slip { display: block; position: relative; width: 100%; max-width: 132mm; min-height: 0; margin: 0 auto; padding: 0; overflow: visible; box-sizing: border-box; font-family: Arial, Helvetica, sans-serif; font-size: 8.5px; line-height: 1.25; }
+    .hr-print-slip *, .hr-print-slip *::before, .hr-print-slip *::after { box-sizing: border-box; }
+    .hr-print-slip table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    .hr-print-slip th, .hr-print-slip td { padding: 3.5px 5px; border-bottom: 1px solid #dfe5e1; text-align: left; overflow-wrap: anywhere; }
+    .hr-print-slip th { color: #101513; background: #f3f5f3; font-size: 7.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .hr-print-slip th:first-child, .hr-print-slip td:first-child { width: 59%; }
+    .hr-print-slip th:last-child, .hr-print-slip td:last-child { width: 41%; }
+    .hr-print-slip .right { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hr-print-slip section { break-inside: avoid; margin-top: 8px; }
+    .hr-print-slip .section-title { margin: 0 0 4px; padding: 0 0 3px; border-bottom: 2px solid #111; color: #111; background: transparent; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    .hr-print-slip .total-row td { border-top: 1px solid #9ca9a0; border-bottom: 2px solid #27332c; font-weight: 800; }
+    .hr-print-slip .net-row td { border-bottom: 0; background: #e9f5ec; color: #0b5e2b; font-size: 9.5px; font-weight: 900; }
   </style></head><body>${bodyMarkup}</body></html>`);
   target.document.close();
   target.focus();
   target.addEventListener("afterprint", () => { onAfterPrint?.(); target.close(); }, { once: true });
-  window.setTimeout(() => target.print(), 80);
+  const images = Array.from(target.document.images);
+  Promise.all(images.map((image) => image.complete ? Promise.resolve() : new Promise<void>((resolve) => { image.addEventListener("load", () => resolve(), { once: true }); image.addEventListener("error", () => resolve(), { once: true }); })))
+    .then(() => window.setTimeout(() => target.print(), 180));
 }
 
 export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
