@@ -7,7 +7,7 @@ import { isValidIsoDate } from "../modules/hr/validation";
 
 const isoDay = z.string().refine(isValidIsoDate, "Use a real calendar date in YYYY-MM-DD format.");
 const employmentType = z.enum(["permanent", "probation", "contract", "temporary", "casual", "intern", "other"]);
-const overtimePolicy = z.enum(["none", "shop_office", "custom"]);
+const overtimePolicy = z.enum(["none", "shop_office", "natex_standard", "custom"]);
 
 const employeeFields = z.object({
   fullName: z.string().trim().min(2).max(160),

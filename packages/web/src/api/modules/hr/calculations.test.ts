@@ -45,7 +45,7 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(result.employerEpfCents).toBe(3_000_000);
     expect(result.employeeEtfCents).toBe(0);
     expect(result.employerEtfCents).toBe(750_000);
-    expect(result.netCents).toBe(22_200_000);
+    expect(result.netCents).toBe(23_000_000);
   });
 
   test("excludes a non-contributory fixed deduction from gross and statutory bases", () => {
@@ -66,7 +66,7 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(result.otherDeductionsCents).toBe(250_000);
     expect(result.employeeEpfCents).toBe(2_000_000);
     expect(result.employeeEtfCents).toBe(0);
-    expect(result.netCents).toBe(21_950_000);
+    expect(result.netCents).toBe(22_750_000);
   });
 
   test("prorates monthly base and package lines for unpaid leave without floating-point money", () => {
@@ -101,6 +101,11 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(result.grossCents).toBe(25_156_250);
   });
 
+  test("calculates NatEx standard 1x overtime as basic salary divided by 25 and 8 hours", () => {
+    const result = calculatePayroll({ ...monthly, overtimePolicy: "natex_standard", overtimeMinutes: 60, overtimeMultiplierBps: 10_000, overtimeDivisorMinutes: 1 });
+    expect(result.overtimeCents).toBe(125_000);
+  });
+
   test("flags unconfigured or excess overtime instead of silently ignoring it", () => {
     const missing = calculatePayroll({ ...monthly, overtimePolicy: "none", overtimeMinutes: 60 });
     expect(missing.warnings[0]).toMatch(/no overtime-pay rule/);
@@ -108,11 +113,11 @@ describe("NatEx Sri Lankan payroll calculations", () => {
     expect(excess.warnings[0]).toMatch(/12-hour weekly/);
   });
 
-  test("requires reviewed APIT for a partial-month or non-primary employment case", () => {
+  test("keeps APIT at zero while the feature is paused", () => {
     const partial = calculatePayroll({ ...monthly, payProrationHalfDays: 30, automaticApitEligible: false });
     expect(partial.apitCents).toBe(0);
-    expect(partial.warnings.some((warning) => warning.includes("non-standard pay period"))).toBe(true);
+    expect(partial.warnings.some((warning) => warning.includes("APIT"))).toBe(false);
     const manual = calculatePayroll({ ...monthly, payProrationHalfDays: 30, automaticApitEligible: false, manualApitCents: 200_000 });
-    expect(manual.apitCents).toBe(200_000);
+    expect(manual.apitCents).toBe(0);
   });
 });

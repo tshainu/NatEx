@@ -11,7 +11,6 @@ import { HrNavigation } from "./navigation";
 import { Payslip } from "./payslip";
 import { payrollPaySummary, type PayrollLine as Line, type PayrollSnapshot as Snapshot } from "./payroll-presentation";
 
-type ApitBandForm = { maxMonthlyLkr: string; ratePercent: string; offsetLkr: string };
 const asLkr = (cents: number) => `LKR ${centsToLkr(cents)}`;
 const monthBounds = (month: string) => {
   const [year, mm] = month.split("-").map(Number);
@@ -29,31 +28,13 @@ export default function HrPayroll() {
   const [month, setMonth] = React.useState(defaultMonth);
   const [cutoffDate, setCutoffDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
-  const [accountantName, setAccountantName] = React.useState("");
-  const [taxReference, setTaxReference] = React.useState("");
   const [paymentReference, setPaymentReference] = React.useState("");
   const [cancelReason, setCancelReason] = React.useState("");
   const [note, setNote] = React.useState<string | null>(null);
-  const [formError, setFormError] = React.useState<string | null>(null);
-  const [bandForm, setBandForm] = React.useState<ApitBandForm[]>([]);
   const [selectedBranchIds, setSelectedBranchIds] = React.useState<string[]>([]);
 
   const runs = useQuery({ ...orpc.hr.payrollRuns.queryOptions(), refetchInterval: 30_000 });
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
-  const schedule = useQuery({ ...orpc.hr.apitSchedule.queryOptions() });
-  React.useEffect(() => {
-    if (!schedule.data) return;
-    try {
-      const bands = JSON.parse(schedule.data.scheduleJson) as { maxMonthlyCents: number | null; rateBps: number; offsetCents: number }[];
-      setBandForm(bands.map((band) => ({
-        maxMonthlyLkr: band.maxMonthlyCents === null ? "" : centsToLkr(band.maxMonthlyCents),
-        ratePercent: (band.rateBps / 100).toFixed(2),
-        offsetLkr: centsToLkr(band.offsetCents),
-      })));
-    } catch {
-      setBandForm([]);
-    }
-  }, [schedule.data]);
   const detail = useQuery({
     ...orpc.hr.payrollRun.queryOptions({ input: { runId: selectedRunId ?? "" } }),
     enabled: Boolean(selectedRunId),
@@ -61,15 +42,11 @@ export default function HrPayroll() {
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: orpc.hr.payrollRuns.key() });
     void queryClient.invalidateQueries({ queryKey: orpc.hr.payrollRun.key() });
-    void queryClient.invalidateQueries({ queryKey: orpc.hr.apitSchedule.key() });
     void queryClient.invalidateQueries({ queryKey: orpc.hr.statutoryReport.key() });
   };
   const create = useMutation({ ...orpc.hr.createPayrollRun.mutationOptions(), onSuccess: (result) => { setSelectedRunId(result.run.id); setNote(`${result.run.code} was calculated as a draft. Review every employee line and statutory exception.`); refresh(); } });
   const submit = useMutation({ ...orpc.hr.submitPayrollRun.mutationOptions(), onSuccess: () => { setNote("Payroll was submitted for Finance/Admin review."); refresh(); } });
   const approve = useMutation({ ...orpc.hr.approvePayrollRun.mutationOptions(), onSuccess: () => { setNote("Payroll was approved and is ready for payment."); refresh(); } });
-  const validate = useMutation({ ...orpc.hr.validateApitSchedule.mutationOptions(), onSuccess: () => { setNote("Accountant validation was recorded for the current APIT schedule."); setAccountantName(""); setTaxReference(""); refresh(); } });
-  const saveSchedule = useMutation({ ...orpc.hr.saveApitSchedule.mutationOptions(), onSuccess: (row) => { setNote(`APIT rules saved as ${row.version}. The new version is unverified until an accountant checks it.`); refresh(); } });
-  const manualApit = useMutation({ ...orpc.hr.manualApit.mutationOptions(), onSuccess: () => { setNote("Manual APIT was saved to the draft payslip with its review reference."); refresh(); } });
   const paid = useMutation({ ...orpc.hr.recordPayrollPayment.mutationOptions(), onSuccess: () => { setNote("Payment reference was recorded; the payroll run is marked paid."); setPaymentReference(""); refresh(); } });
   const editLine = useMutation({ ...orpc.hr.editPayrollLine.mutationOptions(), onSuccess: () => { setNote("Draft payroll line updated and totals recomputed."); refresh(); } });
   const approveLines = useMutation({ ...orpc.hr.approvePayrollLines.mutationOptions(), onSuccess: () => { setNote("Selected salaries approved and locked."); refresh(); } });
@@ -81,76 +58,24 @@ export default function HrPayroll() {
     ...orpc.hr.statutoryReport.queryOptions({ input: { runId: selectedRunId ?? "" } }),
     enabled: Boolean(selectedRunId && canExport),
   });
-  const errors = runs.error ?? branches.error ?? schedule.error ?? detail.error ?? create.error ?? submit.error ?? approve.error ?? validate.error ?? saveSchedule.error ?? manualApit.error ?? editLine.error ?? approveLines.error ?? paid.error ?? cancel.error;
-
-  function saveBands(event: React.FormEvent) {
-    event.preventDefault();
-    setFormError(null);
-    const bands = bandForm.map((band) => {
-      const maxInput = band.maxMonthlyLkr.trim();
-      const maxMonthlyCents = maxInput ? lkrToCents(maxInput) : null;
-      const offsetCents = lkrToCents(band.offsetLkr);
-      if ((maxInput && maxMonthlyCents === null) || offsetCents === null || !/^\d+(?:\.\d{1,2})?$/.test(band.ratePercent.trim())) return null;
-      const rateBps = Math.round(Number(band.ratePercent) * 100);
-      if (!Number.isSafeInteger(rateBps)) return null;
-      return { maxMonthlyCents, rateBps, offsetCents };
-    });
-    if (bands.some((band) => band === null)) {
-      setFormError("Enter valid LKR thresholds/offsets and a marginal tax rate with up to two decimal places.");
-      return;
-    }
-    setNote(null);
-    saveSchedule.mutate({ bands: bands as { maxMonthlyCents: number | null; rateBps: number; offsetCents: number }[] });
-  }
+  const errors = runs.error ?? branches.error ?? detail.error ?? create.error ?? submit.error ?? approve.error ?? editLine.error ?? approveLines.error ?? paid.error ?? cancel.error;
 
   function exportStatutory() {
     if (!statutory.data) return;
-    const rows: unknown[][] = [["Employee code", "Employee name", "EPF no.", "EPF wage (LKR)", "Employee EPF 8% (LKR)", "Employee ETF deduction (new runs: 0) (LKR)", "Employer EPF 12% (LKR)", "ETF wage (LKR)", "Employer ETF contribution 3% (LKR)", "APIT base (LKR)", "APIT (LKR)", "Gross pay (LKR)", "Net pay (LKR)"]];
+    const rows: unknown[][] = [["Employee code", "Employee name", "EPF no.", "EPF wage (LKR)", "Employee EPF 8% (LKR)", "Employee ETF deduction (new runs: 0) (LKR)", "Employer EPF 12% (LKR)", "ETF wage (LKR)", "Employer ETF contribution 3% (LKR)", "Gross pay (LKR)", "Net pay (LKR)"]];
     for (const row of statutory.data.rows) rows.push([
       row.employeeCode, row.employeeName, row.epfNumber ?? "", centsToLkr(row.epfBaseCents), centsToLkr(row.employeeEpfCents),
       centsToLkr(row.employeeEtfCents), centsToLkr(row.employerEpfCents), centsToLkr(row.etfBaseCents), centsToLkr(row.employerEtfCents),
-      centsToLkr(row.apitBaseCents), centsToLkr(row.apitCents), centsToLkr(row.grossCents), centsToLkr(row.netCents),
+      centsToLkr(row.grossCents), centsToLkr(row.netCents),
     ]);
     downloadCsv(`NatEx-Statutory-Payroll-${selectedRun?.code ?? "run"}.csv`, rows);
   }
 
   return (
-    <Page title="Salary operations" description="Monthly payroll drafts are prepared by HR and approved by a different Finance/Admin user. Calculations use integer cents, retain a payslip snapshot, and require accountant validation before APIT payroll approval.">
+    <Page title="Salary operations" description="Monthly payroll drafts are prepared by HR and approved by a different Finance/Admin user. Calculations use integer cents, retain a payslip snapshot and require review before payroll approval.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
-      {formError ? <ErrorNote>{formError}</ErrorNote> : null}
       {errors ? <ErrorNote>{apiMessage(errors, "Payroll data could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
-      <Card title={`APIT schedule · ${schedule.data?.taxYear ?? "2026/27"}`} description="Automatic APIT uses the configured monthly primary-employment schedule only. Secondary employment and non-standard pay periods require reviewed manual amounts. This release is configured for 2026/27; payroll outside those dates is blocked until a later tax-year schedule is installed and validated.">
-        {schedule.data ? <div className="flex flex-wrap items-center gap-3">
-          <Badge variant={schedule.data.status === "validated" ? "good" : "warn"}>{schedule.data.status}</Badge>
-          <span className="text-[13px]">Effective {schedule.data.effectiveFrom} to {schedule.data.effectiveTo} · {schedule.data.version}</span>
-          {schedule.data.accountantName ? <span className="text-[12px] text-muted-foreground">Reviewed by {schedule.data.accountantName} · Ref {schedule.data.validationReference}</span> : null}
-        </div> : <p className="text-[13px] text-muted-foreground">Loading schedule…</p>}
-        {canApprove && schedule.data ? <div className="mt-5 border-t pt-4">
-          <div className="mb-3"><h3 className="text-[13px] font-semibold">Tax bands (monthly LKR)</h3><p className="mt-1 text-[12px] text-muted-foreground">Configure accountant-confirmed marginal bands and offsets. The default is provisional. Saving creates a new version, retires the previous version, and requires fresh validation; drafts using the retired schedule must be cancelled and recalculated.</p></div>
-          <form onSubmit={saveBands}>
-            <div className="space-y-2">
-              {bandForm.map((band, index) => <div key={index} className="grid items-end gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
-                <Field label={`Band ${index + 1} ceiling (LKR; blank = no upper limit)`}><Input type="number" min="0" step="0.01" value={band.maxMonthlyLkr} onChange={(e) => setBandForm((old) => old.map((row, i) => i === index ? { ...row, maxMonthlyLkr: e.target.value } : row))} /></Field>
-                <Field label="Marginal rate (%)"><Input type="number" min="0" max="100" step="0.01" required value={band.ratePercent} onChange={(e) => setBandForm((old) => old.map((row, i) => i === index ? { ...row, ratePercent: e.target.value } : row))} /></Field>
-                <Field label="Monthly offset (LKR)"><Input type="number" min="0" step="0.01" required value={band.offsetLkr} onChange={(e) => setBandForm((old) => old.map((row, i) => i === index ? { ...row, offsetLkr: e.target.value } : row))} /></Field>
-                <Button type="button" variant="ghost" aria-label={`Remove APIT band ${index + 1}`} disabled={bandForm.length <= 1} onClick={() => setBandForm((old) => old.filter((_, i) => i !== index))}>Remove</Button>
-              </div>)}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={bandForm.length >= 20} onClick={() => setBandForm((old) => [...old, { maxMonthlyLkr: "", ratePercent: "", offsetLkr: "0.00" }])}>Add band</Button><Button type="submit" variant="outline" pending={saveSchedule.isPending}>Save new schedule version</Button></div>
-          </form>
-        </div> : null}
-        {schedule.data?.status !== "validated" ? <div className="mt-4 rounded-md border border-status-warn/40 bg-status-warn/5 p-4">
-          <p className="text-[13px] font-semibold">Accountant validation required</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">The available official 2026/27 tax publications did not provide a complete current Table 01 at the source-check date. Do not enable APIT approval until a qualified accountant has checked the actual schedule. Recording validation is an internal control; it does not replace professional advice or IRD confirmation.</p>
-          {canApprove ? <form className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={(e) => { e.preventDefault(); validate.mutate({ accountantName, reference: taxReference }); }}>
-            <Field label="Reviewing accountant"><Input required minLength={3} value={accountantName} onChange={(e) => setAccountantName(e.target.value)} /></Field>
-            <Field label="Workpaper / source reference"><Input required minLength={5} value={taxReference} onChange={(e) => setTaxReference(e.target.value)} /></Field>
-            <div className="self-end"><Button type="submit" variant="outline" pending={validate.isPending}>Record validation</Button></div>
-          </form> : null}
-        </div> : null}
-      </Card>
-
       <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
         <Card title="Payroll runs" description="One active run per calendar month. A cancelled draft remains in the audit history; a replacement run can then be prepared.">
           {canDraft ? <form className="mb-4 space-y-3" onSubmit={(e) => { e.preventDefault(); const range = monthBounds(month); create.mutate({ ...range, cutoffDate, branchIds: selectedBranchIds.length ? selectedBranchIds : undefined }); }}>
@@ -168,7 +93,6 @@ export default function HrPayroll() {
             <Total label="Gross earnings" value={selectedRun.grossCents} />
             <Total label="EPF staff deduction · 8%" value={selectedRun.employeeEpfCents} />
             <Total label="Take-home after staff EPF" value={payrollPaySummary(selectedRun).earningsAfterStaffDeductionsCents ?? payrollPaySummary(selectedRun).earningsAfterStaffEpfCents} strong />
-            <Total label="APIT withheld" value={selectedRun.apitCents} />
             <Total label="Other deductions" value={selectedRun.otherDeductionsCents} />
             <Total label="Net pay / take-home pay" value={selectedRun.netCents} strong />
           </dl> : <p className="text-[13px] text-muted-foreground">Totals and employee calculations will appear here.</p>}
@@ -180,7 +104,7 @@ export default function HrPayroll() {
             </dl>
             <p className="mt-3 text-[11px] text-muted-foreground">New salary sheets record ETF at 3% of ETF-eligible pay as an employer contribution. It is not deducted from employee salary or net pay; historical employee ETF fields remain only for compatibility.</p>
           </div> : null}
-          {selectedRun && canExport ? <div className="mt-4 border-t pt-3"><Button variant="outline" disabled={!statutory.data} onClick={exportStatutory}>Download EPF / ETF / APIT CSV</Button><p className="mt-2 text-[11px] text-muted-foreground">This is an export basis for review/filing, not an IRD or statutory return form.</p></div> : null}
+          {selectedRun && canExport ? <div className="mt-4 border-t pt-3"><Button variant="outline" disabled={!statutory.data} onClick={exportStatutory}>Download EPF / ETF CSV</Button><p className="mt-2 text-[11px] text-muted-foreground">This is an export basis for review/filing, not an IRD or statutory return form.</p></div> : null}
         </Card>
       </div>
 
@@ -194,7 +118,7 @@ export default function HrPayroll() {
           {canApprove && selectedRun.status === "submitted" ? <Button pending={approve.isPending} onClick={() => approve.mutate({ runId: selectedRun.id })}>Approve payroll</Button> : null}
           {canApprove && selectedRun.status === "approved" ? <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); paid.mutate({ runId: selectedRun.id, reference: paymentReference }); }}><Field label="Bank payment reference"><Input required minLength={3} value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} /></Field><Button type="submit" pending={paid.isPending}>Record paid</Button></form> : null}
         </div>
-        {detail.data ? <PayrollTable lines={detail.data.lines} status={selectedRun.status} periodStart={selectedRun.periodStart} periodEnd={selectedRun.periodEnd} canDraft={canDraft} runId={selectedRun.id} onManualApit={(input) => manualApit.mutate(input)} manualApitPending={manualApit.isPending} onEditLine={(input) => editLine.mutate(input)} editLinePending={editLine.isPending} onApproveLines={(employeeIds) => approveLines.mutate({ runId: selectedRun.id, employeeIds })} approveLinesPending={approveLines.isPending} /> : <p className="py-8 text-center text-[13px] text-muted-foreground">Loading payroll lines…</p>}
+        {detail.data ? <PayrollTable lines={detail.data.lines} status={selectedRun.status} periodStart={selectedRun.periodStart} periodEnd={selectedRun.periodEnd} canDraft={canDraft} runId={selectedRun.id} onEditLine={(input) => editLine.mutate(input)} editLinePending={editLine.isPending} onApproveLines={(employeeIds) => approveLines.mutate({ runId: selectedRun.id, employeeIds })} approveLinesPending={approveLines.isPending} /> : <p className="py-8 text-center text-[13px] text-muted-foreground">Loading payroll lines…</p>}
       </Card> : null}
     </Page>
   );
@@ -204,16 +128,14 @@ function Total({ label, value, strong = false }: { label: string; value: number;
   return <div className={`flex justify-between gap-3 border-b pb-2 ${strong ? "col-span-2 border-brand font-semibold" : ""}`}><dt className="text-muted-foreground">{label}</dt><dd className="font-mono">{asLkr(value)}</dd></div>;
 }
 
-function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, onManualApit, manualApitPending, onEditLine, editLinePending, onApproveLines, approveLinesPending }: {
+function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, onEditLine, editLinePending, onApproveLines, approveLinesPending }: {
   lines: Line[];
   status: string;
   periodStart: string;
   periodEnd: string;
   canDraft: boolean;
   runId: string;
-  onManualApit: (input: { runId: string; employeeId: string; amountCents: number; reason: string }) => void;
-  manualApitPending: boolean;
-  onEditLine: (input: { runId: string; employeeId: string; grossCents?: number; otherDeductionsCents?: number; apitCents?: number; reason: string }) => void;
+  onEditLine: (input: { runId: string; employeeId: string; grossCents?: number; otherDeductionsCents?: number; reason: string }) => void;
   editLinePending: boolean;
   onApproveLines: (employeeIds: string[]) => void;
   approveLinesPending: boolean;
@@ -232,10 +154,10 @@ function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, 
 
   return <>
     <div className="mb-3 flex flex-wrap items-center gap-2"><p className="text-[12px] text-muted-foreground">Amounts are LKR. Employee ETF is zero for new salary sheets. ETF is paid by the employer at 3% of ETF-eligible pay and does not reduce net pay; historical runs retain their original snapshot.</p>{canDraft === false && status === "submitted" ? <Button size="sm" disabled={!selected.length || approveLinesPending} pending={approveLinesPending} onClick={() => onApproveLines(selected)}>Approve selected salaries</Button> : null}</div>
-    <div className="overflow-x-auto"><table className="w-full min-w-[1700px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2"><input aria-label="Select all salary lines" type="checkbox" checked={selected.length === lines.length && lines.length > 0} onChange={(e) => setSelected(e.target.checked ? lines.map((line) => line.employeeId) : [])} /></th><th className="p-2">Employee</th><th className="p-2 text-right">Gross earnings</th><th className="p-2 text-right">EPF base</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">Take-home after staff EPF</th><th className="p-2 text-right">APIT</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net pay</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF employer contribution · 3%</th><th className="p-2">Review / payslip</th></tr></thead><tbody>{lines.map((line) => {
+    <div className="overflow-x-auto"><table className="w-full min-w-[1700px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2"><input aria-label="Select all salary lines" type="checkbox" checked={selected.length === lines.length && lines.length > 0} onChange={(e) => setSelected(e.target.checked ? lines.map((line) => line.employeeId) : [])} /></th><th className="p-2">Employee</th><th className="p-2 text-right">Gross earnings</th><th className="p-2 text-right">EPF base</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">Take-home after staff EPF</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net pay</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF employer contribution · 3%</th><th className="p-2">Review / payslip</th></tr></thead><tbody>{lines.map((line) => {
       const snapshot = JSON.parse(line.breakdownJson) as Snapshot;
-      return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><input aria-label={`Select salary for ${line.employeeCode}`} type="checkbox" checked={selected.includes(line.employeeId)} onChange={() => setSelected((current) => current.includes(line.employeeId) ? current.filter((id) => id !== line.employeeId) : [...current, line.employeeId])} /></td><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.epfBaseCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={payrollPaySummary(line).earningsAfterStaffDeductionsCents ?? payrollPaySummary(line).earningsAfterStaffEpfCents} bold /><MoneyCell value={line.apitCents} /><MoneyCell value={line.otherDeductionsCents} /><MoneyCell value={line.netCents} bold /><MoneyCell value={line.employerEpfCents} /><MoneyCell value={line.employerEtfCents} />
-        <td className="p-2"><div className="space-y-1">{snapshot.warnings.map((warning, index) => <p key={index} className="max-w-[300px] text-[10px] text-status-warn">{warning}</p>)}<div className="flex flex-wrap gap-1"><Button size="sm" variant="outline" onClick={() => print(line)}>Payslip</Button>{canDraft && status === "draft" ? <><ManualApitForm line={line} runId={runId} onSave={onManualApit} pending={manualApitPending} /><DraftEditForm line={line} runId={runId} onSave={onEditLine} pending={editLinePending} /></> : null}</div></div></td>
+      return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><input aria-label={`Select salary for ${line.employeeCode}`} type="checkbox" checked={selected.includes(line.employeeId)} onChange={() => setSelected((current) => current.includes(line.employeeId) ? current.filter((id) => id !== line.employeeId) : [...current, line.employeeId])} /></td><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.epfBaseCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={payrollPaySummary(line).earningsAfterStaffDeductionsCents ?? payrollPaySummary(line).earningsAfterStaffEpfCents} bold /><MoneyCell value={line.otherDeductionsCents} /><MoneyCell value={line.netCents} bold /><MoneyCell value={line.employerEpfCents} /><MoneyCell value={line.employerEtfCents} />
+        <td className="p-2"><div className="space-y-1">{snapshot.warnings.map((warning, index) => <p key={index} className="max-w-[300px] text-[10px] text-status-warn">{warning}</p>)}<div className="flex flex-wrap gap-1"><Button size="sm" variant="outline" onClick={() => print(line)}>Payslip</Button>{canDraft && status === "draft" ? <><DraftEditForm line={line} runId={runId} onSave={onEditLine} pending={editLinePending} /></> : null}</div></div></td>
       </tr>;
     })}</tbody></table></div>
     {printLine ? <Payslip line={printLine} status={status} periodStart={periodStart} periodEnd={periodEnd} /> : null}
@@ -246,23 +168,7 @@ function MoneyCell({ value, bold = false }: { value: number; bold?: boolean }) {
   return <td className={`whitespace-nowrap p-2 text-right font-mono ${bold ? "font-semibold" : ""}`}>{centsToLkr(value)}</td>;
 }
 
-function ManualApitForm({ line, runId, onSave, pending }: {
-  line: Line;
-  runId: string;
-  onSave: (input: { runId: string; employeeId: string; amountCents: number; reason: string }) => void;
-  pending: boolean;
-}) {
-  const [amount, setAmount] = React.useState(centsToLkr(line.apitCents));
-  const [reason, setReason] = React.useState("");
-  const cents = lkrToCents(amount);
-  return <form className="flex flex-wrap items-center gap-1" onSubmit={(e) => { e.preventDefault(); if (cents !== null) onSave({ runId, employeeId: line.employeeId, amountCents: cents, reason }); }}>
-    <input aria-label={`Manual APIT for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
-    <input aria-label={`APIT review reference for ${line.employeeCode}`} className="h-8 w-32 rounded border px-2" placeholder="Reference" minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} />
-    <Button size="sm" variant="ghost" type="submit" disabled={cents === null || reason.trim().length < 5} pending={pending}>Set APIT</Button>
-  </form>;
-}
-
-function DraftEditForm({ line, runId, onSave, pending }: { line: Line; runId: string; onSave: (input: { runId: string; employeeId: string; grossCents?: number; otherDeductionsCents?: number; apitCents?: number; reason: string }) => void; pending: boolean }) {
-  const [gross, setGross] = React.useState(centsToLkr(line.grossCents)); const [deductions, setDeductions] = React.useState(centsToLkr(line.otherDeductionsCents)); const [apit, setApit] = React.useState(centsToLkr(line.apitCents)); const [reason, setReason] = React.useState("");
-  return <form className="mt-1 flex flex-wrap items-center gap-1" onSubmit={(e) => { e.preventDefault(); const g = lkrToCents(gross), d = lkrToCents(deductions), a = lkrToCents(apit); if (g !== null && d !== null && a !== null && reason.trim().length >= 5) onSave({ runId, employeeId: line.employeeId, grossCents: g, otherDeductionsCents: d, apitCents: a, reason }); }}><input aria-label={`Edit gross earnings for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} /><input aria-label={`Edit deductions for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={deductions} onChange={(e) => setDeductions(e.target.value)} /><input aria-label={`Edit APIT for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={apit} onChange={(e) => setApit(e.target.value)} /><input aria-label={`Reason for payroll edit ${line.employeeCode}`} className="h-8 w-32 rounded border px-2" placeholder="Reason" minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} /><Button size="sm" variant="ghost" type="submit" disabled={reason.trim().length < 5} pending={pending}>Save edit</Button></form>;
+function DraftEditForm({ line, runId, onSave, pending }: { line: Line; runId: string; onSave: (input: { runId: string; employeeId: string; grossCents?: number; otherDeductionsCents?: number; reason: string }) => void; pending: boolean }) {
+  const [gross, setGross] = React.useState(centsToLkr(line.grossCents)); const [deductions, setDeductions] = React.useState(centsToLkr(line.otherDeductionsCents)); const [reason, setReason] = React.useState("");
+  return <form className="mt-1 flex flex-wrap items-center gap-1" onSubmit={(e) => { e.preventDefault(); const g = lkrToCents(gross), d = lkrToCents(deductions); if (g !== null && d !== null && reason.trim().length >= 5) onSave({ runId, employeeId: line.employeeId, grossCents: g, otherDeductionsCents: d, reason }); }}><input aria-label={`Edit gross earnings for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} /><input aria-label={`Edit deductions for ${line.employeeCode}`} className="h-8 w-24 rounded border px-2 font-mono" type="number" min="0" step="0.01" value={deductions} onChange={(e) => setDeductions(e.target.value)} /><input aria-label={`Reason for payroll edit ${line.employeeCode}`} className="h-8 w-32 rounded border px-2" placeholder="Reason" minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} /><Button size="sm" variant="ghost" type="submit" disabled={reason.trim().length < 5} pending={pending}>Save edit</Button></form>;
 }

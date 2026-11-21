@@ -1,5 +1,5 @@
 export type PayBasis = "monthly" | "daily" | "hourly";
-export type OvertimePolicy = "none" | "shop_office" | "custom";
+export type OvertimePolicy = "none" | "shop_office" | "natex_standard" | "custom";
 export type ComponentKind = "earning" | "deduction";
 
 export interface SalaryComponent {
@@ -168,7 +168,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   if (input.payBasis === "monthly") {
     baseCents = prorateByUnpaidLeave(input.basePayCents, employmentProrationHalfDays, input.periodDays);
     baseCents = Math.max(0, baseCents - roundDiv(input.basePayCents * noPayLeaveHalfDays, 50));
-    overtimeRateDivisor = input.overtimeDivisorMinutes;
+    overtimeRateDivisor = input.overtimePolicy === "natex_standard" ? 25 * 8 * 60 : input.overtimeDivisorMinutes;
   } else if (input.payBasis === "daily") {
     baseCents = roundDiv(input.basePayCents * payableMinutes, 480);
     overtimeRateDivisor = 480;
@@ -208,7 +208,7 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   if (input.overtimeMinutes > 0 && input.overtimePolicy === "none") {
     warnings.push("Overtime hours are recorded but this employee has no overtime-pay rule; configure one before finalizing.");
   } else if (input.overtimeMinutes > 0) {
-    const overtimeRateBase = input.payBasis === "monthly" ? overtimeBaseCents : input.basePayCents;
+    const overtimeRateBase = input.overtimePolicy === "natex_standard" ? input.basePayCents : input.payBasis === "monthly" ? overtimeBaseCents : input.basePayCents;
     overtimeCents = roundDiv(overtimeRateBase * input.overtimeMinutes * input.overtimeMultiplierBps, overtimeRateDivisor * 10_000);
     lines.push({ label: "Overtime", kind: "earning", amountCents: overtimeCents });
     grossCents += overtimeCents;
@@ -230,16 +230,9 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   const employeeEtfCents = 0;
   const employerEpfCents = roundDiv(epfBaseCents * 1200, 10_000);
   const employerEtfCents = roundDiv(etfBaseCents * 300, 10_000);
-  const automaticApitEligible = input.automaticApitEligible ?? true;
-  const apitCents = input.manualApitCents ?? (input.primaryEmployment && automaticApitEligible ? calculateApit(apitBaseCents, input.apitSchedule) : 0);
-  assertNonNegativeInteger(apitCents, "APIT");
-  if (!input.primaryEmployment && input.manualApitCents === undefined) {
-    warnings.push("Automatic APIT is configured for primary employment only; enter a reviewed APIT amount for secondary employment.");
-  }
-  if (input.primaryEmployment && !automaticApitEligible && input.manualApitCents === undefined) {
-    warnings.push("Automatic monthly APIT was not applied for this non-standard pay period; enter the accountant-reviewed APIT amount.");
-  }
-  if (input.manualApitCents !== undefined) warnings.push("APIT was manually overridden; retain the supporting calculation or instruction.");
+  // APIT is intentionally paused for the current salary workflow. Keep the fields in the
+  // snapshot schema for historical compatibility, but do not calculate or deduct it.
+  const apitCents = 0;
 
   const netCents = grossCents - employeeEpfCents - apitCents - otherDeductionsCents;
   if (!Number.isSafeInteger(netCents)) throw new Error("Net pay exceeded the safe integer range.");

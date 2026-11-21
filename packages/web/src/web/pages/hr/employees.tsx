@@ -9,7 +9,6 @@ import { centsToLkr, todayInColombo, HR_CONTROL_CLASS } from "./shared";
 import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
 import { shouldAssignSalaryPackage } from "./salary-edit";
-import { salaryPackageNetOptionSuffix } from "./salary-net-estimate";
 import { Dialog } from "@/components/ui/dialog";
 
 type EmployeeForm = {
@@ -31,7 +30,7 @@ type EmployeeForm = {
   epfNumber: string;
   tin: string;
   primaryEmployment: boolean;
-  overtimePolicy: "none" | "shop_office" | "custom";
+  overtimePolicy: "none" | "shop_office" | "natex_standard" | "custom";
   overtimeMultiplier: string;
   overtimeDivisorHours: string;
   status: "active" | "inactive";
@@ -115,7 +114,6 @@ export default function HrEmployees() {
   const branches = useQuery({ ...orpc.hr.branchOptions.queryOptions() });
   const staffAccounts = useQuery({ ...orpc.hr.staffOptions.queryOptions() });
   const packages = useQuery({ ...orpc.hr.salaryPackages.queryOptions() });
-  const apitSchedule = useQuery({ ...orpc.hr.apitSchedule.queryOptions() });
   const editingSalary = useQuery({
     ...orpc.hr.employeePackages.queryOptions({ input: { employeeId: editingId ?? "" } }),
     enabled: Boolean(editingId),
@@ -339,14 +337,14 @@ export default function HrEmployees() {
           </section>
 
           <section className="rounded-2xl border-2 border-transparent bg-background p-4 shadow-sm md:p-5" style={{ background: "linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box, linear-gradient(135deg, #2980b9, #16a085, #27ae60) border-box" }}>
-            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">03</span><div><h3 className="text-sm font-semibold">Compliance and payroll</h3><p className="mt-0.5 text-xs text-muted-foreground">Statutory identifiers, APIT, overtime, and salary setup.</p></div></div>
+            <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">03</span><div><h3 className="text-sm font-semibold">Compliance and payroll</h3><p className="mt-0.5 text-xs text-muted-foreground">Statutory identifiers, overtime, and salary setup.</p></div></div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="EPF member number"><Input maxLength={50} value={form.epfNumber} onChange={(e) => setField("epfNumber", e.target.value)} /></Field>
               <Field label="Taxpayer identification number"><Input maxLength={50} value={form.tin} onChange={(e) => setField("tin", e.target.value)} /></Field>
-              <label className="flex items-start gap-2 rounded-xl border border-brand/20 bg-brand/[0.04] p-3 text-xs"><input type="checkbox" aria-label="Primary employment for APIT" checked={form.primaryEmployment} onChange={(e) => setField("primaryEmployment", e.target.checked)} /><span><span className="block font-medium">Primary employment for APIT</span><span className="mt-0.5 block text-muted-foreground">Use automatic primary-employment APIT when eligible.</span></span></label>
-              <Field label="Overtime classification" className="md:col-span-2" hint="No overtime is paid until a rule is configured."><select className={HR_CONTROL_CLASS} value={form.overtimePolicy} onChange={(e) => setField("overtimePolicy", e.target.value as EmployeeForm["overtimePolicy"])}><option value="none">Not configured</option><option value="shop_office">Shop & Office (1.5×)</option><option value="custom">Custom validated rule</option></select></Field>
+
+              <Field label="Overtime classification" className="md:col-span-2" hint="No overtime is paid until a rule is configured."><select className={HR_CONTROL_CLASS} value={form.overtimePolicy} onChange={(e) => setField("overtimePolicy", e.target.value as EmployeeForm["overtimePolicy"])}><option value="none">Not configured</option><option value="natex_standard">NatEx standard 1x (basic ÷ 25 ÷ 8)</option><option value="shop_office">Shop & Office (1.5×)</option><option value="custom">Custom validated rule</option></select></Field>
               {form.overtimePolicy === "custom" ? <><Field label="Custom overtime multiplier"><Input type="number" min="0.1" max="5" step="0.01" value={form.overtimeMultiplier} onChange={(e) => setField("overtimeMultiplier", e.target.value)} /></Field><Field label="Monthly hourly divisor"><Input type="number" min="1" max="2400" step="1" value={form.overtimeDivisorHours} onChange={(e) => setField("overtimeDivisorHours", e.target.value)} /></Field></> : null}
-              {editingId ? <><Field label="New salary package" className="md:col-span-2" hint={`Changing packages preserves effective-dated salary history. Net is an estimate using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}.`}><select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}><option value="">Keep current salary history</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}</select></Field><Field label="Salary effective from" hint="Package changes start on the 1st of a month. A new employee's first package may start on the joined date."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field></> : <Field label="Starting salary package" className="md:col-span-2" hint={`Optional. Net is estimated using the current APIT table${apitSchedule.data?.status === "validated" ? "" : " (not yet validated)"}.`}><select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}><option value="">Create employee without a package</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis} {salaryPackageNetOptionSuffix(pkg, form.primaryEmployment, apitSchedule.data, centsToLkr)}</option>)}</select></Field>}
+              {editingId ? <><Field label="New salary package" className="md:col-span-2" hint="Changing packages preserves effective-dated salary history."><select className={HR_CONTROL_CLASS} value={form.salaryPackageId} onChange={(e) => setField("salaryPackageId", e.target.value)}><option value="">Keep current salary history</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}</select></Field><Field label="Salary effective from" hint="Package changes start on the 1st of a month. A new employee's first package may start on the joined date."><Input type="date" required={Boolean(form.salaryPackageId)} value={form.salaryEffectiveFrom} onChange={(e) => setField("salaryEffectiveFrom", e.target.value)} /></Field></> : <Field label="Starting salary package" className="md:col-span-2" hint="Optional starting salary package."><select className={HR_CONTROL_CLASS} value={initialPackageId} onChange={(e) => setInitialPackageId(e.target.value)}><option value="">Create employee without a package</option>{(packages.data ?? []).filter((pkg) => pkg.active).map((pkg) => <option key={pkg.id} value={pkg.id}>{pkg.code} · {pkg.name} · LKR {centsToLkr(pkg.basePayCents)} / {pkg.payBasis}</option>)}</select></Field>}
             </div>
             {editingSalary.isPending ? <p className="mt-3 text-xs text-muted-foreground">Loading salary history…</p> : null}
             {!editingId && initialPackage ? <div className="mt-4 rounded-xl border border-brand/25 bg-brand/5 p-3 text-xs"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s).</p></div> : null}

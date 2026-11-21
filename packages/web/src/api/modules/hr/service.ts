@@ -41,7 +41,7 @@ export interface EmployeeInput {
   epfNumber?: string | null;
   tin?: string | null;
   primaryEmployment: boolean;
-  overtimePolicy: "none" | "shop_office" | "custom";
+  overtimePolicy: "none" | "shop_office" | "natex_standard" | "custom";
   overtimeMultiplierBps: number;
   overtimeDivisorMinutes: number;
 }

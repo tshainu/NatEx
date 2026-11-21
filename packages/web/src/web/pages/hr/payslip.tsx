@@ -33,7 +33,7 @@ export function Payslip({ line, status, periodStart, periodEnd }: PayslipProps) 
     </header>
     <div style={{ display: "flex", justifyContent: "space-between", margin: "20px 0" }}>
       <div><strong>{line.employeeName}</strong><p>Employee code: {line.employeeCode}</p><p>Pay basis: {line.payBasis}</p></div>
-      <div><strong>Pay period</strong><p>{periodStart} – {periodEnd}</p><p>Schedule: {snapshot.apitScheduleVersion}</p></div>
+      <div><strong>Pay period</strong><p>{periodStart} – {periodEnd}</p></div>
     </div>
     <table aria-label="Salary components">
       <thead><tr><th>Pay / deduction item</th><th className="right">Amount (LKR)</th></tr></thead>
@@ -48,11 +48,10 @@ export function Payslip({ line, status, periodStart, periodEnd }: PayslipProps) 
         <PayslipAmount label="Gross earnings" amountCents={line.grossCents} />
         <PayslipAmount label="EPF staff deduction · 8%" amountCents={line.employeeEpfCents} />
         <PayslipAmount label="Take-home after staff EPF" amountCents={summary.earningsAfterStaffDeductionsCents ?? summary.earningsAfterStaffEpfCents} strong />
-        <PayslipAmount label="APIT withheld" amountCents={line.apitCents} />
         <PayslipAmount label="Other deductions" amountCents={line.otherDeductionsCents} />
         <PayslipAmount label="Net pay / take-home pay" amountCents={summary.netCents} strong />
       </dl>
-      <p style={{ margin: "4px 0 8px", fontSize: 10, color: "#555" }}>The displayed take-home-before-tax amount is after staff EPF, but before APIT and other employee deductions. ETF is employer-paid.</p>
+      <p style={{ margin: "4px 0 8px", fontSize: 10, color: "#555" }}>The displayed take-home amount is after staff EPF and other employee deductions. ETF is employer-paid.</p>
     </section>
     <section aria-label="Employer contributions" style={{ marginTop: 20, borderTop: "1px solid #bbb", paddingTop: 12 }}>
       <h2 style={{ fontSize: 14, fontWeight: 700 }}>Employer contributions</h2>

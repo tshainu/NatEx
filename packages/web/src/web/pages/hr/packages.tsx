@@ -107,7 +107,7 @@ export default function HrPackages() {
   const error = packages.error ?? create.error ?? update.error;
 
   return (
-    <Page title="Salary packages" description="Design reusable compensation packages. Contribution and tax-base treatment is stored per component; approved payroll keeps an immutable snapshot.">
+    <Page title="Salary packages" description="Design reusable compensation packages. Contribution treatment is stored per component; approved payroll keeps an immutable snapshot.">
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "Salary packages could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
@@ -123,17 +123,16 @@ export default function HrPackages() {
           <div className="flex flex-wrap gap-x-5 gap-y-2 text-[13px]">
             <label className="flex items-center gap-2"><input type="checkbox" aria-label="Base enters EPF wages" checked={form.baseEpfEligible} onChange={(e) => updateForm("baseEpfEligible", e.target.checked)} /> Base enters EPF wages</label>
             <label className="flex items-center gap-2"><input type="checkbox" aria-label="Base enters ETF wages" checked={form.baseEtfEligible} onChange={(e) => updateForm("baseEtfEligible", e.target.checked)} /> Base enters ETF wages</label>
-            <label className="flex items-center gap-2"><input type="checkbox" aria-label="Base enters APIT wages" checked={form.baseApitTaxable} onChange={(e) => updateForm("baseApitTaxable", e.target.checked)} /> Base enters APIT wages</label>
           </div>
 
           <section className="space-y-3 rounded-md border bg-muted/20 p-4" aria-label="Estimated salary package contributions">
             <div>
               <h3 className="text-[14px] font-semibold">{monthly ? "Estimated package totals · full month" : `Estimated contribution · base only per ${form.payBasis}`}</h3>
-              <p className="text-[12px] text-muted-foreground">{monthly ? "Full-period recurring earnings are included; attendance, overtime and APIT are not estimated." : "Daily/hourly amounts are per-unit base-only estimates. Fixed recurring components are shown separately and excluded from these estimates."}</p>
+              <p className="text-[12px] text-muted-foreground">{monthly ? "Full-period recurring earnings are included; attendance, overtime are not estimated." : "Daily/hourly amounts are per-unit base-only estimates. Fixed recurring components are shown separately and excluded from these estimates."}</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[780px] text-left text-[12px]">
-                <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">ETF employer contribution · 3%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">Take-home before APIT/other deductions</th></tr></thead>
+                <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">ETF employer contribution · 3%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">Take-home before other deductions</th></tr></thead>
                 <tbody><tr className="font-mono"><td className="p-2">{estimate ? lkr(estimate.grossCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEtfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEpfCents) : "—"}</td><td className="p-2 text-right font-semibold">{estimate ? lkr(estimate.earningsAfterEmployeeDeductionsCents) : "—"}</td></tr></tbody>
               </table>
             </div>
@@ -149,7 +148,6 @@ export default function HrPackages() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                 <label className="flex items-center gap-1"><input type="checkbox" aria-label={`${item.label || "Component"} enters EPF wages`} checked={item.epfEligible} disabled={item.kind === "deduction"} onChange={(e) => updateItem(index, { epfEligible: e.target.checked })} /> EPF</label>
                 <label className="flex items-center gap-1"><input type="checkbox" aria-label={`${item.label || "Component"} enters ETF wages`} checked={item.etfEligible} disabled={item.kind === "deduction"} onChange={(e) => updateItem(index, { etfEligible: e.target.checked })} /> ETF</label>
-                <label className="flex items-center gap-1"><input type="checkbox" aria-label={`${item.label || "Component"} enters APIT wages`} checked={item.apitTaxable} disabled={item.kind === "deduction"} onChange={(e) => updateItem(index, { apitTaxable: e.target.checked })} /> APIT</label>
                 <label className="flex items-center gap-1"><input type="checkbox" aria-label={`${item.label || "Component"} enters the overtime rate`} checked={item.overtimeEligible} disabled={item.kind === "deduction"} onChange={(e) => updateItem(index, { overtimeEligible: e.target.checked })} /> OT rate</label>
                 {item.kind === "earning" ? <select aria-label="Unpaid leave proration" className={HR_CONTROL_CLASS + " max-w-[190px]"} value={item.proration} onChange={(e) => updateItem(index, { proration: e.target.value as ItemForm["proration"] })}><option value="full_period">Full amount</option><option value="unpaid_leave_prorated">Prorate for unpaid leave</option></select> : null}
               </div>
@@ -192,7 +190,7 @@ export default function HrPackages() {
             </tr>;
           })}</tbody>
         </table>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
-        <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. ETF is a 3% employer contribution on ETF-eligible pay and is not deducted from employee take-home. APIT and other deductions are not deducted from the displayed estimate.</p>
+        <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. ETF is a 3% employer contribution on ETF-eligible pay and is not deducted from employee take-home. Other deductions are not deducted from the displayed estimate.</p>
       </Card>
     </Page>
   );
