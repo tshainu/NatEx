@@ -106,6 +106,7 @@ export default function HrEmployees() {
   const [form, setForm] = React.useState<EmployeeForm>(emptyForm);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = React.useState<string | null>(null);
+  const [employeeFormOpen, setEmployeeFormOpen] = React.useState(false);
   const [initialPackageId, setInitialPackageId] = React.useState("");
   const [detailSection, setDetailSection] = React.useState<"profile" | "documents" | "attendance" | "leave" | "salary">("profile");
   const [note, setNote] = React.useState<string | null>(null);
@@ -142,6 +143,7 @@ export default function HrEmployees() {
   function editEmployee(employee: NonNullable<typeof employees.data>[number]) {
     setSelectedEmployeeId(null);
     setEditingId(employee.id);
+    setEmployeeFormOpen(true);
     setForm({
       fullName: employee.fullName,
       identityUserId: employee.identityUserId ?? "",
@@ -226,6 +228,7 @@ export default function HrEmployees() {
         ? `${employee.employeeCode} was updated and ${selectedPackage.code} was assigned from ${form.salaryEffectiveFrom}. Historical payroll snapshots remain unchanged.`
         : `${employee.employeeCode} was updated. Historical payroll snapshots remain unchanged.`);
       setEditingId(null);
+      setEmployeeFormOpen(false);
       setForm(emptyForm());
       setInitialPackageId("");
       refresh();
@@ -252,6 +255,7 @@ export default function HrEmployees() {
           ? `${employee.employeeCode} was added to the employee register.`
           : `${employee.employeeCode} was created, but the package assignment did not save. Review the Salary tab and assign it there.`);
       setEditingId(null);
+      setEmployeeFormOpen(false);
       setForm(emptyForm());
       setInitialPackageId("");
       setSelectedEmployeeId(employee.id);
@@ -269,7 +273,39 @@ export default function HrEmployees() {
       {note ? <SuccessNote>{note}</SuccessNote> : null}
       {error ? <ErrorNote>{apiMessage(error, "The HR data could not be loaded or saved.")}</ErrorNote> : null}
       <HrNavigation />
-      <Card className="border-2 border-brand/25 shadow-sm" title={editingId ? "Edit employee" : "Add employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users. Complete each outlined section before saving.">
+      <Card title="Employee register" description="Only HR and administrators can read or change employee records.">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-3">
+          <Input className="max-w-sm" placeholder="Search code, name, department" value={q} onChange={(e) => setQ(e.target.value)} />
+            <select className={HR_CONTROL_CLASS + " max-w-[180px]"} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <Button onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); setNote(null); setEmployeeFormOpen(true); }}>Enrol New Employee</Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] text-left text-[13px]">
+            <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Employee</th><th className="p-2">Official staff account</th><th className="p-2">Branch</th><th className="p-2">Department / title</th><th className="p-2">EPF</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
+            <tbody>
+              {(employees.data ?? []).map((employee) => (
+                <tr key={employee.id} className="border-b border-border/60 hover:bg-muted/40">
+                  <td className="p-2 font-mono">{employee.employeeCode}</td>
+                  <td className="p-2 font-medium">{employee.fullName}</td>
+                  <td className="p-2">{staffAccounts.data?.find((account) => account.id === employee.identityUserId)?.name ?? (employee.identityUserId ? "Linked account" : "—")}</td>
+                  <td className="p-2">{(branches.data ?? []).find((b) => b.id === employee.branchId)?.name ?? employee.branchId}</td>
+                  <td className="p-2">{employee.department}<span className="block text-[11px] text-muted-foreground">{employee.jobTitle}</span></td>
+                  <td className="p-2 font-mono">{employee.epfNumber ?? "—"}</td>
+                  <td className="p-2"><Badge variant={employee.status === "active" ? "good" : "outline"}>{employee.status}</Badge></td>
+                  <td className="p-2"><div className="flex gap-1"><Button size="sm" variant="outline" aria-label={`View HR record for ${employee.employeeCode}`} onClick={() => { setSelectedEmployeeId(employee.id); setDetailSection("profile"); setNote(null); }}>View record</Button><Button size="sm" variant="ghost" aria-label={`Edit HR record for ${employee.employeeCode}`} onClick={() => editEmployee(employee)}>Edit</Button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!employees.isPending && (employees.data?.length ?? 0) === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No employees match this search.</p> : null}
+        </div>
+      </Card>
+
+      <Dialog open={employeeFormOpen} onOpenChange={(open) => { if (!open) { setEmployeeFormOpen(false); setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); } }} title={editingId ? "Edit employee" : "Enrol new employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users. Complete each outlined section before saving." className="w-[1120px]">
         <form className="space-y-5" onSubmit={submit}>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand/[0.04] px-4 py-3">
             <div><p className="text-sm font-semibold text-foreground">{editingId ? "Employee profile" : "New employee profile"}</p><p className="mt-0.5 text-xs text-muted-foreground">Required fields are marked by the browser. You can complete salary assignment later.</p></div>
@@ -324,38 +360,9 @@ export default function HrEmployees() {
             </div>
           </section>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/20 p-4"><div className="text-xs text-muted-foreground">Review the sections above before saving this confidential HR record.</div><div className="flex flex-wrap gap-2"><Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>{!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-xs font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}{editingId ? <Button type="button" variant="outline" onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}</div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/20 p-4"><div className="text-xs text-muted-foreground">Review the sections above before saving this confidential HR record.</div><div className="flex flex-wrap gap-2"><Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>{!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-xs font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}{editingId ? <Button type="button" variant="outline" onClick={() => { setEmployeeFormOpen(false); setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}</div></div>
         </form>
-      </Card>
-
-      <Card title="Employee register" description="Only HR and administrators can read or change employee records.">
-        <div className="mb-4 flex flex-wrap gap-3">
-          <Input className="max-w-sm" placeholder="Search code, name, department" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className={HR_CONTROL_CLASS + " max-w-[180px]"} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option>
-          </select>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-[13px]">
-            <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Employee</th><th className="p-2">Official staff account</th><th className="p-2">Branch</th><th className="p-2">Department / title</th><th className="p-2">EPF</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
-            <tbody>
-              {(employees.data ?? []).map((employee) => (
-                <tr key={employee.id} className="border-b border-border/60 hover:bg-muted/40">
-                  <td className="p-2 font-mono">{employee.employeeCode}</td>
-                  <td className="p-2 font-medium">{employee.fullName}</td>
-                  <td className="p-2">{staffAccounts.data?.find((account) => account.id === employee.identityUserId)?.name ?? (employee.identityUserId ? "Linked account" : "—")}</td>
-                  <td className="p-2">{(branches.data ?? []).find((b) => b.id === employee.branchId)?.name ?? employee.branchId}</td>
-                  <td className="p-2">{employee.department}<span className="block text-[11px] text-muted-foreground">{employee.jobTitle}</span></td>
-                  <td className="p-2 font-mono">{employee.epfNumber ?? "—"}</td>
-                  <td className="p-2"><Badge variant={employee.status === "active" ? "good" : "outline"}>{employee.status}</Badge></td>
-                  <td className="p-2"><div className="flex gap-1"><Button size="sm" variant="outline" aria-label={`View HR record for ${employee.employeeCode}`} onClick={() => { setSelectedEmployeeId(employee.id); setDetailSection("profile"); setNote(null); }}>View record</Button><Button size="sm" variant="ghost" aria-label={`Edit HR record for ${employee.employeeCode}`} onClick={() => editEmployee(employee)}>Edit</Button></div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!employees.isPending && (employees.data?.length ?? 0) === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No employees match this search.</p> : null}
-        </div>
-      </Card>
+      </Dialog>
 
       {selectedEmployeeId ? (() => {
         const selected = employees.data?.find((employee) => employee.id === selectedEmployeeId);
