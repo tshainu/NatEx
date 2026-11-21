@@ -131,6 +131,7 @@ const FINANCE: PortalConfig = {
     { label: "Invoices", to: "/finance/invoices" },
     { label: "Customer freight", to: "/finance/freight" },
     { label: "Disputes", to: "/finance/disputes" },
+    { label: "Payroll approvals", to: "/finance/payroll-approvals" },
     { label: "Rider performance", to: "/ops/reports/performance" },
   ],
 };

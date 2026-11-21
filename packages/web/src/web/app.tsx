@@ -49,6 +49,7 @@ import FinanceRemittances from "./pages/finance/remittances-page";
 import FinanceInvoices from "./pages/finance/invoices-page";
 import FinanceFreight from "./pages/finance/freight";
 import FinanceDisputes from "./pages/finance/disputes-page";
+import FinancePayrollApprovals from "./pages/finance/payroll-approvals";
 import HrEmployees from "./pages/hr/employees";
 import HrDashboard from "./pages/hr/dashboard";
 import HrAttendance from "./pages/hr/attendance";
@@ -290,6 +291,9 @@ function Routes() {
       </Portal>
       <Portal path="/finance/disputes">
         <FinanceDisputes />
+      </Portal>
+      <Portal path="/finance/payroll-approvals">
+        <FinancePayrollApprovals />
       </Portal>
 
       {/* HR — employee records, payroll drafts and leave; Finance/Admin approve. */}

@@ -67,6 +67,18 @@ export const approvePayrollRun = financeProc.input(z.object({ runId: z.string().
   entityId: () => input.runId,
   action: "hr.payroll_approved",
 }, () => payroll.approvePayrollRun(input.runId, context.principal)));
+export const returnPayrollRun = financeProc.input(z.object({ runId: z.string().min(1), reason: z.string().trim().min(5).max(500) })).handler(({ input, context }) => mutate(context, input, {
+  route: "hr.returnPayrollRun",
+  entity: "hr_payroll_run",
+  entityId: () => input.runId,
+  action: "hr.payroll_returned_to_hr",
+}, () => payroll.returnPayrollRun(input, context.principal)));
+export const rejectPayrollRun = financeProc.input(z.object({ runId: z.string().min(1), reason: z.string().trim().min(5).max(500) })).handler(({ input, context }) => mutate(context, input, {
+  route: "hr.rejectPayrollRun",
+  entity: "hr_payroll_run",
+  entityId: () => input.runId,
+  action: "hr.payroll_rejected",
+}, () => payroll.rejectPayrollRun(input, context.principal)));
 export const recordPayrollPayment = financeProc.input(z.object({ runId: z.string().min(1), reference: z.string().trim().min(3).max(200) })).handler(({ input, context }) => mutate(context, input, {
   route: "hr.recordPayrollPayment",
   entity: "hr_payroll_run",
@@ -81,4 +93,4 @@ export const cancelDraftPayrollRun = hrProc.input(z.object({ runId: z.string().m
 }, () => payroll.cancelDraftPayrollRun(input, context.principal)));
 export const statutoryReport = payrollReadProc.input(z.object({ runId: z.string().min(1) })).handler(({ input, context }) => payroll.statutoryReport(input.runId, context.principal));
 
-export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, exportPayslips, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, recordPayrollPayment, cancelDraftPayrollRun, editPayrollLine, approvePayrollLines, statutoryReport };
+export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, exportPayslips, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, returnPayrollRun, rejectPayrollRun, recordPayrollPayment, cancelDraftPayrollRun, editPayrollLine, approvePayrollLines, statutoryReport };

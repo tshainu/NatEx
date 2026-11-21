@@ -47,6 +47,7 @@
     { "path": "/finance/invoices", "title": "Invoices" },
     { "path": "/finance/freight", "title": "Customer freight" },
     { "path": "/finance/disputes", "title": "Finance disputes" },
+    { "path": "/finance/payroll-approvals", "title": "Payroll approvals" },
     { "path": "/hr", "title": "HR and payroll" },
     { "path": "/hr/dashboard", "title": "HR dashboard" },
     { "path": "/hr/attendance", "title": "Attendance" },

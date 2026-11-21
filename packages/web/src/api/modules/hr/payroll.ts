@@ -222,6 +222,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
     eq(hrPayrollRun.periodStart, input.periodStart),
     eq(hrPayrollRun.periodEnd, input.periodEnd),
     ne(hrPayrollRun.status, "cancelled"),
+    ne(hrPayrollRun.status, "rejected"),
   )).limit(1);
   if (existing.length) errors.conflict(`A ${existing[0]!.status} payroll run already exists for this period.`);
   const schedule = await ensureDefaultApitSchedule();
@@ -430,7 +431,7 @@ export async function editDraftPayrollLine(input: { runId: string; employeeId: s
   if (input.reason.trim().length < 5) errors.badRequest("A reason is required for every payroll-line edit.");
   const [run] = await db.select().from(hrPayrollRun).where(eq(hrPayrollRun.id, input.runId));
   if (!run) errors.notFound("Payroll run");
-  if (run!.status !== "draft") errors.conflict("Payroll lines are locked after submission or approval.");
+  if (run!.status !== "draft" && run!.status !== "returned") errors.conflict("Payroll lines are locked after submission or approval.");
   const [line] = await db.select().from(hrPayrollLine).where(and(eq(hrPayrollLine.runId, input.runId), eq(hrPayrollLine.employeeId, input.employeeId)));
   if (!line) errors.notFound("Payroll line");
   const values = [input.grossCents, input.allowancesCents, input.otherDeductionsCents, input.paidLeaveHalfDays, input.unpaidLeaveHalfDays, input.apitCents, input.employeeEtfCents].filter((v) => v !== undefined);
@@ -462,9 +463,39 @@ export async function approvePayrollLines(input: { runId: string; employeeIds: s
   return getPayrollRun(input.runId, actor);
 }
 
+export async function returnPayrollRun(input: { runId: string; reason: string }, actor: Principal) {
+  if (input.reason.trim().length < 5) errors.badRequest("Give a correction reason before returning payroll to HR.");
+  const [run] = await db.select().from(hrPayrollRun).where(eq(hrPayrollRun.id, input.runId));
+  if (!run) errors.notFound("Payroll run");
+  if (run!.status !== "submitted") errors.conflict("Only submitted payroll can be returned to HR.");
+  if (run!.createdBy === actor.userId) errors.forbidden("The payroll maker cannot return their own payroll run.");
+  const [row] = await db.update(hrPayrollRun).set({
+    status: "returned",
+    cancelledBy: actor.userId,
+    cancelledAt: new Date(),
+    cancelReason: input.reason.trim(),
+  }).where(eq(hrPayrollRun.id, input.runId)).returning();
+  return row!;
+}
+
+export async function rejectPayrollRun(input: { runId: string; reason: string }, actor: Principal) {
+  if (input.reason.trim().length < 5) errors.badRequest("Give a rejection reason before rejecting payroll.");
+  const [run] = await db.select().from(hrPayrollRun).where(eq(hrPayrollRun.id, input.runId));
+  if (!run) errors.notFound("Payroll run");
+  if (run!.status !== "submitted") errors.conflict("Only submitted payroll can be rejected.");
+  if (run!.createdBy === actor.userId) errors.forbidden("The payroll maker cannot reject their own payroll run.");
+  const [row] = await db.update(hrPayrollRun).set({
+    status: "rejected",
+    cancelledBy: actor.userId,
+    cancelledAt: new Date(),
+    cancelReason: input.reason.trim(),
+  }).where(eq(hrPayrollRun.id, input.runId)).returning();
+  return row!;
+}
+
 export async function submitPayrollRun(runId: string, actor: Principal) {
   const detail = await getPayrollRun(runId, actor);
-  if (detail.run.status !== "draft") errors.conflict(`Only draft payroll can be submitted; this run is ${detail.run.status}.`);
+  if (detail.run.status !== "draft" && detail.run.status !== "returned") errors.conflict(`Only draft or returned payroll can be submitted; this run is ${detail.run.status}.`);
   const blockers = blockedWarnings(detail.lines);
   if (blockers.length) errors.conflict(`Resolve these payroll exceptions before submission: ${blockers.slice(0, 12).join("; ")}`);
   const [row] = await db.update(hrPayrollRun).set({ status: "submitted", submittedAt: new Date() }).where(eq(hrPayrollRun.id, runId)).returning();
