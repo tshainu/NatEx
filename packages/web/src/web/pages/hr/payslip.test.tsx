@@ -54,8 +54,8 @@ describe("compact A5 salary slip", () => {
     expect(doc.querySelector("header")?.textContent).toContain("SALARY SLIP");
     expect(doc.querySelector('img[alt="NatEx logo"]')).not.toBeNull();
     expect(doc.querySelector("style")?.textContent).toContain("A5 portrait");
-    expect(doc.querySelector("dialog")?.textContent).not.toContain("Review notes");
-    expect(doc.querySelector("dialog")?.textContent).not.toContain("APIT");
+    expect(doc.querySelector('[role="dialog"]')?.textContent).not.toContain("Review notes");
+    expect(doc.querySelector('[role="dialog"]')?.textContent).not.toContain("APIT");
     expect(doc.querySelector("footer")?.textContent).toContain("No human authorization is required");
   });
 });

@@ -12,7 +12,7 @@ export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
   const packageDeductionCents = packageDeductions.reduce((sum, item) => sum + item.amountCents, 0);
   const totalDeductions = line.grossCents - line.netCents;
 
-  return <dialog open className="hr-print-slip" aria-label={`Salary slip ${line.employeeCode}`}>
+  return <div className="hr-print-slip" role="dialog" aria-label={`Salary slip ${line.employeeCode}`}>
     <style>{`
       @media screen { .hr-print-slip { display: none; } }
       @media print {
@@ -48,5 +48,5 @@ export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
     <section aria-label="Deductions"><h2 className="section-title">Deductions</h2><table><thead><tr><th>Deduction</th><th className="right">Amount (LKR)</th></tr></thead><tbody><tr><td>Employee EPF (8%)</td><td className="right">{money(line.employeeEpfCents)}</td></tr>{packageDeductions.map((item, index) => <tr key={`${item.label}-${index}`}><td>{item.label}</td><td className="right">{money(item.amountCents)}</td></tr>)}{line.otherDeductionsCents > packageDeductionCents ? <tr><td>Other deductions</td><td className="right">{money(line.otherDeductionsCents - packageDeductionCents)}</td></tr> : null}<tr className="total-row"><td>Total deductions</td><td className="right">{money(totalDeductions)}</td></tr><tr className="net-row"><td>Net salary payable</td><td className="right">{money(summary.netCents)}</td></tr></tbody></table></section>
     <section aria-label="Company contributions"><h2 className="section-title">Company contributions</h2><table><thead><tr><th>Contribution</th><th className="right">Amount (LKR)</th></tr></thead><tbody><tr><td>Company EPF (12%)</td><td className="right">{money(line.employerEpfCents)}</td></tr><tr><td>Company ETF (3%)</td><td className="right">{money(line.employerEtfCents)}</td></tr><tr className="total-row"><td>Total company contributions</td><td className="right">{money(summary.companyContributionsCents)}</td></tr></tbody></table></section>
     <footer style={{ marginTop: 9, paddingTop: 6, borderTop: "1px solid #d9e2dc", textAlign: "center", color: "#56635b", fontSize: 7.5 }}>System-generated salary slip. No human authorization is required.</footer>
-  </dialog>;
+  </div>;
 }
