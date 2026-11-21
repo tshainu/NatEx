@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { navForRoles, rolesOfUser } from "./permissions";
+import { navFor, navForRoles, rolesOfUser } from "./permissions";
 import type { Role } from "./session";
 
 function groupTitles(roles: readonly Role[]): string[] {
@@ -10,7 +10,18 @@ function paths(roles: readonly Role[]): string[] {
   return navForRoles(roles).flatMap((group) => group.items.map((item) => item.to));
 }
 
+function titlesForSelectedRole(role: Role): string[] {
+  return navFor(role).map((group) => group.title);
+}
+
 describe("department navigation", () => {
+  test("the selected HR role does not inherit secondary department menus", () => {
+    expect(titlesForSelectedRole("hr")).toEqual(["HR & Payroll"]);
+    expect(titlesForSelectedRole("hr")).not.toContain("Operations");
+    expect(titlesForSelectedRole("hr")).not.toContain("Transport");
+    expect(titlesForSelectedRole("hr")).not.toContain("Administration");
+  });
+
   test("HR users receive one HR & Payroll menu", () => {
     expect(groupTitles(["hr"])).toEqual(["HR & Payroll"]);
     expect(paths(["hr"])).toContain("/hr/dashboard");
@@ -20,7 +31,6 @@ describe("department navigation", () => {
 
   test("HR plus Administration receives all three department menus", () => {
     expect(groupTitles(["hr", "admin"])).toEqual([
-      "Overview",
       "Operations",
       "Transport",
       "Administration",

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { LogOut, Building2, ShieldCheck, ChevronDown, Bell, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { orpc } from "@/lib/api";
-import { navForRoles, rolesOfUser, ROLE_LABEL } from "@/lib/permissions";
+import { navFor, rolesOfUser, ROLE_LABEL } from "@/lib/permissions";
 import { useAuth } from "@/components/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const user = session!.user;
   const userRoles = rolesOfUser(user);
-  const groups = navForRoles(userRoles);
+  // The account may have several assigned roles, but the sidebar represents
+  // the role selected for this session (`user.role`). Do not merge secondary
+  // roles here: an HR login must not inherit Operations, Transport, or
+  // Administration menus unless the user actually switches to that role.
+  const groups = navFor(user.role);
   const [collapsedGroups, setCollapsedGroups] = React.useState<string[]>(loadCollapsedSidebarGroups);
   const mainRef = React.useRef<HTMLElement>(null);
 
