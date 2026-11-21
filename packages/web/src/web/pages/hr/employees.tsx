@@ -307,12 +307,12 @@ export default function HrEmployees() {
 
       <Dialog open={employeeFormOpen} onOpenChange={(open) => { if (!open) { setEmployeeFormOpen(false); setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); } }} title={editingId ? "Edit employee" : "Enrol new employee"} description="Employee records are separate from NatEx official-user logins and Merchant portal users. Complete each outlined section before saving." className="w-[1120px]">
         <form className="space-y-5" onSubmit={submit}>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/20 bg-brand/[0.04] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-transparent bg-brand/[0.04] px-4 py-3" style={{ background: "linear-gradient(hsl(var(--card)), hsl(var(--card))) padding-box, linear-gradient(120deg, #16a085, #2ecc71, #f1c40f) border-box" }}>
             <div><p className="text-sm font-semibold text-foreground">{editingId ? "Employee profile" : "New employee profile"}</p><p className="mt-0.5 text-xs text-muted-foreground">Required fields are marked by the browser. You can complete salary assignment later.</p></div>
             {editingId ? <div className="rounded-lg border border-brand/20 bg-background px-3 py-2 text-right"><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Employee number</p><p className="font-mono text-sm font-semibold text-brand">{employees.data?.find((employee) => employee.id === editingId)?.employeeCode ?? "—"}</p></div> : <span className="text-xs text-muted-foreground">Number assigned automatically on save</span>}
           </div>
 
-          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+          <section className="rounded-2xl border-2 border-transparent bg-background p-4 shadow-sm md:p-5" style={{ background: "linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box, linear-gradient(135deg, #16a085, #3498db, #8e44ad) border-box" }}>
             <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">01</span><div><h3 className="text-sm font-semibold">Personal and contact details</h3><p className="mt-0.5 text-xs text-muted-foreground">Basic identity and official account information.</p></div></div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="Full name"><Input required maxLength={160} value={form.fullName} onChange={(e) => setField("fullName", e.target.value)} /></Field>
@@ -325,7 +325,7 @@ export default function HrEmployees() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+          <section className="rounded-2xl border-2 border-transparent bg-background p-4 shadow-sm md:p-5" style={{ background: "linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box, linear-gradient(135deg, #e67e22, #e74c3c, #9b59b6) border-box" }}>
             <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">02</span><div><h3 className="text-sm font-semibold">Employment assignment</h3><p className="mt-0.5 text-xs text-muted-foreground">Where this employee works and what they do.</p></div></div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="Branch / hub"><select required className={HR_CONTROL_CLASS} value={form.branchId} onChange={(e) => setField("branchId", e.target.value)}><option value="">Select branch or hub</option>{(branches.data ?? []).filter((branch) => branch.status === "active" || branch.id === form.branchId).map((branch) => <option key={branch.id} value={branch.id}>{branch.name} · {branch.type}{branch.status === "active" ? "" : " · inactive"}</option>)}</select></Field>
@@ -338,7 +338,7 @@ export default function HrEmployees() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+          <section className="rounded-2xl border-2 border-transparent bg-background p-4 shadow-sm md:p-5" style={{ background: "linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box, linear-gradient(135deg, #2980b9, #16a085, #27ae60) border-box" }}>
             <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">03</span><div><h3 className="text-sm font-semibold">Compliance and payroll</h3><p className="mt-0.5 text-xs text-muted-foreground">Statutory identifiers, APIT, overtime, and salary setup.</p></div></div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Field label="EPF member number"><Input maxLength={50} value={form.epfNumber} onChange={(e) => setField("epfNumber", e.target.value)} /></Field>
@@ -352,7 +352,7 @@ export default function HrEmployees() {
             {!editingId && initialPackage ? <div className="mt-4 rounded-xl border border-brand/25 bg-brand/5 p-3 text-xs"><p className="font-semibold">{initialPackage.code} · {initialPackage.name}</p><p className="mt-1 text-muted-foreground">Base: LKR {centsToLkr(initialPackage.basePayCents)} per {initialPackage.payBasis} · {initialPackage.items.length} recurring component(s).</p></div> : null}
           </section>
 
-          <section className="rounded-2xl border border-border bg-background p-4 shadow-sm md:p-5">
+          <section className="rounded-2xl border-2 border-transparent bg-background p-4 shadow-sm md:p-5" style={{ background: "linear-gradient(hsl(var(--background)), hsl(var(--background))) padding-box, linear-gradient(135deg, #8e44ad, #d35400, #f39c12) border-box" }}>
             <div className="mb-4 flex items-start gap-3"><span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">04</span><div><h3 className="text-sm font-semibold">Address details</h3><p className="mt-0.5 text-xs text-muted-foreground">Keep the registered address and current living address accurate for HR records.</p></div></div>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Permanent address" hint="Long-term or registered home address."><Textarea value={form.permanentAddress} onChange={(e) => { setField("permanentAddress", e.target.value); if (form.sameAsPermanent) setField("currentAddress", e.target.value); }} maxLength={500} /></Field>
@@ -360,7 +360,7 @@ export default function HrEmployees() {
             </div>
           </section>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/20 p-4"><div className="text-xs text-muted-foreground">Review the sections above before saving this confidential HR record.</div><div className="flex flex-wrap gap-2"><Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>{!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-xs font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}{editingId ? <Button type="button" variant="outline" onClick={() => { setEmployeeFormOpen(false); setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}</div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-transparent bg-muted/20 p-4" style={{ background: "linear-gradient(hsl(var(--muted) / 0.2), hsl(var(--muted) / 0.2)) padding-box, linear-gradient(120deg, #f1c40f, #e67e22, #16a085) border-box" }}><div className="text-xs text-muted-foreground">Review the sections above before saving this confidential HR record.</div><div className="flex flex-wrap gap-2"><Button type="submit" pending={busy}>{editingId ? "Save employee" : "Create employee"}</Button>{!editingId && !(packages.data ?? []).some((pkg) => pkg.active) ? <a className="self-center text-xs font-medium text-brand underline" href="/hr/packages">Create a salary package first</a> : null}{editingId ? <Button type="button" variant="outline" onClick={() => { setEmployeeFormOpen(false); setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); }}>Cancel edit</Button> : null}</div></div>
         </form>
       </Dialog>
 
