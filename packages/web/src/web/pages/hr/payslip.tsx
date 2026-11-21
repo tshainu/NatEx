@@ -14,7 +14,7 @@ export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
 
   return <div className="hr-print-slip" role="dialog" aria-label={`Salary slip ${line.employeeCode}`}>
     <style>{`
-      @media screen { .hr-print-slip { display: none; } }
+      @media screen { .hr-print-slip { position: absolute; top: 0; left: -10000px; display: block; width: 132mm; } }
       @media print {
         @page { size: A5 portrait; margin: 8mm; }
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }

@@ -144,8 +144,15 @@ function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, 
   const [selected, setSelected] = React.useState<string[]>([]);
   function print(line: Line) {
     setPrintLine(line);
-    window.setTimeout(() => window.print(), 200);
   }
+  React.useEffect(() => {
+    if (!printLine) return;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => window.print());
+    });
+    return () => { window.cancelAnimationFrame(firstFrame); if (secondFrame) window.cancelAnimationFrame(secondFrame); };
+  }, [printLine]);
   React.useEffect(() => {
     const closePrint = () => setPrintLine(null);
     window.addEventListener("afterprint", closePrint);
