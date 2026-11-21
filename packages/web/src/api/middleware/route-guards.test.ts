@@ -161,7 +161,7 @@ describe("route guards (static inventory)", () => {
   test("desk-only reads (staff phones, consignee messages, commercial terms) refuse field roles", () => {
     const desk = guards.filter(
       (g) =>
-        /^(rateCards|settings)\./.test(g.path) && g.path !== "settings.bookingLimits" ||
+        /^(rateCards|settings)\./.test(g.path) && !["settings.bookingLimits", "settings.receiptContact"].includes(g.path) ||
         ["identity.listUsers", "notifications.messages", "notifications.templates", "notifications.template",
           "notifications.templatePreview", "notifications.summary"].includes(g.path),
     );
@@ -170,6 +170,10 @@ describe("route guards (static inventory)", () => {
       expect(g.roles).not.toBeNull();
       for (const r of FIELD_ROLES) expect({ path: g.path, has: g.roles!.includes(r) }).toEqual({ path: g.path, has: false });
     }
+  });
+
+  test("receipt contact metadata is readable by authenticated operational roles", () => {
+    expect(byPath.get("settings.receiptContact")?.roles).toEqual(["admin", "finance", "hr", "ops", "transport", "rider"]);
   });
 
   test("finance namespace never admits field roles", () => {

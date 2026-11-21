@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ultimateAdminProc, mutate, authedProc } from "../middleware/pipeline";
+import { requireRole } from "../middleware/auth";
 import * as settingsService from "../modules/settings/service";
 import { errors } from "../shared/errors";
 
@@ -20,7 +21,8 @@ export const list = ultimateAdminProc.handler(() => settingsService.listSettings
 export const bookingLimits = authedProc.handler(() => settingsService.bookingLimits());
 
 /** Contact metadata is needed by desk-side receipt printing; the phone is blank until configured. */
-export const receiptContact = ultimateAdminProc.handler(() => settingsService.getReceiptContact());
+const receiptContactReadProc = authedProc.use(requireRole("admin", "finance", "hr", "ops", "transport", "rider"));
+export const receiptContact = receiptContactReadProc.handler(() => settingsService.getReceiptContact());
 
 export const set = ultimateAdminProc
   .input(z.object({ key, value: z.number(), reason: z.string().trim().min(5).max(500) }))
