@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr } from "../hr/shared";
-import { Payslip } from "../hr/payslip";
+import { Payslip, printPayslipInWindow } from "../hr/payslip";
 import { payrollPaySummary, type PayrollLine as Line, type PayrollSnapshot as Snapshot } from "../hr/payroll-presentation";
 
 const asLkr = (cents: number) => `LKR ${centsToLkr(cents)}`;
@@ -92,21 +92,20 @@ function Total({ label, value, raw = false, strong = false }: { label: string; v
 
 function FinancePayrollTable({ lines, status, periodStart, periodEnd }: { lines: Line[]; status: string; periodStart: string; periodEnd: string }) {
   const [printLine, setPrintLine] = React.useState<Line | null>(null);
+  const printWindowRef = React.useRef<Window | null>(null);
   React.useEffect(() => {
     const closePrint = () => setPrintLine(null);
     window.addEventListener("afterprint", closePrint);
     return () => window.removeEventListener("afterprint", closePrint);
   }, []);
   React.useEffect(() => {
-    if (!printLine) return;
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => window.print());
-    });
-    return () => { window.cancelAnimationFrame(firstFrame); if (secondFrame) window.cancelAnimationFrame(secondFrame); };
+    const target = printWindowRef.current;
+    const source = document.querySelector<HTMLElement>(".hr-print-slip");
+    if (!printLine || !target || !source) return;
+    printPayslipInWindow(target, source, () => { printWindowRef.current = null; setPrintLine(null); });
   }, [printLine]);
   return <>
-    <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2 text-right">Gross</th><th className="p-2 text-right">Staff EPF</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net pay</th><th className="p-2">Review</th></tr></thead><tbody>{lines.map((line) => { const snapshot = JSON.parse(line.breakdownJson) as Snapshot; return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={line.otherDeductionsCents} /><MoneyCell value={line.netCents} bold /><td className="p-2"><div className="space-y-1">{snapshot.warnings.map((warning, index) => <p key={index} className="max-w-[280px] text-[10px] text-status-warn">{warning}</p>)}<Button size="sm" variant="outline" onClick={() => setPrintLine(line)}>Open payslip</Button><span className="ml-2 text-[10px] text-muted-foreground">Take-home {centsToLkr(payrollPaySummary(line).earningsAfterStaffDeductionsCents ?? payrollPaySummary(line).earningsAfterStaffEpfCents)}</span></div></td></tr>; })}</tbody></table></div>
+    <div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-[12px]"><thead><tr className="border-b text-[10px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2 text-right">Gross</th><th className="p-2 text-right">Staff EPF</th><th className="p-2 text-right">Other deductions</th><th className="p-2 text-right">Net pay</th><th className="p-2">Review</th></tr></thead><tbody>{lines.map((line) => { const snapshot = JSON.parse(line.breakdownJson) as Snapshot; return <tr key={line.id} className="border-b border-border/60 align-top"><td className="p-2"><span className="font-mono">{line.employeeCode}</span><span className="block font-medium">{line.employeeName}</span><span className="text-[10px] text-muted-foreground">{line.payBasis}</span></td><MoneyCell value={line.grossCents} /><MoneyCell value={line.employeeEpfCents} /><MoneyCell value={line.otherDeductionsCents} /><MoneyCell value={line.netCents} bold /><td className="p-2"><div className="space-y-1">{snapshot.warnings.map((warning, index) => <p key={index} className="max-w-[280px] text-[10px] text-status-warn">{warning}</p>)}<Button size="sm" variant="outline" onClick={() => { printWindowRef.current = window.open("", "_blank", "width=900,height=900"); setPrintLine(line); }}>Open payslip</Button><span className="ml-2 text-[10px] text-muted-foreground">Take-home {centsToLkr(payrollPaySummary(line).earningsAfterStaffDeductionsCents ?? payrollPaySummary(line).earningsAfterStaffEpfCents)}</span></div></td></tr>; })}</tbody></table></div>
     {printLine ? <Payslip line={printLine} status={status} periodStart={periodStart} periodEnd={periodEnd} /> : null}
   </>;
 }

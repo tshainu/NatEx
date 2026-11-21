@@ -4,6 +4,22 @@ import { payrollPaySummary, type PayrollLine, type PayrollSnapshot } from "./pay
 interface PayslipProps { line: PayrollLine; status: string; periodStart: string; periodEnd: string; }
 const money = (cents: number) => `LKR ${new Intl.NumberFormat("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(centsToLkr(cents)))}`;
 
+export function printPayslipInWindow(target: Window, source: HTMLElement, onAfterPrint?: () => void) {
+  const sourceStyle = source.querySelector("style")?.textContent ?? "";
+  const bodyMarkup = source.innerHTML;
+  target.document.open();
+  target.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>NatEx Salary Slip</title><style>${sourceStyle}
+    @media print { @page { size: A5 portrait; margin: 8mm; } }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    .hr-print-slip { display: block !important; position: relative !important; inset: auto !important; left: auto !important; top: auto !important; width: 100% !important; max-width: 132mm !important; min-height: 0 !important; margin: 0 auto !important; padding: 0 !important; overflow: visible !important; visibility: visible !important; }
+    .hr-print-slip, .hr-print-slip * { visibility: visible !important; }
+  </style></head><body>${bodyMarkup}</body></html>`);
+  target.document.close();
+  target.focus();
+  target.addEventListener("afterprint", () => { onAfterPrint?.(); target.close(); }, { once: true });
+  window.setTimeout(() => target.print(), 80);
+}
+
 export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
   const snapshot = JSON.parse(line.breakdownJson) as PayrollSnapshot;
   const summary = payrollPaySummary(line);

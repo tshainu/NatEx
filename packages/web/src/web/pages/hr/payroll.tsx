@@ -8,7 +8,7 @@ import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { currentMonthRange, centsToLkr, downloadCsv, lkrToCents } from "./shared";
 import { HrNavigation } from "./navigation";
-import { Payslip } from "./payslip";
+import { Payslip, printPayslipInWindow } from "./payslip";
 import { payrollPaySummary, type PayrollLine as Line, type PayrollSnapshot as Snapshot } from "./payroll-presentation";
 
 const asLkr = (cents: number) => `LKR ${centsToLkr(cents)}`;
@@ -141,17 +141,17 @@ function PayrollTable({ lines, status, periodStart, periodEnd, canDraft, runId, 
   approveLinesPending: boolean;
 }) {
   const [printLine, setPrintLine] = React.useState<Line | null>(null);
+  const printWindowRef = React.useRef<Window | null>(null);
   const [selected, setSelected] = React.useState<string[]>([]);
   function print(line: Line) {
+    printWindowRef.current = window.open("", "_blank", "width=900,height=900");
     setPrintLine(line);
   }
   React.useEffect(() => {
-    if (!printLine) return;
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => window.print());
-    });
-    return () => { window.cancelAnimationFrame(firstFrame); if (secondFrame) window.cancelAnimationFrame(secondFrame); };
+    const target = printWindowRef.current;
+    const source = document.querySelector<HTMLElement>(".hr-print-slip");
+    if (!printLine || !target || !source) return;
+    printPayslipInWindow(target, source, () => { printWindowRef.current = null; setPrintLine(null); });
   }, [printLine]);
   React.useEffect(() => {
     const closePrint = () => setPrintLine(null);
