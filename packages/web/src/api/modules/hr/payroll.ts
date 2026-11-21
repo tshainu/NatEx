@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { db } from "../../database";
-import { hrApitSchedule, hrLeaveRequest, hrLeaveType, hrPayrollLine, hrPayrollRun } from "../../database/schema/hr";
+import { hrApitSchedule, hrEmployee, hrLeaveRequest, hrLeaveType, hrPayrollLine, hrPayrollRun } from "../../database/schema/hr";
 import type { Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
@@ -387,8 +387,12 @@ export async function getPayrollRun(runId: string, actor: Principal) {
   if (!canSeeDrafts && (run!.status === "draft" || run!.status === "cancelled")) errors.notFound("Payroll run");
   const lines = await db.select().from(hrPayrollLine).where(eq(hrPayrollLine.runId, runId)).orderBy(asc(hrPayrollLine.employeeCode));
   const [schedule] = await db.select().from(hrApitSchedule).where(eq(hrApitSchedule.id, run!.apitScheduleId));
+  const employeeIds = lines.map((line) => line.employeeId);
+  const employees = employeeIds.length ? await db.select({ id: hrEmployee.id, nationalId: hrEmployee.nationalId }).from(hrEmployee).where(inArray(hrEmployee.id, employeeIds)) : [];
+  const nationalIds = new Map(employees.map((employee) => [employee.id, employee.nationalId]));
   const visibleLines = lines.map((line) => ({
     ...line,
+    nationalId: nationalIds.get(line.employeeId) ?? null,
     breakdownJson: JSON.stringify(withoutPausedApitWarnings(parseSnapshot(line))),
   }));
   return { run: run!, lines: visibleLines, schedule: schedule ?? null };

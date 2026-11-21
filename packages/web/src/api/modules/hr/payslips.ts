@@ -50,41 +50,39 @@ const concat = (...parts: Uint8Array[]): Uint8Array => {
 };
 const ascii = (value: string) => value.normalize("NFKD").replace(/[^\x20-\x7E]/g, "?");
 const pdfEscape = (value: string) => ascii(value).replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
-const money = (cents: number) => `LKR ${(cents / 100).toFixed(2)}`;
+const money = (cents: number) => `LKR ${new Intl.NumberFormat("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)}`;
 const safePart = (value: string) => ascii(value).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "employee";
+type PayslipLine = PayrollLineRow & { nationalId?: string | null };
 
-function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "periodEnd" | "code">, line: PayrollLineRow): Uint8Array {
+function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "periodEnd" | "code">, line: PayslipLine): Uint8Array {
   const snapshot = JSON.parse(line.breakdownJson) as Snapshot;
-  const status = run.status === "paid" ? "Paid" : "Approved / ready for payment";
-  const summary = [
-    ["Gross earnings", line.grossCents],
-    ["EPF staff deduction (8%)", line.employeeEpfCents],
-    ["Earnings after staff EPF", line.grossCents - line.employeeEpfCents],
-    ["APIT withheld", line.apitCents],
-    ["Other deductions", line.otherDeductionsCents],
-    ["Net pay / take-home pay", line.netCents],
-    ["Company EPF contribution (12%)", line.employerEpfCents],
-    ["Company ETF contribution (3%)", line.employerEtfCents],
-  ] as const;
+  const earnings = snapshot.lines.filter((item) => item.kind === "earning");
+  const deductions = snapshot.lines.filter((item) => item.kind === "deduction");
+  const totalDeductions = line.grossCents - line.netCents;
   const rows = [
-    "NatEx - PAYSLIP",
-    `Payroll run: ${run.code}   Status: ${status}`,
-    `Employee: ${line.employeeName}   Employee code: ${line.employeeCode}`,
-    `Pay basis: ${line.payBasis}   Pay period: ${run.periodStart} to ${run.periodEnd}`,
-    `APIT schedule snapshot: ${snapshot.apitScheduleVersion}`,
+    "NatEx",
+    "SALARY SLIP",
+    `Employee name: ${line.employeeName}`,
+    `NIC number: ${line.nationalId ?? "-"}   Employee number: ${line.employeeCode}`,
+    `Pay period: ${run.periodStart} to ${run.periodEnd}`,
     "",
-    "PAY / DEDUCTION ITEM                                         AMOUNT (LKR)",
-    ...snapshot.lines.map((item) => `${item.label}${item.kind === "deduction" ? " (deduction)" : ""}     ${money(item.amountCents)}`),
+    "EARNINGS",
+    ...earnings.map((item) => `${item.label}     ${money(item.amountCents)}`),
+    `Gross earnings     ${money(line.grossCents)}`,
     "",
-    "EMPLOYEE PAY SUMMARY",
-    ...summary.slice(0, 6).map(([label, cents]) => `${label}: ${money(cents)}`),
+    "DEDUCTIONS",
+    `Employee EPF (8%)     ${money(line.employeeEpfCents)}`,
+    ...deductions.map((item) => `${item.label}     ${money(item.amountCents)}`),
+    `Total deductions     ${money(totalDeductions)}`,
+    `Net salary payable     ${money(line.netCents)}`,
     "",
-    "COMPANY-PAID CONTRIBUTIONS (not deducted from employee pay)",
-    ...summary.slice(6).map(([label, cents]) => `${label}: ${money(cents)}`),
-    `Total company contributions: ${money(line.employerEpfCents + line.employerEtfCents)}`,
+    "COMPANY CONTRIBUTIONS",
+    `Company EPF (12%)     ${money(line.employerEpfCents)}`,
+    `Company ETF (3%)     ${money(line.employerEtfCents)}`,
+    `Total company contributions     ${money(line.employerEpfCents + line.employerEtfCents)}`,
+    "",
+    "System-generated salary slip. No human authorization is required.",
   ];
-  if (snapshot.warnings.length) rows.push("", `Review notes: ${snapshot.warnings.join("; ")}`);
-  rows.push("", "This payslip is based on the saved payroll record. Statutory submissions remain subject to review.");
 
   const wrappedRows = rows.flatMap((row) => {
     const result: string[] = [];
@@ -98,7 +96,7 @@ function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "p
     result.push(remaining);
     return result;
   });
-  const linesPerPage = 52;
+  const linesPerPage = 38;
   const groups: string[][] = [];
   for (let i = 0; i < wrappedRows.length; i += linesPerPage) groups.push(wrappedRows.slice(i, i + linesPerPage));
   const pageObjects = groups.map((_, i) => 4 + i * 2);
@@ -109,8 +107,8 @@ function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "p
   groups.forEach((group, i) => {
     const pageId = pageObjects[i]!;
     const streamId = pageId + 1;
-    const commands = ["BT", "/F1 10 Tf", "48 790 Td", "14 TL", ...group.flatMap((row) => [`(${pdfEscape(row)}) Tj`, "T*"]), "ET"].join("\n");
-    objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamId} 0 R >>`;
+    const commands = ["BT", "/F1 8 Tf", "30 560 Td", "10 TL", ...group.flatMap((row) => [`(${pdfEscape(row)}) Tj`, "T*"]), "ET"].join("\n");
+    objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 420 595] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamId} 0 R >>`;
     objects[streamId] = `<< /Length ${asBytes(commands).length} >>\nstream\n${commands}\nendstream`;
   });
   let document = "%PDF-1.4\n%NatEx\n";
@@ -173,7 +171,7 @@ function base64(bytes: Uint8Array): string {
   return result;
 }
 
-export function createPayslipFiles(run: Pick<PayrollRunRow, "id" | "code" | "status" | "periodStart" | "periodEnd">, lines: readonly PayrollLineRow[]): PayslipFile[] {
+export function createPayslipFiles(run: Pick<PayrollRunRow, "id" | "code" | "status" | "periodStart" | "periodEnd">, lines: readonly PayslipLine[]): PayslipFile[] {
   return lines.map((line) => ({
     name: `NatEx-Payslip-${safePart(run.periodStart.slice(0, 7))}-${safePart(line.employeeCode)}.pdf`,
     bytes: renderPayslipPdf(run, line),

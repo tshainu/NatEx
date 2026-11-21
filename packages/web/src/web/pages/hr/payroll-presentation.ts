@@ -3,6 +3,7 @@ export interface PayrollLine {
   employeeId: string;
   employeeCode: string;
   employeeName: string;
+  nationalId?: string | null;
   payBasis: string;
   grossCents: number;
   epfBaseCents: number;
