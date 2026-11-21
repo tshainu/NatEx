@@ -189,12 +189,23 @@ function parseSnapshot(line: PayrollLineRow): CalculationSnapshot {
   return JSON.parse(line.breakdownJson) as CalculationSnapshot;
 }
 
+function withoutPausedApitWarnings(snapshot: CalculationSnapshot): CalculationSnapshot {
+  return {
+    ...snapshot,
+    warnings: snapshot.warnings.filter((warning) =>
+      !warning.startsWith("Automatic APIT is configured") &&
+      !warning.startsWith("Automatic monthly APIT was not applied") &&
+      !warning.startsWith("APIT was manually overridden"),
+    ),
+  };
+}
+
 function blockedWarnings(lines: PayrollLineRow[]): string[] {
   const blocking: string[] = [];
   for (const line of lines) {
-    const snapshot = parseSnapshot(line);
+    const snapshot = withoutPausedApitWarnings(parseSnapshot(line));
     for (const warning of snapshot.warnings) {
-      if (/no overtime-pay rule|12-hour weekly|Automatic APIT is configured|Automatic monthly APIT was not applied/i.test(warning)) {
+      if (/no overtime-pay rule|12-hour weekly/i.test(warning)) {
         blocking.push(`${line.employeeCode}: ${warning}`);
       }
     }
@@ -279,7 +290,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       payProrationHalfDays,
       noPayLeaveHalfDays: totalLeave.unpaidHalfDays,
       periodDays: days,
-      overtimePolicy: employee.overtimePolicy as "none" | "shop_office" | "custom",
+      overtimePolicy: employee.overtimePolicy as "none" | "shop_office" | "natex_standard" | "custom",
       overtimeMultiplierBps: employee.overtimePolicy === "shop_office" ? 15_000 : employee.overtimeMultiplierBps,
       overtimeDivisorMinutes: employee.overtimeDivisorMinutes,
       primaryEmployment: employee.primaryEmployment,
@@ -375,7 +386,11 @@ export async function getPayrollRun(runId: string, actor: Principal) {
   if (!canSeeDrafts && (run!.status === "draft" || run!.status === "cancelled")) errors.notFound("Payroll run");
   const lines = await db.select().from(hrPayrollLine).where(eq(hrPayrollLine.runId, runId)).orderBy(asc(hrPayrollLine.employeeCode));
   const [schedule] = await db.select().from(hrApitSchedule).where(eq(hrApitSchedule.id, run!.apitScheduleId));
-  return { run: run!, lines, schedule: schedule ?? null };
+  const visibleLines = lines.map((line) => ({
+    ...line,
+    breakdownJson: JSON.stringify(withoutPausedApitWarnings(parseSnapshot(line))),
+  }));
+  return { run: run!, lines: visibleLines, schedule: schedule ?? null };
 }
 
 export async function setManualApit(input: { runId: string; employeeId: string; amountCents: number; reason: string }, actor: Principal) {
@@ -450,9 +465,6 @@ export async function approvePayrollLines(input: { runId: string; employeeIds: s
 export async function submitPayrollRun(runId: string, actor: Principal) {
   const detail = await getPayrollRun(runId, actor);
   if (detail.run.status !== "draft") errors.conflict(`Only draft payroll can be submitted; this run is ${detail.run.status}.`);
-  if (!detail.schedule || detail.schedule.status === "retired" || detail.lines.some((line) => parseSnapshot(line).apitScheduleVersion !== detail.schedule!.version)) {
-    errors.conflict("The APIT schedule changed after this draft was calculated. Cancel and recalculate the draft using the current schedule.");
-  }
   const blockers = blockedWarnings(detail.lines);
   if (blockers.length) errors.conflict(`Resolve these payroll exceptions before submission: ${blockers.slice(0, 12).join("; ")}`);
   const [row] = await db.update(hrPayrollRun).set({ status: "submitted", submittedAt: new Date() }).where(eq(hrPayrollRun.id, runId)).returning();
@@ -462,9 +474,7 @@ export async function submitPayrollRun(runId: string, actor: Principal) {
 export async function approvePayrollRun(runId: string, actor: Principal) {
   const detail = await getPayrollRun(runId, actor);
   if (detail.run.status !== "submitted") errors.conflict(`Only submitted payroll can be approved; this run is ${detail.run.status}.`);
-  if (detail.run.createdBy === actor.userId) errors.forbidden("A payroll maker cannot approve their own run. A different Finance/Admin user must approve it.");
-  if (!detail.schedule || detail.schedule.status !== "validated") errors.conflict("Finance/Admin cannot approve payroll until an accountant has validated the APIT schedule version used by this run.");
-  if (detail.lines.some((line) => parseSnapshot(line).apitScheduleVersion !== detail.schedule!.version)) errors.conflict("The APIT schedule version does not match this payroll snapshot. Cancel and recalculate the draft.");
+  if (detail.run.createdBy === actor.userId) errors.forbidden("A payroll maker cannot approve their own payroll run. A different Finance/Admin user must approve it.");
   const blockers = blockedWarnings(detail.lines);
   if (blockers.length) errors.conflict(`Resolve payroll exceptions before approval: ${blockers.slice(0, 12).join("; ")}`);
   const [row] = await db.update(hrPayrollRun).set({ status: "approved", approvedBy: actor.userId, approvedAt: new Date() }).where(eq(hrPayrollRun.id, runId)).returning();
