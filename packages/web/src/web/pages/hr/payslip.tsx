@@ -18,7 +18,7 @@ export function Payslip({ line, periodStart, periodEnd }: PayslipProps) {
       @media print {
         @page { size: A5 portrait; margin: 8mm; }
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-        body > *:not(.hr-print-slip) { display: none !important; }
+        body * { visibility: hidden !important; }
         .hr-print-slip, .hr-print-slip * { visibility: visible !important; }
         .hr-print-slip { display: block !important; position: relative !important; inset: auto !important; width: 100% !important; max-width: 132mm !important; min-height: 0 !important; margin: 0 auto !important; border: 0 !important; padding: 0 !important; overflow: visible !important; box-sizing: border-box !important; background: #fff !important; color: #101513 !important; font-family: Arial, Helvetica, sans-serif !important; font-size: 8.5px !important; line-height: 1.25 !important; }
         .hr-print-slip *, .hr-print-slip *::before, .hr-print-slip *::after { box-sizing: border-box; }
