@@ -322,6 +322,10 @@ async function assignSalaryPackageWithExecutor(input: SalaryAssignmentInput, act
   if (!isValidIsoDate(input.effectiveFrom)) errors.badRequest("Package effective date must be a real calendar date in YYYY-MM-DD format.");
   const employee = await getEmployee(input.employeeId, executor);
   if (input.effectiveFrom < employee.joinedOn) errors.badRequest("Salary package cannot take effect before the employee's start date.");
+  const firstOfMonth = `${input.effectiveFrom.slice(0, 7)}-01`;
+  if (input.effectiveFrom !== employee.joinedOn && input.effectiveFrom !== firstOfMonth) {
+    errors.badRequest("Salary package changes must take effect on the 1st of a month. A new employee's first package may start on the joined date.");
+  }
   const pkg = await getSalaryPackage(input.packageId, executor);
   if (!pkg.active) errors.conflict("An inactive salary package cannot be assigned.");
   if (employee.status !== "active") errors.conflict("A salary package can only be assigned to an active employee.");

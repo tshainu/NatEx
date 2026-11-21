@@ -187,9 +187,11 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
 
   for (const item of input.components) {
     assertNonNegativeInteger(item.amountCents, `Component ${item.label}`);
-    const amountCents = item.proration === "unpaid_leave_prorated"
+    const amountCents = item.kind === "earning"
       ? Math.max(0, prorateByUnpaidLeave(item.amountCents, employmentProrationHalfDays, input.periodDays) - roundDiv(item.amountCents * noPayLeaveHalfDays, 50))
-      : item.amountCents;
+      : item.proration === "unpaid_leave_prorated"
+        ? Math.max(0, prorateByUnpaidLeave(item.amountCents, employmentProrationHalfDays, input.periodDays) - roundDiv(item.amountCents * noPayLeaveHalfDays, 50))
+        : item.amountCents;
     lines.push({ label: item.label, kind: item.kind, amountCents });
     if (item.kind === "deduction") {
       otherDeductionsCents += amountCents;
