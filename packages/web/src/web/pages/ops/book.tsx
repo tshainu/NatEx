@@ -332,7 +332,7 @@ export default function OpsBook() {
       >
         <Card title="Merchant &amp; Sender" className="border-amber-400/70 bg-amber-50/30 dark:bg-amber-950/10">
           <div className="space-y-4">
-            <Field label="Merchant" hint="Only merchants in your branch scope are listed.">
+            <Field label="Merchant" hint="Only merchants in your assigned district are listed.">
               <MerchantPicker
                 merchants={bookableMerchants}
                 value={form.merchantId}

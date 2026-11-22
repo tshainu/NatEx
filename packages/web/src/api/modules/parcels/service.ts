@@ -6,7 +6,7 @@ import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, type Principal } from "../../shared/auth";
-import { getMerchant } from "../merchants/service";
+import { getMerchant, merchantMayBeBookedByDistrict } from "../merchants/service";
 import {
   chargeableWeightLimitMessage,
   DEFAULT_VOLUMETRIC_DIVISOR_CM3_PER_KG,
@@ -967,9 +967,10 @@ export async function createParcel(
   if (!owner) errors.notFound(`Merchant ${input.merchantId}`);
   await identityService.requireActiveBranch(input.branchId);
   if (owner!.branchId !== input.branchId) await identityService.requireActiveBranch(owner!.branchId);
-  if (!isGlobalScope(actor.role) && actor.role !== "merchant" && owner!.branchId !== actor.branchId) {
-    errors.forbidden("This merchant belongs to another branch.", {
+  if (!(await merchantMayBeBookedByDistrict(owner!, actor))) {
+    errors.forbidden("This merchant is outside your assigned district.", {
       merchantBranchId: owner!.branchId,
+      assignedBranchId: actor.branchId,
     });
   }
   if (owner!.status !== "active") {

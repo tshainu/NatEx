@@ -4,9 +4,10 @@ import { merchant, merchantOnboardingRequest, merchantRegistrationCooldown, merc
 import { prefixedId } from "../../shared/ulid";
 import { errors, isUniqueViolationOn } from "../../shared/errors";
 import { isGlobalScope, type Principal } from "../../shared/auth";
+import { districtFromAddress } from "../../shared/address";
 import type { DbTransaction } from "../../database/transaction";
 import { enqueue } from "../../shared/outbox";
-import { requireActiveBranch } from "../identity/service";
+import { getBranch, requireActiveBranch } from "../identity/service";
 
 /**
  * MODULE: merchants. The ONLY file that reads merchants_* tables (§4).
@@ -105,7 +106,7 @@ export async function listMerchants(
 
 /** Every merchant in the caller's scope, for pickers and dropdowns. */
 export async function merchantOptions(scope: Principal) {
-  return db
+  const rows = await db
     .select({
       id: merchant.id,
       name: merchant.name,
@@ -117,6 +118,45 @@ export async function merchantOptions(scope: Principal) {
     })
     .from(merchant)
     .where(scopeFilter(scope));
+
+  // Operations users work by district, not by the individual branch record.
+  // Keep global roles on the existing all-merchant path; the branch fallback
+  // preserves safe behavior for legacy branches whose address is not yet in
+  // NatEx's structured district/province format.
+  if (isGlobalScope(scope.role) || scope.role === "merchant") return rows;
+  const assignedBranch = await getBranch(scope.branchId);
+  const assignedDistrict = districtFromAddress(assignedBranch?.address);
+  if (!assignedDistrict) return rows;
+
+  const allMerchants = await db
+    .select({
+      id: merchant.id,
+      name: merchant.name,
+      address: merchant.address,
+      lat: merchant.lat,
+      lng: merchant.lng,
+      codEnabled: merchant.codEnabled,
+      status: merchant.status,
+    })
+    .from(merchant);
+  return allMerchants.filter((row) => districtFromAddress(row.address) === assignedDistrict);
+}
+
+/**
+ * Booking visibility for a staff principal. Global roles keep their existing
+ * company-wide access; branch-scoped staff may book merchants in their own
+ * district, including merchants owned by another branch in that district.
+ */
+export async function merchantMayBeBookedByDistrict(
+  row: MerchantRow,
+  scope: Principal,
+): Promise<boolean> {
+  if (isGlobalScope(scope.role) || scope.role === "merchant") return true;
+  const assignedBranch = await getBranch(scope.branchId);
+  const assignedDistrict = districtFromAddress(assignedBranch?.address);
+  const merchantDistrict = districtFromAddress(row.address);
+  if (!assignedDistrict || !merchantDistrict) return row.branchId === scope.branchId;
+  return assignedDistrict === merchantDistrict;
 }
 
 export interface CreateMerchantInput {
