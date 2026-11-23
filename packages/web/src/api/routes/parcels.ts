@@ -229,6 +229,42 @@ export const create = authedProc
     ),
   );
 
+export const editAtOriginHub = authedProc
+  .input(
+    z.object({
+      awbOrId: z.string().min(3),
+      weightGrams: z.number().int().min(1).max(MAX_ACCEPTED_WEIGHT_GRAMS),
+      lengthCm: z.number().int().min(1).max(500).nullish(),
+      widthCm: z.number().int().min(1).max(500).nullish(),
+      heightCm: z.number().int().min(1).max(500).nullish(),
+      description: z.string().max(500).nullish(),
+      declaredValueCents: z.number().int().min(0),
+      codAmountCents: z.number().int().min(0),
+      originAddress: z.string().min(4),
+      originLat: z.number().int().nullish(),
+      originLng: z.number().int().nullish(),
+      consigneeName: z.string().min(2).max(160),
+      consigneePhone: z.string().min(9).max(20),
+      destAddress: z.string().min(4),
+      destLat: z.number().int().nullish(),
+      destLng: z.number().int().nullish(),
+      destZoneId: z.string().nullish(),
+    }),
+  )
+  .handler(({ input, context }) =>
+    mutate(
+      context,
+      input,
+      {
+        route: "parcels.editAtOriginHub",
+        entity: "parcels_parcel",
+        entityId: (r) => (r as parcelsService.ParcelRow).id,
+        action: "parcel.edited_at_origin_hub",
+      },
+      () => parcelsService.editAtOriginHub(input, context.principal),
+    ),
+  );
+
 /**
  * The single transition endpoint. Every status change the clients make comes
  * through here, and it delegates to the one choke point in the parcels service.
@@ -384,6 +420,7 @@ export const parcels = {
   summary,
   trends,
   create,
+  editAtOriginHub,
   bulkCreate,
   transition,
   transitionMany,

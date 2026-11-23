@@ -220,6 +220,8 @@ export interface ParcelDetail {
   commandable: ParcelStatus[];
   /** Explains why a sender-branch user may track this parcel but cannot mutate it. */
   readOnlyReason: string | null;
+  /** True only for a hub manager editing a parcel currently at that hub. */
+  canEditAtOriginHub?: boolean;
 }
 
 /**
@@ -270,7 +272,88 @@ export async function getParcelDetail(
       ? []
       : next.filter((to) => isGenericallyCommandable(row!.status as ParcelStatus, to, scope.role)),
     readOnlyReason,
+    canEditAtOriginHub:
+      scope.role === "ops" && row!.status === "AtOriginHub" && row!.branchId === scope.branchId,
   };
+}
+
+export interface EditAtOriginHubInput {
+  awbOrId: string;
+  weightGrams: number;
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+  description?: string | null;
+  declaredValueCents: number;
+  codAmountCents: number;
+  originAddress: string;
+  originLat?: number | null;
+  originLng?: number | null;
+  consigneeName: string;
+  consigneePhone: string;
+  destAddress: string;
+  destLat?: number | null;
+  destLng?: number | null;
+  destZoneId?: string | null;
+}
+
+/**
+ * Edits booking details only while a parcel is physically at its origin hub.
+ * The current hub manager may correct the consignment before bagging; AWB,
+ * merchant, branch and status remain immutable here and all later states are
+ * intentionally refused.
+ */
+export async function editAtOriginHub(
+  input: EditAtOriginHubInput,
+  actor: Principal,
+): Promise<ParcelRow> {
+  if (actor.role !== "ops") {
+    errors.forbidden("Only hub managers may edit parcels at the origin hub.");
+  }
+
+  const row = (await getParcelByAwb(input.awbOrId)) ?? (await getParcelById(input.awbOrId));
+  if (!row) errors.notFound(`Parcel ${input.awbOrId}`);
+  assertVisible(row!, actor);
+  if (row!.status !== "AtOriginHub") {
+    errors.conflict("Only parcels at the origin hub can be edited.", {
+      awb: row!.awb,
+      currentStatus: row!.status,
+    });
+  }
+  if (row!.branchId !== actor.branchId) {
+    errors.forbidden("A hub manager may edit only parcels currently assigned to their hub.");
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(parcel)
+    .set({
+      weightGrams: input.weightGrams,
+      lengthCm: input.lengthCm ?? null,
+      widthCm: input.widthCm ?? null,
+      heightCm: input.heightCm ?? null,
+      description: input.description?.trim() || null,
+      declaredValueCents: input.declaredValueCents,
+      codAmountCents: input.codAmountCents,
+      originAddress: input.originAddress.trim(),
+      originLat: input.originLat ?? null,
+      originLng: input.originLng ?? null,
+      consigneeName: input.consigneeName.trim(),
+      consigneePhone: input.consigneePhone.trim(),
+      destAddress: input.destAddress.trim(),
+      destLat: input.destLat ?? null,
+      destLng: input.destLng ?? null,
+      destZoneId: input.destZoneId?.trim() || null,
+      updatedAt: now,
+    })
+    .where(and(eq(parcel.id, row!.id), eq(parcel.status, "AtOriginHub")))
+    .returning();
+  if (!updated) {
+    errors.conflict("Parcel changed state while it was being edited. Reopen it and try again.", {
+      awb: row!.awb,
+    });
+  }
+  return updated!;
 }
 
 /**
