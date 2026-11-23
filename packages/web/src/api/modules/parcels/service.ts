@@ -38,6 +38,10 @@ import {
   type ParcelStatus,
 } from "./state-machine";
 
+function hasUltimateAdminRole(scope: Pick<Principal, "role" | "roles">): boolean {
+  return isUltimateAdminRole(scope.role) || scope.roles.some(isUltimateAdminRole);
+}
+
 /**
  * MODULE: parcels. The ONLY file that reads parcels_* tables (PROJECT.md §4).
  * Other modules call these functions; they never SELECT these tables.
@@ -136,7 +140,7 @@ async function appendParcelEvent(
 // ------------------------------------------------------------------ read paths
 
 function scopeFilter(scope: Principal) {
-  if (isGlobalScope(scope.role)) return undefined;
+  if (isGlobalScope(scope.role) || hasUltimateAdminRole(scope)) return undefined;
   if (scope.role === "merchant") {
     // A merchant sees only its own parcels (§5 row-level scoping).
     return eq(parcel.merchantId, scope.merchantId ?? "__none__");
@@ -157,7 +161,7 @@ function allocatedBranchFilter(scope: Principal) {
  * custody inbox. Hub operators see their hub plus Admin-assigned child branches.
  */
 async function parcelRegisterScopeFilter(scope: Principal) {
-  if (isGlobalScope(scope.role) || scope.role !== "ops") return scopeFilter(scope);
+  if (isGlobalScope(scope.role) || hasUltimateAdminRole(scope) || scope.role !== "ops") return scopeFilter(scope);
   const branchId = scope.branchId;
   if (typeof branchId !== "string" || !branchId.trim()) return sql`0 = 1`;
   const senderBranchIds = await identityService.operationsBranchScope(branchId);
@@ -168,7 +172,7 @@ async function parcelRegisterScopeFilter(scope: Principal) {
 
 /** Assert the caller is allowed to see this parcel at all. */
 function assertVisible(row: ParcelRow, scope: Principal): void {
-  if (isGlobalScope(scope.role)) return;
+  if (isGlobalScope(scope.role) || hasUltimateAdminRole(scope)) return;
   if (scope.role === "merchant") {
     if (row.merchantId !== scope.merchantId) errors.notFound("Parcel");
     return;
@@ -182,7 +186,7 @@ function assertVisible(row: ParcelRow, scope: Principal): void {
 
 /** Read access may follow a sent parcel, but it never grants operational authority. */
 async function assertReadable(row: ParcelRow, scope: Principal): Promise<void> {
-  if (isGlobalScope(scope.role)) return;
+  if (isGlobalScope(scope.role) || hasUltimateAdminRole(scope)) return;
   if (scope.role === "merchant") {
     if (row.merchantId !== scope.merchantId) errors.notFound("Parcel");
     return;
@@ -257,7 +261,7 @@ export async function getParcelDetail(
     ? await identityService.operationsBranchScope(scope.branchId)
     : [];
   const inOperationsScope = scope.role === "ops" && operationsBranches.includes(row!.branchId);
-  const isUltimateAdmin = isUltimateAdminRole(scope.role);
+  const isUltimateAdmin = hasUltimateAdminRole(scope);
   const readOnlyReason = scope.role === "ops" && !inOperationsScope
     ? "This parcel has left your branch. You can track its status and custody history, but the hub currently responsible for it must make operational updates."
     : null;
@@ -312,7 +316,7 @@ export async function editAtOriginHub(
   input: EditAtOriginHubInput,
   actor: Principal,
 ): Promise<ParcelRow> {
-  const isUltimateAdmin = isUltimateAdminRole(actor.role);
+  const isUltimateAdmin = hasUltimateAdminRole(actor);
   if (actor.role !== "ops" && !isUltimateAdmin) {
     errors.forbidden("Only hub managers, Demo Admin, or NOS Admin may edit parcels at the origin hub.");
   }
@@ -483,7 +487,7 @@ export async function listParcels(input: ListParcelsInput, scope: Principal) {
   if (input.status?.length) filters.push(inArray(parcel.status, input.status));
   if (input.merchantId) filters.push(eq(parcel.merchantId, input.merchantId));
   // Global users can narrow the sender register to one origin branch.
-  if (input.branchId && isGlobalScope(scope.role)) {
+  if (input.branchId && (isGlobalScope(scope.role) || hasUltimateAdminRole(scope))) {
     filters.push(eq(parcel.originBranchId, input.branchId));
   }
   if (input.createdFrom) {
