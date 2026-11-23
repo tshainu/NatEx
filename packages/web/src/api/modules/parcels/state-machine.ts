@@ -232,7 +232,8 @@ export function isLegalTransition(from: ParcelStatus, to: ParcelStatus): boolean
 }
 
 export function roleMayCommand(role: Role, to: ParcelStatus): boolean {
-  return (TRANSITION_ROLES[to] ?? []).includes(role);
+  const effectiveRole = role === "super_admin" || role === "nos_admin" ? "admin" : role;
+  return (TRANSITION_ROLES[to] ?? []).includes(effectiveRole);
 }
 
 /** Is this transition exposed by the API in the current milestone? */

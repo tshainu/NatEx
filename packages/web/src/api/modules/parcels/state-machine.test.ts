@@ -336,14 +336,19 @@ describe("graph", () => {
 
 const ROLE_CASES: [Role, ParcelStatus, boolean][] = ROLES.flatMap((role) =>
   EXPECTED_STATUSES.map(
-    (to) => [role, to, EXPECTED_ROLES[to].includes(role)] as [Role, ParcelStatus, boolean],
+    (to) => [
+      role,
+      to,
+      EXPECTED_ROLES[to].includes(role) ||
+        (role === "super_admin" || role === "nos_admin") && EXPECTED_ROLES[to].includes("admin"),
+    ] as [Role, ParcelStatus, boolean],
   ),
 );
 
 describe(`roles (${ROLE_CASES.length} role × status cases)`, () => {
   test("the role list includes the six operational roles and the dedicated HR role", () => {
     expect([...ROLES].sort()).toEqual(
-      (["admin", "finance", "hr", "merchant", "ops", "rider", "transport"] as Role[]).sort(),
+      (["admin", "finance", "hr", "merchant", "nos_admin", "ops", "rider", "super_admin", "transport"] as Role[]).sort(),
     );
   });
 
@@ -379,6 +384,13 @@ describe(`roles (${ROLE_CASES.length} role × status cases)`, () => {
 
   test("admin may command every status", () => {
     for (const s of EXPECTED_STATUSES) expect(roleMayCommand("admin", s)).toBe(true);
+  });
+
+  test("ultimate admins have the same status command authority as admin", () => {
+    for (const s of EXPECTED_STATUSES) {
+      expect(roleMayCommand("super_admin", s)).toBe(true);
+      expect(roleMayCommand("nos_admin", s)).toBe(true);
+    }
   });
 
   test("an unknown role may command nothing", () => {
