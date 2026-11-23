@@ -142,7 +142,7 @@ const HR: PortalConfig = {
   home: "/hr/dashboard",
   nav: [
     { label: "Dashboard", to: "/hr/dashboard" },
-    { label: "Attendance", to: "/hr/attendance" },
+    { label: "Attendance sheet", to: "/hr/attendance" },
     { label: "Employees", to: "/hr/employees" },
     { label: "Salary operations", to: "/hr/payroll" },
     { label: "Payslips", to: "/hr/payslips" },
@@ -150,7 +150,6 @@ const HR: PortalConfig = {
     { label: "Leave", to: "/hr/leave" },
     { label: "Calendar & payout", to: "/hr/calendar" },
     { label: "Timesheets", to: "/hr/timesheets" },
-    { label: "Attendance sheet", to: "/hr/attendance-management" },
     { label: "Approvals", to: "/hr/approvals" },
     { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },

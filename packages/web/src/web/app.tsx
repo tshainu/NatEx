@@ -301,7 +301,7 @@ function Routes() {
         <Redirect to="/hr/dashboard" replace />
       </Portal>
       <Portal path="/hr/dashboard"><HrDashboard /></Portal>
-      <Portal path="/hr/attendance"><HrAttendance /></Portal>
+      <Portal path="/hr/attendance"><HrAttendanceManagement /></Portal>
       <Portal path="/hr/employees"><HrEmployees /></Portal>
       <Portal path="/hr/packages"><HrPackages /></Portal>
       <Portal path="/hr/timesheets"><HrTimesheets /></Portal>
