@@ -253,7 +253,11 @@ export async function getParcelDetail(
     (await getParcelByAwb(awbOrId)) ?? (await getParcelById(awbOrId));
   if (!row) errors.notFound("Parcel");
   await assertReadable(row!, scope);
-  const readOnlyReason = scope.role === "ops" && row!.branchId !== scope.branchId
+  const operationsBranches = scope.role === "ops"
+    ? await identityService.operationsBranchScope(scope.branchId)
+    : [];
+  const inOperationsScope = scope.role === "ops" && operationsBranches.includes(row!.branchId);
+  const readOnlyReason = scope.role === "ops" && !inOperationsScope
     ? "This parcel has left your branch. You can track its status and custody history, but the hub currently responsible for it must make operational updates."
     : null;
 
@@ -273,7 +277,7 @@ export async function getParcelDetail(
       : next.filter((to) => isGenericallyCommandable(row!.status as ParcelStatus, to, scope.role)),
     readOnlyReason,
     canEditAtOriginHub:
-      scope.role === "ops" && row!.status === "AtOriginHub" && row!.branchId === scope.branchId,
+      inOperationsScope && row!.status === "AtOriginHub",
   };
 }
 
@@ -313,14 +317,15 @@ export async function editAtOriginHub(
 
   const row = (await getParcelByAwb(input.awbOrId)) ?? (await getParcelById(input.awbOrId));
   if (!row) errors.notFound(`Parcel ${input.awbOrId}`);
-  assertVisible(row!, actor);
+  await assertReadable(row!, actor);
   if (row!.status !== "AtOriginHub") {
     errors.conflict("Only parcels at the origin hub can be edited.", {
       awb: row!.awb,
       currentStatus: row!.status,
     });
   }
-  if (row!.branchId !== actor.branchId) {
+  const operationsBranches = await identityService.operationsBranchScope(actor.branchId);
+  if (!operationsBranches.includes(row!.branchId)) {
     errors.forbidden("A hub manager may edit only parcels currently assigned to their hub.");
   }
 
