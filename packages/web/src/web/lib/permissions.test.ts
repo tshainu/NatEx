@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { navFor, navForRoles, rolesOfUser } from "./permissions";
+import { mayVisit, navFor, navForRoles, rolesOfUser } from "./permissions";
 import type { Role } from "./session";
 
 function groupTitles(roles: readonly Role[]): string[] {
@@ -46,5 +46,10 @@ describe("department navigation", () => {
     expect(rolesOfUser({ role: "admin", roles: ["hr"] })).toEqual(["admin", "hr"]);
     expect(groupTitles(rolesOfUser({ role: "admin", roles: ["hr"] }))).toContain("Administration");
     expect(groupTitles(rolesOfUser({ role: "admin", roles: ["hr"] }))).toContain("HR & Payroll");
+  });
+
+  test("ultimate admins can open the operations parcel page", () => {
+    expect(mayVisit("super_admin", "/ops/parcels")).toBe(true);
+    expect(mayVisit("nos_admin", "/ops/parcels")).toBe(true);
   });
 });

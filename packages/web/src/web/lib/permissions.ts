@@ -260,6 +260,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 /** Roles that may reach a given path prefix in the UI. */
 export function mayVisit(role: Role, path: string): boolean {
+  if (role === "super_admin" || role === "nos_admin") return true;
   if (path.startsWith("/ops")) {
     if (path.startsWith("/ops/reports/performance")) return role === "ops" || role === "admin" || role === "hr" || role === "finance";
     if (role === "ops" || role === "admin") return true;
@@ -267,7 +268,6 @@ export function mayVisit(role: Role, path: string): boolean {
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));
   }
   if (path.startsWith("/admin")) {
-    if (role === "super_admin" || role === "nos_admin") return true;
     if (role === "admin") return !ADMIN_ONLY_PATHS.some((prefix) => path.startsWith(prefix));
     return false;
   }
