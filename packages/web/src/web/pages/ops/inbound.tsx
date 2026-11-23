@@ -46,6 +46,13 @@ interface InboundRow {
   sealedAt: Date | string | null;
 }
 
+const SEAL_OUTLINE_GRADIENTS = [
+  "from-emerald-400 via-cyan-400 to-blue-500",
+  "from-amber-400 via-rose-400 to-violet-500",
+  "from-lime-400 via-emerald-500 to-teal-500",
+  "from-fuchsia-400 via-pink-500 to-orange-400",
+] as const;
+
 export default function OpsInbound() {
   const { session } = useAuth();
 
@@ -56,6 +63,9 @@ export default function OpsInbound() {
   const [receivedBy, setReceivedBy] = React.useState(session?.user.name ?? "");
   const [result, setResult] = React.useState<ReceiptResult | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
+  const [sealOutlineGradient] = React.useState(
+    () => SEAL_OUTLINE_GRADIENTS[Math.floor(Math.random() * SEAL_OUTLINE_GRADIENTS.length)],
+  );
 
   const counts = useTransportCounts();
   const inbound = useInboundBags();
@@ -300,13 +310,15 @@ export default function OpsInbound() {
                   hint="Type what is physically written on the seal, not what the manifest says."
                   error={sealDisagrees ? "This does not match the manifest — a seal mismatch exception will be raised." : null}
                 >
-                  <Input
-                    value={seal}
-                    required
-                    onChange={(e) => setSeal(e.target.value.toUpperCase())}
-                    placeholder="SL-004821"
-                    className="font-mono"
-                  />
+                  <div className={`rounded-md bg-gradient-to-r ${sealOutlineGradient} p-[1.5px]`}>
+                    <Input
+                      value={seal}
+                      required
+                      onChange={(e) => setSeal(e.target.value.toUpperCase())}
+                      placeholder="SL-004821"
+                      className="border-0 bg-background font-mono"
+                    />
+                  </div>
                 </Field>
 
                 <Field label="tracking numbers scanned out of the bag" hint="One per line.">
