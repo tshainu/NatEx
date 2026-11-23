@@ -176,18 +176,15 @@ export function ParcelDrawer({
         footer={
           detail.data ? (
             <div className="flex flex-wrap items-center gap-2">
-              {detail.data.canEditAtOriginHub ? (
-                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-                  Edit parcel
-                </Button>
-              ) : null}
               <CommandBar
                 commandable={detail.data.commandable}
                 legalNext={detail.data.legalNext}
                 status={parcel!.status}
                 readOnlyReason={detail.data.readOnlyReason}
+                canEditAtOriginHub={detail.data.canEditAtOriginHub === true}
                 pendingTo={transition.isPending ? pendingTo : null}
                 onCommand={(to) => setPendingTo(to)}
+                onEdit={() => setEditOpen(true)}
               />
             </div>
           ) : null
@@ -385,15 +382,19 @@ function CommandBar({
   legalNext,
   status,
   readOnlyReason,
+  canEditAtOriginHub,
   pendingTo,
   onCommand,
+  onEdit,
 }: {
   commandable: readonly string[];
   legalNext: readonly string[];
   status: string;
   readOnlyReason: string | null;
+  canEditAtOriginHub: boolean;
   pendingTo: string | null;
   onCommand: (to: string) => void;
+  onEdit: () => void;
 }) {
   if (readOnlyReason) {
     return <p className="text-[12px] text-muted-foreground">{readOnlyReason}</p>;
@@ -401,16 +402,28 @@ function CommandBar({
   if (commandable.length === 0) {
     const deferred = legalNext.filter((s) => !commandable.includes(s));
     return (
-      <p className="text-[12px] text-muted-foreground">
-        Nothing for you to do here. This parcel is {humanise(status)}
-        {deferred.length > 0
-          ? ` — the next step (${deferred.map(humanise).join(", ")}) belongs to another role, or is made by its own workflow (proof of delivery at the door, a sealed bag on a departing trip).`
-          : " and has reached a terminal state."}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {canEditAtOriginHub ? (
+          <Button size="sm" variant="outline" onClick={onEdit}>
+            Edit parcel
+          </Button>
+        ) : null}
+        <p className="text-[12px] text-muted-foreground">
+          Nothing for you to do here. This parcel is {humanise(status)}
+          {deferred.length > 0
+            ? ` — the next step (${deferred.map(humanise).join(", ")}) belongs to another role, or is made by its own workflow (proof of delivery at the door, a sealed bag on a departing trip).`
+            : " and has reached a terminal state."}
+        </p>
+      </div>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {canEditAtOriginHub ? (
+        <Button size="sm" variant="outline" onClick={onEdit}>
+          Edit parcel
+        </Button>
+      ) : null}
       {commandable.map((to) => (
         <Button
           key={to}
