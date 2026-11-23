@@ -52,7 +52,6 @@ import FinanceDisputes from "./pages/finance/disputes-page";
 import FinancePayrollApprovals from "./pages/finance/payroll-approvals";
 import HrEmployees from "./pages/hr/employees";
 import HrDashboard from "./pages/hr/dashboard";
-import HrAttendance from "./pages/hr/attendance";
 import HrPackages from "./pages/hr/packages";
 import HrTimesheets from "./pages/hr/timesheets";
 import HrLeave from "./pages/hr/leave";

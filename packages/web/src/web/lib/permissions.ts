@@ -80,8 +80,9 @@ const REPORTS_NAV: NavItem[] = [
 const ADMIN: PortalConfig = {
   portal: "admin",
   name: "Administration",
-  // Round 6: the company dashboard is the admin's landing screen.
-  home: "/admin/dashboard",
+  // The company dashboard is restricted to ultimate administrators. Regular
+  // admins land on the first administration screen they are allowed to visit.
+  home: "/admin/users",
   nav: [
     { label: "Users", to: "/admin/users" },
     { label: "Merchant users", to: "/admin/merchant-users" },
