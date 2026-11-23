@@ -134,6 +134,7 @@ export const hrTimesheet = sqliteTable(
     workDate: text("work_date").notNull(),
     regularMinutes: integer("regular_minutes").notNull().default(0),
     overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+    overtimeEligible: integer("overtime_eligible", { mode: "boolean" }).notNull().default(false),
     /** present | absent | leave | off_duty; leave balances remain managed separately. */
     attendanceStatus: text("attendance_status").notNull().default("present"),
     clockInAt: integer("clock_in_at", { mode: "timestamp" }),

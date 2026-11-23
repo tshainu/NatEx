@@ -510,22 +510,23 @@ export async function listTimesheets(input: { from: string; to: string; employee
 }
 
 export async function timesheetTotals(employeeId: string, from: string, to: string) {
-  const rows = await db.select({ workDate: hrTimesheet.workDate, regularMinutes: hrTimesheet.regularMinutes, overtimeMinutes: hrTimesheet.overtimeMinutes }).from(hrTimesheet).where(and(
+  const rows = await db.select({ workDate: hrTimesheet.workDate, regularMinutes: hrTimesheet.regularMinutes, overtimeMinutes: hrTimesheet.overtimeMinutes, overtimeEligible: hrTimesheet.overtimeEligible }).from(hrTimesheet).where(and(
     eq(hrTimesheet.employeeId, employeeId),
     gte(hrTimesheet.workDate, from),
     lte(hrTimesheet.workDate, to),
+    eq(hrTimesheet.approvalStatus, "approved"),
   ));
   const weekly = new Map<string, number>();
   let regularMinutes = 0;
   let overtimeMinutes = 0;
   for (const row of rows) {
     regularMinutes += row.regularMinutes;
-    overtimeMinutes += row.overtimeMinutes;
+    if (row.overtimeEligible) overtimeMinutes += row.overtimeMinutes;
     const date = new Date(`${row.workDate}T00:00:00Z`);
     const weekday = (date.getUTCDay() + 6) % 7;
     date.setUTCDate(date.getUTCDate() - weekday);
     const weekStart = date.toISOString().slice(0, 10);
-    weekly.set(weekStart, (weekly.get(weekStart) ?? 0) + row.overtimeMinutes);
+    weekly.set(weekStart, (weekly.get(weekStart) ?? 0) + (row.overtimeEligible ? row.overtimeMinutes : 0));
   }
   return { regularMinutes, overtimeMinutes, overtimeMinutesByWeek: [...weekly.values()] };
 }

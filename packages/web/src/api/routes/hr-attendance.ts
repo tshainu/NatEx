@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { hrProc, mutate, opsProc, riderProc } from "../middleware/pipeline";
+import { authedProc, hrProc, mutate, opsProc, riderProc } from "../middleware/pipeline";
+import { requireRole } from "../middleware/auth";
 import * as attendance from "../modules/hr/attendance";
 import * as leave from "../modules/hr/leave";
 import * as hr from "../modules/hr/service";
@@ -7,7 +8,7 @@ import { isValidIsoDate } from "../modules/hr/validation";
 
 const isoDay = z.string().refine(isValidIsoDate, "Use YYYY-MM-DD.");
 const time = z.string().datetime().nullish();
-const manualAttendance = z.object({ employeeId: z.string().min(1), workDate: isoDay, clockInAt: time, clockOutAt: time, attendanceStatus: z.enum(["present", "absent", "leave", "off_duty"]), note: z.string().trim().max(500).nullish() });
+const manualAttendance = z.object({ employeeId: z.string().min(1), workDate: isoDay, clockInAt: time, clockOutAt: time, attendanceStatus: z.enum(["present", "absent", "leave", "off_duty"]), overtimeEligible: z.boolean().optional(), note: z.string().trim().max(500).nullish() });
 const leaveInput = z.object({ employeeId: z.string().min(1), leaveTypeId: z.string().min(1), startsOn: isoDay, endsOn: isoDay, halfDays: z.number().int().min(1).max(62), reason: z.string().trim().min(3).max(500) });
 
 export const clockStatus = riderProc.input(z.object({ workDate: isoDay.optional() }).default({})).handler(({ input, context }) => attendance.clockStatus(context.principal, input.workDate));
@@ -28,9 +29,10 @@ export const riderApplyLeave = riderProc.input(leaveInput).handler(async ({ inpu
 export const hubEmployees = opsProc.handler(({ context }) => hr.listEmployeesForPrincipal(context.principal));
 export const hubLeaveTypes = opsProc.handler(() => leave.listLeaveTypes());
 
-export const attendanceRows = hrProc.input(z.object({ from: isoDay, to: isoDay, employeeId: z.string().optional(), approvalStatus: z.enum(["pending", "approved", "rejected"]).optional(), branchId: z.string().optional() }).refine((value) => value.from <= value.to, "End date must be on or after start date.")).handler(({ input, context }) => attendance.listAttendance(input, context.principal));
+const attendanceReadProc = authedProc.use(requireRole("hr", "ops", "admin"));
+export const attendanceRows = attendanceReadProc.input(z.object({ from: isoDay, to: isoDay, employeeId: z.string().optional(), approvalStatus: z.enum(["pending", "approved", "rejected"]).optional(), branchId: z.string().optional() }).refine((value) => value.from <= value.to, "End date must be on or after start date.")).handler(({ input, context }) => attendance.listAttendance(input, context.principal));
 export const saveManualAttendance = opsProc.input(manualAttendance).handler(({ input, context }) => mutate(context, input, { route: "hr.saveManualAttendance", entity: "hr_timesheet", entityId: () => `${input.employeeId}:${input.workDate}`, action: "hr.manual_attendance_saved" }, () => attendance.saveManualAttendance(input, context.principal)));
 export const hubApplyLeave = opsProc.input(leaveInput).handler(({ input, context }) => mutate(context, input, { route: "hr.hubApplyLeave", entity: "hr_leave_request", entityId: (row) => (row as { id: string }).id, action: "hr.hub_leave_requested" }, () => leave.createLeaveRequest(input, context.principal)));
-export const decideAttendance = hrProc.input(z.object({ ids: z.array(z.string().min(1)).min(1).max(500), decision: z.enum(["approved", "rejected"]), note: z.string().trim().min(2).max(500) })).handler(({ input, context }) => mutate(context, input, { route: "hr.decideAttendance", entity: "hr_timesheet", entityId: () => input.ids.join(","), action: `hr.attendance_${input.decision}` }, () => attendance.decideAttendance(input, context.principal)));
+export const decideAttendance = hrProc.input(z.object({ ids: z.array(z.string().min(1)).min(1).max(500), decision: z.enum(["approved", "rejected"]), note: z.string().trim().min(2).max(500), overtimeEligibleById: z.record(z.string(), z.boolean()).optional() })).handler(({ input, context }) => mutate(context, input, { route: "hr.decideAttendance", entity: "hr_timesheet", entityId: () => input.ids.join(","), action: `hr.attendance_${input.decision}` }, () => attendance.decideAttendance(input, context.principal)));
 
 export const hrAttendance = { clockStatus, clockIn, clockOut, riderAttendanceSummary, riderLeaveBalances, riderApplyLeave, hubEmployees, hubLeaveTypes, attendanceRows, saveManualAttendance, hubApplyLeave, decideAttendance };
