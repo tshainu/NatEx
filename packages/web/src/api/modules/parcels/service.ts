@@ -5,7 +5,7 @@ import { awbBatchLabel, parcel, parcelEvent, retiredTrackingNumber } from "../..
 import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
-import { isGlobalScope, type Principal } from "../../shared/auth";
+import { isGlobalScope, isUltimateAdminRole, type Principal } from "../../shared/auth";
 import { getMerchant, merchantMayBeBookedByDistrict } from "../merchants/service";
 import {
   chargeableWeightLimitMessage,
@@ -257,6 +257,7 @@ export async function getParcelDetail(
     ? await identityService.operationsBranchScope(scope.branchId)
     : [];
   const inOperationsScope = scope.role === "ops" && operationsBranches.includes(row!.branchId);
+  const isUltimateAdmin = isUltimateAdminRole(scope.role);
   const readOnlyReason = scope.role === "ops" && !inOperationsScope
     ? "This parcel has left your branch. You can track its status and custody history, but the hub currently responsible for it must make operational updates."
     : null;
@@ -277,7 +278,7 @@ export async function getParcelDetail(
       : next.filter((to) => isGenericallyCommandable(row!.status as ParcelStatus, to, scope.role)),
     readOnlyReason,
     canEditAtOriginHub:
-      inOperationsScope && row!.status === "AtOriginHub",
+      (inOperationsScope || isUltimateAdmin) && row!.status === "AtOriginHub",
   };
 }
 
@@ -311,8 +312,9 @@ export async function editAtOriginHub(
   input: EditAtOriginHubInput,
   actor: Principal,
 ): Promise<ParcelRow> {
-  if (actor.role !== "ops") {
-    errors.forbidden("Only hub managers may edit parcels at the origin hub.");
+  const isUltimateAdmin = isUltimateAdminRole(actor.role);
+  if (actor.role !== "ops" && !isUltimateAdmin) {
+    errors.forbidden("Only hub managers, Demo Admin, or NOS Admin may edit parcels at the origin hub.");
   }
 
   const row = (await getParcelByAwb(input.awbOrId)) ?? (await getParcelById(input.awbOrId));
@@ -324,8 +326,10 @@ export async function editAtOriginHub(
       currentStatus: row!.status,
     });
   }
-  const operationsBranches = await identityService.operationsBranchScope(actor.branchId);
-  if (!operationsBranches.includes(row!.branchId)) {
+  const operationsBranches = actor.role === "ops"
+    ? await identityService.operationsBranchScope(actor.branchId)
+    : [];
+  if (!isUltimateAdmin && !operationsBranches.includes(row!.branchId)) {
     errors.forbidden("A hub manager may edit only parcels currently assigned to their hub.");
   }
 
