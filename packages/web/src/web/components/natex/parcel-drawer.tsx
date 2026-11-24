@@ -396,15 +396,22 @@ function CommandBar({
   onCommand: (to: string) => void;
   onEdit: () => void;
 }) {
+  const visibleCommandable = commandable.filter((to) => to !== "Bagged");
+
   if (readOnlyReason) {
     return <p className="text-[12px] text-muted-foreground">{readOnlyReason}</p>;
   }
-  if (commandable.length === 0) {
-    const deferred = legalNext.filter((s) => !commandable.includes(s));
+  if (visibleCommandable.length === 0) {
+    const deferred = legalNext.filter((s) => !visibleCommandable.includes(s) && s !== "Bagged");
     return (
       <div className="flex flex-wrap items-center gap-2">
         {canEditAtOriginHub ? (
-          <Button size="sm" variant="outline" onClick={onEdit}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+            onClick={onEdit}
+          >
             Edit parcel
           </Button>
         ) : null}
@@ -420,11 +427,16 @@ function CommandBar({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {canEditAtOriginHub ? (
-        <Button size="sm" variant="outline" onClick={onEdit}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
+          onClick={onEdit}
+        >
           Edit parcel
         </Button>
       ) : null}
-      {commandable.map((to) => (
+      {visibleCommandable.map((to) => (
         <Button
           key={to}
           size="sm"
