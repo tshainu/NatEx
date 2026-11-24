@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "NX Official",
-    "slug": "nxt",
-    "owner": "shainoo",
+    "slug": "natex",
+    "owner": "axintelligent_ax",
     "version": "1.0.0",
     "scheme": "runable-natex-pshh6q6",
     "orientation": "portrait",
@@ -21,11 +21,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "9e45406f-5cb6-4207-948e-af96d48611a1"
+        "projectId": "1fe8b3a3-cb5a-463c-a78a-eb496a54812c"
       },
       "apiUrl": "https://204-13-236-153.sslip.io/",
       "applicationId": "natex-pshh6q6",
-      "runableAuthIssuer": "https://api.runable.com/api/auth"
+      "runableAuthIssuer": "https://api.runable.com/api/auth",
+      "appVariant": "field",
+      "router": {}
     },
     "web": {
       "favicon": "./assets/favicon.png",

@@ -1,11 +1,10 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RoleGate } from "../../components/natex/role-gate";
-import { Fonts, Space, Type } from "../../constants/theme";
+import { AnimatedWaveTabBar } from "../../components/natex/animated-wave-tab-bar";
 import { useColors } from "../../hooks/use-colors";
 import { useOutboxDriver, useReasonCodes, useRiderRun } from "../../hooks/use-rider-run";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Alert, Platform } from "react-native";
+import { Alert } from "react-native";
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { orpc } from "../../lib/api";
@@ -57,9 +56,6 @@ function GpsDriver() {
  */
 export default function RiderLayout() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, 12);
-
   return (
     <RoleGate allow={["rider"]}>
       <OutboxDriver />
@@ -69,29 +65,8 @@ export default function RiderLayout() {
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.mutedForeground,
-          tabBarStyle: {
-            backgroundColor: colors.card,
-            borderTopColor: "transparent",
-            borderTopWidth: 0,
-            height: Space.minTouch + 30 + bottomInset,
-            paddingTop: 10,
-            paddingBottom: bottomInset,
-            marginHorizontal: 12,
-            marginBottom: 10,
-            borderRadius: 24,
-            ...Platform.select({
-              web: { boxShadow: "0px 8px 24px rgba(0,0,0,0.22)" },
-              default: {
-                elevation: 12,
-                shadowColor: "#000000",
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.22,
-                shadowRadius: 18,
-              },
-            }),
-          },
-          tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1, marginTop: 2 },
         }}
+        tabBar={(props) => <AnimatedWaveTabBar {...props} />}
       >
         <Tabs.Screen
           name="index"
