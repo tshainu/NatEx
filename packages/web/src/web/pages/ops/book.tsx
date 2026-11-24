@@ -117,7 +117,9 @@ export default function OpsBook() {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState<Form>(EMPTY);
   const [booked, setBooked] = React.useState<Booking | null>(null);
-  const [editAwb, setEditAwb] = React.useState("");
+  const [editAwb, setEditAwb] = React.useState(
+    () => new URLSearchParams(window.location.search).get("edit")?.trim().toUpperCase() ?? "",
+  );
   const [editParcel, setEditParcel] = React.useState<Awaited<ReturnType<typeof client.parcels.get>>["parcel"] | null>(null);
   const [editForm, setEditForm] = React.useState<EditForm>(EMPTY_EDIT);
   const [printNotice, setPrintNotice] = React.useState<string | null>(null);
@@ -144,6 +146,13 @@ export default function OpsBook() {
       });
     },
   });
+
+  const autoLoadEdit = React.useRef(false);
+  React.useEffect(() => {
+    if (autoLoadEdit.current || !editAwb.trim()) return;
+    autoLoadEdit.current = true;
+    loadEditParcel.mutate();
+  }, [editAwb, loadEditParcel]);
 
   const saveEdit = useMutation({
     mutationFn: () => {
