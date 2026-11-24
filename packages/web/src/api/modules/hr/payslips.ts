@@ -1,4 +1,5 @@
 import { errors } from "../../shared/errors";
+import nodemailer from "nodemailer";
 import type { Principal } from "../../shared/auth";
 import type { PayrollLineRow, PayrollRunRow } from "./payroll";
 import { getPayrollRun } from "./payroll";
@@ -7,6 +8,7 @@ interface Snapshot {
   warnings: string[];
   lines: { label: string; kind: "earning" | "deduction"; amountCents: number }[];
   apitScheduleVersion: string;
+  leave?: { probationaryUnpaidHalfDays?: number };
 }
 
 export interface PayslipFile {
@@ -15,7 +17,7 @@ export interface PayslipFile {
 }
 
 function assertPayrollReader(actor: Principal): void {
-  if (!actor.roles.some((role) => role === "hr" || role === "finance" || role === "admin")) {
+  if (!actor.roles.some((role) => role === "hr" || role === "finance" || role === "admin" || role === "gom")) {
     errors.forbidden("HR/payroll access is required to download payslips.");
   }
 }
@@ -52,12 +54,13 @@ const ascii = (value: string) => value.normalize("NFKD").replace(/[^\x20-\x7E]/g
 const pdfEscape = (value: string) => ascii(value).replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)");
 const money = (cents: number) => `LKR ${new Intl.NumberFormat("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)}`;
 const safePart = (value: string) => ascii(value).replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "employee";
-type PayslipLine = PayrollLineRow & { nationalId?: string | null };
+type PayslipLine = PayrollLineRow & { nationalId?: string | null; email?: string | null };
 
 function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "periodEnd" | "code">, line: PayslipLine): Uint8Array {
   const snapshot = JSON.parse(line.breakdownJson) as Snapshot;
   const earnings = snapshot.lines.filter((item) => item.kind === "earning");
   const deductions = snapshot.lines.filter((item) => item.kind === "deduction");
+  const probationaryLeave = snapshot.leave?.probationaryUnpaidHalfDays ?? 0;
   const totalDeductions = line.grossCents - line.netCents;
   const rows = [
     "NatEx",
@@ -71,6 +74,7 @@ function renderPayslipPdf(run: Pick<PayrollRunRow, "status" | "periodStart" | "p
     `Gross earnings     ${money(line.grossCents)}`,
     "",
     "DEDUCTIONS",
+    ...(probationaryLeave > 0 ? [`Probationary unpaid leave (half-days): ${probationaryLeave}`] : []),
     `Employee EPF (8%)     ${money(line.employeeEpfCents)}`,
     ...deductions.map((item) => `${item.label}     ${money(item.amountCents)}`),
     `Total deductions     ${money(totalDeductions)}`,
@@ -176,6 +180,25 @@ export function createPayslipFiles(run: Pick<PayrollRunRow, "id" | "code" | "sta
     name: `NatEx-Payslip-${safePart(run.periodStart.slice(0, 7))}-${safePart(line.employeeCode)}.pdf`,
     bytes: renderPayslipPdf(run, line),
   }));
+}
+
+
+export async function emailPayslips(input: { runId: string; employeeIds?: string[] }, actor: Principal) {
+  if (!actor.roles.some((role) => role === "hr" || role === "admin" || role === "gom")) errors.forbidden("HR access is required to email payslips.");
+  const detail = await getPayrollRun(input.runId, actor);
+  const lines = selectPayslipLines(detail.run, detail.lines, input.employeeIds);
+  const smtpHost = process.env.SMTP_HOST; const smtpUser = process.env.SMTP_USER; const smtpPassword = process.env.SMTP_PASSWORD;
+  if (!smtpHost || !smtpUser || !smtpPassword) errors.conflict("Payslip email is not configured. Ask an administrator to configure the HR SMTP settings.");
+  const transporter = nodemailer.createTransport({ host: smtpHost, port: Number(process.env.SMTP_PORT ?? 465), secure: String(process.env.SMTP_SECURE ?? "true") === "true", auth: { user: smtpUser, pass: smtpPassword } });
+  const files = createPayslipFiles(detail.run, lines);
+  const sent: string[] = []; const skipped: Array<{ employeeCode: string; employeeName: string; reason: string }> = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!; const file = files[i]!; const recipient = line.email?.trim();
+    if (!recipient) { skipped.push({ employeeCode: line.employeeCode, employeeName: line.employeeName, reason: "Missing employee email address" }); continue; }
+    await transporter.sendMail({ from: process.env.SMTP_FROM ?? smtpUser, to: recipient, subject: `NatEx payslip ${detail.run.periodStart.slice(0, 7)} — ${line.employeeName}`, text: `Dear ${line.employeeName},\n\nPlease find your NatEx salary slip for ${detail.run.periodStart} to ${detail.run.periodEnd} attached.`, attachments: [{ filename: file.name, content: base64(file.bytes), encoding: "base64" }] });
+    sent.push(line.employeeId);
+  }
+  return { runId: input.runId, sentCount: sent.length, skippedCount: skipped.length, sentEmployeeIds: sent, skipped };
 }
 
 export async function exportPayslips(input: { runId: string; employeeIds?: string[] }, actor: Principal) {

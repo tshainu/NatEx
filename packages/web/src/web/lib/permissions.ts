@@ -76,6 +76,7 @@ const REPORTS_NAV: NavItem[] = [
   { label: "Hub & bag movement", to: "/ops/reports/movement" },
   { label: "COD reconciliation", to: "/ops/reports/cod" },
   { label: "Merchant enrollment commissions", to: "/ops/reports/merchant-commissions" },
+  { label: "Merchants list", to: "/ops/reports/merchants" },
   { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
   { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
 ];
@@ -192,7 +193,7 @@ const FIELD: PortalConfig = {
   portal: "field",
   name: "Field staff",
   home: "/field",
-  nav: [{ label: "Use the mobile app", to: "/field" }],
+  nav: [{ label: "Use the mobile app", to: "/field" }, { label: "Merchants list", to: "/ops/reports/merchants" }],
 };
 
 export function portalFor(role: Role): PortalConfig {
@@ -203,6 +204,7 @@ export function portalFor(role: Role): PortalConfig {
       return ADMIN;
     case "super_admin":
     case "nos_admin":
+    case "gom":
       return ULTIMATE_ADMIN;
     case "finance":
       return FINANCE;
@@ -221,7 +223,7 @@ export function portalFor(role: Role): PortalConfig {
  * get a read-only look at the admin lists (the server refuses their writes).
  */
 export function navFor(role: Role): { title: string; items: NavItem[] }[] {
-  if (role === "super_admin" || role === "nos_admin") {
+  if (role === "super_admin" || role === "nos_admin" || role === "gom") {
     return [
       { title: "Overview", items: OVERVIEW_NAV },
       { title: "Operations", items: OPS.nav },
@@ -269,21 +271,23 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin: "Administrator",
   super_admin: "Super Admin",
   nos_admin: "NOS Admin",
+  gom: "General Operation Manager",
   merchant: "Merchant",
   hr: "HR",
 };
 
 /** Roles that may reach a given path prefix in the UI. */
 export function mayVisit(role: Role, path: string): boolean {
-  if (role === "super_admin" || role === "nos_admin") return true;
+  if (role === "super_admin" || role === "nos_admin" || role === "gom") return true;
   if (path.startsWith("/ops")) {
     if (
       path.startsWith("/ops/reports/performance") ||
       path.startsWith("/ops/reports/merchant-commissions") ||
       path.startsWith("/ops/reports/rider-routes") ||
-      path.startsWith("/ops/reports/vehicle-running")
+      path.startsWith("/ops/reports/vehicle-running") ||
+      path.startsWith("/ops/reports/merchants")
     )
-      return role === "ops" || role === "admin" || role === "hr" || role === "finance";
+      return ["ops", "admin", "hr", "finance", "rider", "transport"].includes(role);
     if (role === "ops" || role === "admin") return true;
     // Transport staff reach the custody screens only, matching the server gate.
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));

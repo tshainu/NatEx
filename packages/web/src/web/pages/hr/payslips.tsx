@@ -39,7 +39,11 @@ export default function HrPayslips() {
       setNote(result.fileCount === 1 ? `Downloaded ${result.fileName}.` : `Downloaded ${result.fileCount} individual payslips in ${result.fileName}.`);
     },
   });
-  const error = runs.error ?? detail.error ?? exportFile.error;
+  const emailFile = useMutation({
+    mutationFn: (input: { runId: string; employeeIds?: string[] }) => client.hr.emailPayslips(input),
+    onSuccess: (result) => setNote(`Sent ${result.sentCount} payslip(s) by email${result.skippedCount ? `; skipped ${result.skippedCount} without an email address.` : "."}`),
+  });
+  const error = runs.error ?? detail.error ?? exportFile.error ?? emailFile.error;
   const lines = detail.data?.lines ?? [];
   const selected = eligibleRuns.find((run) => run.id === runId);
   const hasSelection = employeeId === "all" ? lines.length > 0 : lines.some((line) => line.employeeId === employeeId);
@@ -66,11 +70,11 @@ export default function HrPayslips() {
       {selected ? <p className="mt-3 text-[12px] text-muted-foreground">Payroll status: {selected.status}. {lines.length} saved payslip record(s) for {selected.periodStart} through {selected.periodEnd}.</p> : null}
       {runId && detail.isPending ? <p className="mt-3 text-[13px] text-muted-foreground">Loading saved payroll records…</p> : null}
       {runId && detail.data && lines.length === 0 ? <p className="mt-3 text-[13px] text-muted-foreground">No payroll line exists for this period, so no payslip can be generated.</p> : null}
-      <div className="mt-4"><Button disabled={!hasSelection || exportFile.isPending} pending={exportFile.isPending} onClick={() => {
+      <div className="mt-4 flex flex-wrap gap-2"><Button disabled={!hasSelection || exportFile.isPending || emailFile.isPending} pending={exportFile.isPending} onClick={() => {
         if (!runId) return;
         setNote(null);
         exportFile.mutate(employeeId === "all" ? { runId } : { runId, employeeIds: [employeeId] });
-      }}>{employeeId === "all" ? "Download all as ZIP" : "Download employee PDF"}</Button></div>
+      }}>{employeeId === "all" ? "Download all as ZIP" : "Download employee PDF"}</Button><Button variant="outline" disabled={!hasSelection || exportFile.isPending || emailFile.isPending} pending={emailFile.isPending} onClick={() => { if (!runId) return; setNote(null); emailFile.mutate(employeeId === "all" ? { runId } : { runId, employeeIds: [employeeId] }); }}>{employeeId === "all" ? "Email all payslips" : "Email employee payslip"}</Button></div>
     </Card>
   </Page>;
 }

@@ -38,18 +38,18 @@ export const authedProc = publicProc.use(withAuth);
 export const mfaProc = publicProc.use(withAuthAllowingPendingMfa);
 
 export const riderProc = authedProc.use(requireRole("rider"));
-export const opsProc = authedProc.use(requireRole("ops", "admin"));
-export const financeProc = authedProc.use(requireRole("finance", "admin"));
-export const hrProc = authedProc.use(requireRole("hr", "admin"));
-export const payrollReadProc = authedProc.use(requireRole("hr", "finance", "admin"));
-export const performanceReadProc = authedProc.use(requireRole("ops", "hr", "finance", "admin"));
+export const opsProc = authedProc.use(requireRole("ops", "admin", "gom"));
+export const financeProc = authedProc.use(requireRole("finance", "admin", "gom"));
+export const hrProc = authedProc.use(requireRole("hr", "admin", "gom"));
+export const payrollReadProc = authedProc.use(requireRole("hr", "finance", "admin", "gom"));
+export const performanceReadProc = authedProc.use(requireRole("ops", "hr", "finance", "admin", "gom"));
 /**
  * Hub and linehaul custody actions (§6 role table): the transport role owns
  * them, ops supervises, admin overrides. Riders are deliberately excluded —
  * a rider hands parcels *to* a hub, it never bags or seals them.
  */
-export const transportProc = authedProc.use(requireRole("transport", "ops", "admin"));
-export const adminProc = authedProc.use(requireRole("admin"));
+export const transportProc = authedProc.use(requireRole("transport", "ops", "admin", "gom"));
+export const adminProc = authedProc.use(requireRole("admin", "gom"));
 /** Company dashboard and system-control surfaces are restricted to roles created in the backend. */
 export const ultimateAdminProc = authedProc.use(requireRole("super_admin", "nos_admin"));
 export const merchantProc = authedProc.use(requireRole("merchant"));
@@ -59,22 +59,22 @@ export const merchantProc = authedProc.use(requireRole("merchant"));
  * a rider's behalf when a device is dead, admin overrides. Transport is
  * excluded — a hub never delivers to a consignee.
  */
-export const doorstepProc = authedProc.use(requireRole("rider", "ops", "admin"));
+export const doorstepProc = authedProc.use(requireRole("rider", "ops", "admin", "gom"));
 /**
  * The NDR queue is answered by the merchant whose parcel it is, or by ops on
  * their behalf when the SLA clock runs out (§8). The service row-scopes a
  * merchant principal to its own rows.
  */
-export const ndrProc = authedProc.use(requireRole("merchant", "ops", "admin"));
+export const ndrProc = authedProc.use(requireRole("merchant", "ops", "admin", "gom"));
 /**
  * Disputes and claims (§10 M4): raised by a merchant or by the desks on its
  * behalf, decided by finance. Riders and transport have no part in a claim.
  * The disputes service applies §5 scoping for a merchant principal.
  */
-export const disputeProc = authedProc.use(requireRole("merchant", "ops", "finance", "admin"));
+export const disputeProc = authedProc.use(requireRole("merchant", "ops", "finance", "admin", "gom"));
 /** Any staff member who can read the operational board. */
 export const staffProc = authedProc.use(
-  requireRole("ops", "admin", "finance", "transport", "rider"),
+  requireRole("ops", "admin", "finance", "gom", "transport", "rider"),
 );
 /**
  * The desks: ops, finance and admin — web-portal staff, never field roles.
@@ -82,7 +82,7 @@ export const staffProc = authedProc.use(
  * message sent to a consignee) or commercial terms (rate cards). A rider's or
  * transport clerk's app never needs them (M5 security review: least privilege).
  */
-export const deskProc = authedProc.use(requireRole("ops", "admin", "finance"));
+export const deskProc = authedProc.use(requireRole("ops", "admin", "finance", "gom"));
 /**
  * Money reads a merchant may also make about itself: statements, settlements,
  * invoices, holds, AR, payable balance and payout (bank) details. The finance
@@ -91,7 +91,7 @@ export const deskProc = authedProc.use(requireRole("ops", "admin", "finance"));
  * review these were readProc, which let any rider or transport clerk read any
  * merchant's full bank account number.
  */
-export const moneyReadProc = authedProc.use(requireRole("ops", "admin", "finance", "merchant"));
+export const moneyReadProc = authedProc.use(requireRole("ops", "admin", "finance", "gom", "merchant"));
 /**
  * Staff plus merchant users. Used only on reads where the module service
  * applies PROJECT.md §5 row-level scoping — a merchant principal reaching one
@@ -100,7 +100,7 @@ export const moneyReadProc = authedProc.use(requireRole("ops", "admin", "finance
  * whose service does not scope.
  */
 export const readProc = authedProc.use(
-  requireRole("ops", "admin", "finance", "transport", "rider", "merchant"),
+  requireRole("ops", "admin", "finance", "gom", "transport", "rider", "merchant"),
 );
 
 export interface AuthedContext {

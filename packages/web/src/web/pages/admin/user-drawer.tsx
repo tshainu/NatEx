@@ -34,7 +34,7 @@ export interface ManagedUser {
   merchantId?: string | null;
 }
 
-const MFA_ROLES = new Set(["ops", "admin", "finance", "hr"]);
+const MFA_ROLES = new Set(["ops", "admin", "finance", "hr", "gom"]);
 
 export function UserDrawer({
   user,

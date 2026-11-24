@@ -245,6 +245,20 @@ export async function decideLeaveRequest(input: { requestId: string; decision: "
   return row!;
 }
 
+export async function cancelLeaveRequest(requestId: string, actor: Principal, note = "Cancelled before HR approval") {
+  const [request] = await db.select().from(hrLeaveRequest).where(eq(hrLeaveRequest.id, requestId));
+  if (!request) errors.notFound("Leave request");
+  if (request!.status !== "pending") errors.conflict(`Only pending leave can be cancelled; this request is ${request!.status}.`);
+  const [employee] = await db.select({ identityUserId: hrEmployee.identityUserId, branchId: hrEmployee.branchId }).from(hrEmployee).where(eq(hrEmployee.id, request!.employeeId));
+  const isHr = actor.roles.some((role) => role === "hr" || role === "admin" || role === "gom");
+  const isApplicant = request!.createdBy === actor.userId || employee?.identityUserId === actor.userId;
+  if (!isHr && !isApplicant) errors.forbidden("Only HR or the employee who applied may cancel pending leave.");
+  if (actor.role === "ops" && employee?.branchId !== actor.branchId) errors.forbidden("Hub Managers may only cancel leave in their assigned hub.");
+  const [row] = await db.update(hrLeaveRequest).set({ status: "cancelled", decidedBy: actor.userId, decisionNote: note.trim(), decidedAt: new Date() }).where(and(eq(hrLeaveRequest.id, requestId), eq(hrLeaveRequest.status, "pending"))).returning();
+  if (!row) errors.conflict("This leave request was already changed. Refresh and try again.");
+  return row!;
+}
+
 export async function adjustLeaveBalance(input: {
   employeeId: string;
   leaveTypeId: string;

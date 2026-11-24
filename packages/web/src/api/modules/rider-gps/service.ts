@@ -93,7 +93,7 @@ export async function finishDay(principal: Principal, workDate = colomboToday())
   return day!;
 }
 
-function canViewAll(principal: Principal) { return ["admin", "super_admin", "nos_admin", "hr", "finance"].includes(principal.role); }
+function canViewAll(principal: Principal) { return ["admin", "super_admin", "nos_admin", "hr", "finance", "gom"].includes(principal.role); }
 
 /** Close abandoned sessions from earlier Colombo dates at the next nightly tick. */
 export async function closeStaleDays(workDate = colomboToday()) {

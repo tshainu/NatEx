@@ -35,6 +35,7 @@ export const exportPayslips = payrollReadProc.input(z.object({
   runId: z.string().min(1),
   employeeIds: z.array(z.string().min(1)).min(1).max(5000).optional(),
 })).handler(({ input, context }) => payslips.exportPayslips(input, context.principal));
+export const emailPayslips = hrProc.input(z.object({ runId: z.string().min(1), employeeIds: z.array(z.string().min(1)).min(1).max(5000).optional() })).handler(({ input, context }) => mutate(context, input, { route: "hr.emailPayslips", entity: "hr_payroll_run", entityId: () => input.runId, action: "hr.payslips_emailed" }, () => payslips.emailPayslips(input, context.principal)));
 export const createPayrollRun = hrProc.input(z.object({ periodStart: isoDay, periodEnd: isoDay, cutoffDate: isoDay.optional(), branchIds: z.array(z.string().min(1)).max(500).optional() })).handler(({ input, context }) => mutate(context, input, {
   route: "hr.createPayrollRun",
   entity: "hr_payroll_run",
@@ -93,4 +94,4 @@ export const cancelDraftPayrollRun = hrProc.input(z.object({ runId: z.string().m
 }, () => payroll.cancelDraftPayrollRun(input, context.principal)));
 export const statutoryReport = payrollReadProc.input(z.object({ runId: z.string().min(1) })).handler(({ input, context }) => payroll.statutoryReport(input.runId, context.principal));
 
-export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, exportPayslips, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, returnPayrollRun, rejectPayrollRun, recordPayrollPayment, cancelDraftPayrollRun, editPayrollLine, approvePayrollLines, statutoryReport };
+export const hrPayroll = { apitSchedule, saveApitSchedule, validateApitSchedule, payrollRuns, payrollRun, exportPayslips, emailPayslips, createPayrollRun, manualApit, submitPayrollRun, approvePayrollRun, returnPayrollRun, rejectPayrollRun, recordPayrollPayment, cancelDraftPayrollRun, editPayrollLine, approvePayrollLines, statutoryReport };

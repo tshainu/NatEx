@@ -2,6 +2,7 @@ import { z } from "zod";
 import { opsProc } from "../middleware/pipeline";
 import { deliveryAttemptsReport } from "../modules/delivery/service";
 import { errors } from "../shared/errors";
+import { isGlobalScope } from "../shared/auth";
 import { listBranches, operationsBranchScope } from "../modules/identity/service";
 
 const colomboDate = z
@@ -33,7 +34,7 @@ const attemptsReport = opsProc
     }),
   )
   .handler(async ({ input, context }) => {
-    const admin = context.principal.role === "admin";
+    const admin = isGlobalScope(context.principal.role);
     const authorizedBranchIds = admin
       ? null
       : await operationsBranchScope(context.principal.branchId);

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { hrProc, mutate } from "../middleware/pipeline";
+import { authedProc, hrProc, mutate } from "../middleware/pipeline";
+import { requireRole } from "../middleware/auth";
 import * as leave from "../modules/hr/leave";
 import { isValidIsoDate } from "../modules/hr/validation";
 
@@ -60,6 +61,9 @@ export const decideLeaveRequest = hrProc.input(z.object({
   action: `hr.leave_${input.decision}`,
 }, () => leave.decideLeaveRequest(input, context.principal)));
 
+export const cancelLeaveRequest = authedProc.use(requireRole("hr", "admin", "gom", "ops", "rider"))
+  .input(z.object({ requestId: z.string().min(1), note: z.string().trim().min(3).max(500).optional() }))
+  .handler(({ input, context }) => mutate(context, input, { route: "hr.cancelLeaveRequest", entity: "hr_leave_request", entityId: () => input.requestId, action: "hr.leave_cancelled" }, () => leave.cancelLeaveRequest(input.requestId, context.principal, input.note)));
 export const adjustLeaveBalance = hrProc.input(z.object({
   employeeId: z.string().min(1),
   leaveTypeId: z.string().min(1),
@@ -73,4 +77,4 @@ export const adjustLeaveBalance = hrProc.input(z.object({
   action: "hr.leave_balance_adjusted",
 }, () => leave.adjustLeaveBalance(input, context.principal)));
 
-export const hrLeave = { leaveTypes, saveLeaveType, leaveBalances, leaveRequests, createLeaveRequest, decideLeaveRequest, adjustLeaveBalance };
+export const hrLeave = { leaveTypes, saveLeaveType, leaveBalances, leaveRequests, createLeaveRequest, decideLeaveRequest, cancelLeaveRequest, adjustLeaveBalance };

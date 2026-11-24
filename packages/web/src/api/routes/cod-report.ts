@@ -3,6 +3,7 @@ import { opsProc } from "../middleware/pipeline";
 import * as codService from "../modules/cod/service";
 import * as parcelsService from "../modules/parcels/service";
 import { errors } from "../shared/errors";
+import { isGlobalScope } from "../shared/auth";
 import { listBranches, operationsBranchScope } from "../modules/identity/service";
 
 const colomboDateSchema = z
@@ -27,7 +28,7 @@ export const reconciliationReport = opsProc
     }),
   )
   .handler(async ({ input, context }) => {
-    const isAdmin = context.principal.role === "admin";
+    const isAdmin = isGlobalScope(context.principal.role);
     const branchId = context.principal.branchId;
     if (!isAdmin && !branchId) errors.forbidden("This operations account is not assigned to a branch.");
     const authorizedBranchIds = isAdmin ? null : await operationsBranchScope(branchId!);

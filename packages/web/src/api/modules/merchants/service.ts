@@ -83,6 +83,22 @@ export async function getMerchantScoped(
   return row!;
 }
 
+export async function listAllMerchants(input: { page: number; pageSize: number; search?: string }) {
+  const page = Math.max(1, input.page);
+  const pageSize = Math.min(Math.max(input.pageSize, 1), 100);
+  const filters = [];
+  if (input.search?.trim()) {
+    const term = `%${input.search.trim()}%`;
+    filters.push(or(like(merchant.name, term), like(merchant.contactPhone, term), like(merchant.address, term)));
+  }
+  const where = filters.length ? and(...filters) : undefined;
+  const [rows, [total]] = await Promise.all([
+    db.select().from(merchant).where(where).orderBy(desc(merchant.createdAt)).limit(pageSize).offset((page - 1) * pageSize),
+    db.select({ value: count() }).from(merchant).where(where),
+  ]);
+  return { rows, total: total?.value ?? 0, page, pageSize };
+}
+
 export async function listMerchants(
   input: { page: number; pageSize: number; search?: string },
   scope: Principal,

@@ -19,7 +19,7 @@ interface CalculationSnapshot {
   apitScheduleVersion: string;
   apitScheduleBands: ApitBand[];
   time: { regularMinutes: number; overtimeMinutes: number };
-  leave: { paidHalfDays: number; unpaidHalfDays: number; lastMonthPaidHalfDays: number; lastMonthUnpaidHalfDays: number };
+  leave: { paidHalfDays: number; unpaidHalfDays: number; probationaryUnpaidHalfDays?: number; lastMonthPaidHalfDays: number; lastMonthUnpaidHalfDays: number };
   package: { code: string; name: string; payBasis: string };
   joinedOn: string;
   endedOn: string | null;
@@ -260,7 +260,12 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       db.select({ cutoffDate: hrPayrollRun.cutoffDate }).from(hrPayrollRun).where(and(eq(hrPayrollRun.periodEnd, new Date(Date.parse(`${input.periodStart}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)), ne(hrPayrollRun.status, "cancelled"))).orderBy(desc(hrPayrollRun.createdAt)).limit(1),
     ]);
     const carry = previousRun[0] ? await lateApprovedLeaveForPriorMonth(employee.id, input.periodStart, previousRun[0].cutoffDate === "1970-01-01" ? `${input.periodStart.slice(0, 7)}-01` : previousRun[0].cutoffDate) : { paidHalfDays: 0, unpaidHalfDays: 0 };
-    const totalLeave = { paidHalfDays: leave.paidHalfDays + carry.paidHalfDays, unpaidHalfDays: leave.unpaidHalfDays + carry.unpaidHalfDays };
+    const probationary = employee.employmentType === "probation";
+    const probationaryUnpaidHalfDays = probationary ? leave.paidHalfDays + carry.paidHalfDays : 0;
+    const totalLeave = {
+      paidHalfDays: probationary ? 0 : leave.paidHalfDays + carry.paidHalfDays,
+      unpaidHalfDays: leave.unpaidHalfDays + carry.unpaidHalfDays + probationaryUnpaidHalfDays,
+    };
     const employedDays = daysInclusive(employedFrom, employedTo);
     const nonEmploymentHalfDays = (days - employedDays) * 2;
     const payProrationHalfDays = nonEmploymentHalfDays + totalLeave.unpaidHalfDays;
@@ -305,7 +310,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       apitScheduleVersion: schedule.version,
       apitScheduleBands: apitSchedule.bands,
       time: { regularMinutes: time.regularMinutes, overtimeMinutes: time.overtimeMinutes },
-      leave: { paidHalfDays: leave.paidHalfDays, unpaidHalfDays: leave.unpaidHalfDays, lastMonthPaidHalfDays: carry.paidHalfDays, lastMonthUnpaidHalfDays: carry.unpaidHalfDays },
+      leave: { paidHalfDays: totalLeave.paidHalfDays, unpaidHalfDays: totalLeave.unpaidHalfDays, probationaryUnpaidHalfDays, lastMonthPaidHalfDays: carry.paidHalfDays, lastMonthUnpaidHalfDays: carry.unpaidHalfDays },
       package: { code: assignment.package.code, name: assignment.package.name, payBasis: assignment.package.payBasis },
       joinedOn: employee.joinedOn,
       endedOn: employee.endedOn,
@@ -388,11 +393,13 @@ export async function getPayrollRun(runId: string, actor: Principal) {
   const lines = await db.select().from(hrPayrollLine).where(eq(hrPayrollLine.runId, runId)).orderBy(asc(hrPayrollLine.employeeCode));
   const [schedule] = await db.select().from(hrApitSchedule).where(eq(hrApitSchedule.id, run!.apitScheduleId));
   const employeeIds = lines.map((line) => line.employeeId);
-  const employees = employeeIds.length ? await db.select({ id: hrEmployee.id, nationalId: hrEmployee.nationalId }).from(hrEmployee).where(inArray(hrEmployee.id, employeeIds)) : [];
+  const employees = employeeIds.length ? await db.select({ id: hrEmployee.id, nationalId: hrEmployee.nationalId, email: hrEmployee.email }).from(hrEmployee).where(inArray(hrEmployee.id, employeeIds)) : [];
   const nationalIds = new Map(employees.map((employee) => [employee.id, employee.nationalId]));
+  const emails = new Map(employees.map((employee) => [employee.id, employee.email]));
   const visibleLines = lines.map((line) => ({
     ...line,
     nationalId: nationalIds.get(line.employeeId) ?? null,
+    email: emails.get(line.employeeId) ?? null,
     breakdownJson: JSON.stringify(withoutPausedApitWarnings(parseSnapshot(line))),
   }));
   return { run: run!, lines: visibleLines, schedule: schedule ?? null };

@@ -15,3 +15,5 @@ export function registerPublicLocationsRoute(
     );
   });
 }
+
+export const publicLocations = registerPublicLocationsRoute;

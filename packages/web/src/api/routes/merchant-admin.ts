@@ -8,7 +8,7 @@ import { errors } from "../shared/errors";
 import { normaliseLkPhone } from "../shared/sms";
 import { requireRole } from "../middleware/auth";
 
-const reportProc = authedProc.use(requireRole("ops", "admin"));
+const reportProc = authedProc.use(requireRole("ops", "admin", "hr", "finance", "gom", "rider", "transport"));
 
 /**
  * merchants routes, onboarding half (§10 M5 "merchant onboarding").
@@ -67,6 +67,9 @@ export const onboardingRequests = opsProc
 export const onboardingRequestCount = opsProc
   .handler(({ context }) => merchantsService.staffOnboardingRequestCount(context.principal));
 
+export const merchantsList = authedProc
+  .input(z.object({ page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(100).default(50), search: z.string().trim().max(100).optional() }))
+  .handler(({ input }) => merchantsService.listAllMerchants(input));
 export const riderEnrollmentCommissionReport = reportProc
   .handler(({ context }) => merchantsService.riderEnrollmentCommissionReport(context.principal));
 
@@ -232,6 +235,7 @@ export const merchantAdmin = {
   onboardingRequests,
   onboardingRequestCount,
   riderEnrollmentCommissionReport,
+  merchantsList,
   onboardingRequest,
   approveOnboardingRequest,
 };

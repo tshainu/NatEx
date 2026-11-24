@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "../../database";
-import { hrEmployee, hrTimesheet } from "../../database/schema/hr";
+import { hrEmployee, hrLeaveRequest, hrTimesheet } from "../../database/schema/hr";
 import { operationsBranchScope } from "../identity/service";
 import type { Principal } from "../../shared/auth";
 import { colomboToday } from "../../shared/time";
@@ -80,6 +80,24 @@ export async function listAttendance(input: { from: string; to: string; employee
   if (input.branchId) filters.push(eq(hrEmployee.branchId, input.branchId));
   if (principal?.role === "ops" && principal.branchId) filters.push(inArray(hrEmployee.branchId, await operationsBranchScope(principal.branchId)));
   return db.select({ attendance: hrTimesheet, employeeCode: hrEmployee.employeeCode, employeeName: hrEmployee.fullName, branchId: hrEmployee.branchId, department: hrEmployee.department }).from(hrTimesheet).innerJoin(hrEmployee, eq(hrEmployee.id, hrTimesheet.employeeId)).where(and(...filters)).orderBy(desc(hrTimesheet.workDate), asc(hrEmployee.employeeCode)).limit(2000);
+}
+
+export async function listNonMarkedAttendance(input: { from: string; to: string; employeeId?: string; branchId?: string; department?: string }, principal?: Principal) {
+  if (!isValidIsoDate(input.from) || !isValidIsoDate(input.to) || input.from > input.to) errors.badRequest("Attendance dates are invalid.");
+  const employeeFilters = [eq(hrEmployee.status, "active")];
+  if (input.employeeId) employeeFilters.push(eq(hrEmployee.id, input.employeeId));
+  if (input.branchId) employeeFilters.push(eq(hrEmployee.branchId, input.branchId));
+  if (input.department) employeeFilters.push(eq(hrEmployee.department, input.department));
+  if (principal?.role === "ops" && principal.branchId) employeeFilters.push(inArray(hrEmployee.branchId, await operationsBranchScope(principal.branchId)));
+  const employees = await db.select({ id: hrEmployee.id, employeeCode: hrEmployee.employeeCode, employeeName: hrEmployee.fullName, branchId: hrEmployee.branchId, department: hrEmployee.department }).from(hrEmployee).where(and(...employeeFilters)).orderBy(asc(hrEmployee.employeeCode));
+  const marked = await db.select({ employeeId: hrTimesheet.employeeId, workDate: hrTimesheet.workDate }).from(hrTimesheet).where(and(gte(hrTimesheet.workDate, input.from), lte(hrTimesheet.workDate, input.to)));
+  const leaves = await db.select({ employeeId: hrLeaveRequest.employeeId, startsOn: hrLeaveRequest.startsOn, endsOn: hrLeaveRequest.endsOn }).from(hrLeaveRequest).where(and(eq(hrLeaveRequest.status, "approved"), lte(hrLeaveRequest.startsOn, input.to), gte(hrLeaveRequest.endsOn, input.from)));
+  const markedSet = new Set(marked.map((row) => `${row.employeeId}:${row.workDate}`));
+  const leaveSet = new Set<string>();
+  for (const leave of leaves) { const start = new Date(`${leave.startsOn}T00:00:00Z`); const end = new Date(`${leave.endsOn}T00:00:00Z`); for (let d = start; d <= end; d = new Date(d.getTime() + 86_400_000)) { const day = d.toISOString().slice(0, 10); if (day >= input.from && day <= input.to) leaveSet.add(`${leave.employeeId}:${day}`); } }
+  const out: Array<typeof employees[number] & { workDate: string }> = [];
+  for (const employee of employees) for (let d = new Date(`${input.from}T00:00:00Z`); d <= new Date(`${input.to}T00:00:00Z`); d = new Date(d.getTime() + 86_400_000)) { const day = d.toISOString().slice(0, 10); const key = `${employee.id}:${day}`; if (!markedSet.has(key) && !leaveSet.has(key)) out.push({ ...employee, workDate: day }); }
+  return out;
 }
 
 export async function saveManualAttendance(input: { employeeId: string; workDate: string; clockInAt?: string | null; clockOutAt?: string | null; attendanceStatus: "present" | "absent" | "leave" | "off_duty"; overtimeEligible?: boolean; note?: string | null }, actor: Principal) {

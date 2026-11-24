@@ -30,7 +30,7 @@ import { isDevelopment } from "../../shared/env";
  * seeder refuses, and a seeded factor is refused at sign-in.
  */
 
-export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance", "hr", "super_admin", "nos_admin"];
+export const MFA_ROLES: readonly Role[] = ["ops", "admin", "finance", "gom", "hr", "super_admin", "nos_admin"];
 export const RECOVERY_CODE_COUNT = 10;
 
 /** Fail-closed: anything that is not an explicit dev/test process counts as production (shared/env.ts). */

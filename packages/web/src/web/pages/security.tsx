@@ -21,7 +21,7 @@ import { useMfaStatus, useMySessions, type SessionRow } from "@/queries/admin";
  * TOTP (ops, admin, finance and HR).
  */
 
-const MFA_ROLES = new Set(["ops", "admin", "finance", "hr"]);
+const MFA_ROLES = new Set(["ops", "admin", "finance", "hr", "gom"]);
 
 export default function SecurityPage() {
   const { session } = useAuth();
