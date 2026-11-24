@@ -23,6 +23,8 @@ import { Body, Label, Mono, Small, Title } from "../../components/natex/text";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
+const ACTIVE_TRIP_STATUSES = new Set(["planned", "loading", "departed", "arrived"]);
+
 /**
  * The linehaul board: every trip from or to this hub.
  *
@@ -92,7 +94,12 @@ export default function TransportTripsScreen() {
   });
 
   const destinations = (branches.data ?? []).filter((b) => b.id !== user?.branchId);
-  const trips = board.data?.trips ?? [];
+  const trips = (board.data?.trips ?? []).filter((trip) => ACTIVE_TRIP_STATUSES.has(trip.status));
+  const activeCounts = {
+    planned: trips.filter((trip) => trip.status === "planned" || trip.status === "loading").length,
+    inFlight: trips.filter((trip) => trip.status === "departed").length,
+    arrived: trips.filter((trip) => trip.status === "arrived").length,
+  };
 
   const footer = creating ? (
     <>
@@ -113,28 +120,27 @@ export default function TransportTripsScreen() {
         }}
       />
     </>
-  ) : (
-    <Button title="New trip" onPress={() => setCreating(true)} />
-  );
+  ) : null;
 
   return (
     <Screen
       inTabs
       footer={footer}
+      floatingAction={!creating ? <Button title="New trip" onPress={() => setCreating(true)} style={styles.floatingButton} /> : undefined}
       refreshing={board.isRefetching}
       onRefresh={() => void board.refetch()}
     >
-      <ScreenHeader title="Linehaul" subtitle="Trips from and to this hub" />
+      <ScreenHeader title="Transport" subtitle="Active trips from or arriving at this hub" />
 
       {board.data ? (
         <StatRow>
-          <Stat label="Planned" value={board.data.counts.planned} />
+          <Stat label="Planned" value={activeCounts.planned} />
           <Stat
             label="In flight"
-            value={board.data.counts.inFlight}
-            color={board.data.counts.inFlight > 0 ? colors.statusMoving : undefined}
+            value={activeCounts.inFlight}
+            color={activeCounts.inFlight > 0 ? colors.statusMoving : undefined}
           />
-          <Stat label="Arrived" value={board.data.counts.arrived} />
+          <Stat label="Arrived" value={activeCounts.arrived} />
         </StatRow>
       ) : null}
 
@@ -265,7 +271,7 @@ export default function TransportTripsScreen() {
       {board.isSuccess && trips.length === 0 ? (
         <Empty
           title="No trips"
-          detail="Create a trip, load your sealed bags onto it, then depart."
+          detail="Only active trips connected to this hub are shown. Create a trip to move sealed bags."
         />
       ) : null}
 
@@ -356,4 +362,5 @@ const styles = StyleSheet.create({
   },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.unit },
   cardBottom: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: Space.unit },
+  floatingButton: { width: 142, borderRadius: Space.radiusPill },
 });

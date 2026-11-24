@@ -1,10 +1,8 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RoleGate } from "../../components/natex/role-gate";
-import { Fonts, Space, Type } from "../../constants/theme";
+import { AnimatedWaveTabBar } from "../../components/natex/animated-wave-tab-bar";
 import { useColors } from "../../hooks/use-colors";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Platform } from "react-native";
 
 /**
  * The transport clerk's four tabs.
@@ -16,8 +14,6 @@ import { Platform } from "react-native";
  */
 export default function TransportLayout() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, 12);
 
   return (
     <RoleGate allow={["transport"]}>
@@ -26,26 +22,8 @@ export default function TransportLayout() {
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.mutedForeground,
-          tabBarStyle: {
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            borderTopWidth: 1,
-            height: Space.minTouch + 24 + bottomInset,
-            paddingTop: 8,
-            paddingBottom: bottomInset,
-            ...Platform.select({
-              web: { boxShadow: "0px -4px 14px rgba(0,0,0,0.12)" },
-              default: {
-                elevation: 12,
-                shadowColor: "#000000",
-                shadowOffset: { width: 0, height: -4 },
-                shadowOpacity: 0.12,
-                shadowRadius: 14,
-              },
-            }),
-          },
-          tabBarLabelStyle: { fontFamily: Fonts.bodyMedium, fontSize: Type.label + 1, marginTop: 2 },
         }}
+        tabBar={(props) => <AnimatedWaveTabBar {...props} />}
       >
         <Tabs.Screen
           name="index"
@@ -63,7 +41,7 @@ export default function TransportLayout() {
         <Tabs.Screen
           name="trips"
           options={{
-            title: "Trips",
+            title: "Transport",
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "bus" : "bus-outline"}

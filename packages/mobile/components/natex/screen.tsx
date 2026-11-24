@@ -24,8 +24,10 @@ import { Display, Small } from "./text";
 
 interface ScreenProps {
   children: React.ReactNode;
-  /** Pinned bottom action area — thumb-first primary button lives here. */
+  /** Pinned bottom action area — thumb-first primary action lives here. */
   footer?: React.ReactNode;
+  /** Compact primary action that floats above the tab bar. */
+  floatingAction?: React.ReactNode;
   /** Set when this screen is inside a tab navigator (the tab bar owns the bottom inset). */
   inTabs?: boolean;
   onRefresh?: () => void;
@@ -37,6 +39,7 @@ interface ScreenProps {
 export function Screen({
   children,
   footer,
+  floatingAction,
   inTabs = false,
   onRefresh,
   refreshing = false,
@@ -95,6 +98,7 @@ export function Screen({
             {footer}
           </View>
         ) : null}
+        {floatingAction ? <View pointerEvents="box-none" style={styles.floating}>{floatingAction}</View> : null}
       </View>
     </SafeAreaView>
   );
@@ -168,6 +172,12 @@ const styles = StyleSheet.create({
         shadowRadius: 14,
       },
     }),
+  },
+  floating: {
+    position: "absolute",
+    right: Space.page,
+    bottom: Space.unit * 2,
+    alignItems: "flex-end",
   },
   header: {
     flexDirection: "row",

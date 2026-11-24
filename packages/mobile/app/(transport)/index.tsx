@@ -77,14 +77,13 @@ export default function TransportBagsScreen() {
         }}
       />
     </>
-  ) : (
-    <Button title="New bag" onPress={() => setCreating(true)} />
-  );
+  ) : null;
 
   return (
     <Screen
       inTabs
       footer={footer}
+      floatingAction={!creating ? <Button title="New bag" onPress={() => setCreating(true)} style={styles.floatingButton} /> : undefined}
       refreshing={bags.isRefetching}
       onRefresh={() => {
         void bags.refetch();
@@ -251,4 +250,5 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: Space.unit,
   },
+  floatingButton: { width: 142, borderRadius: Space.radiusPill },
 });

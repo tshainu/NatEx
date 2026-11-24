@@ -17,9 +17,9 @@ import { Fonts } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const BAR_CONTENT_HEIGHT = 72;
-const TOP_EDGE_Y = 14;
-const BUMP_PEAK_Y = 2;
+const BAR_CONTENT_HEIGHT = 58;
+const TOP_EDGE_Y = 11;
+const BUMP_PEAK_Y = 1;
 
 function makeWavePath(width: number, height: number, count: number, index: number) {
   "worklet";
@@ -83,7 +83,7 @@ function WaveTabItem({
       opacity: interpolate(distance, [0, 1, 3], [1, 0.62, 0.52], Extrapolation.CLAMP),
       transform: [
         {
-          translateY: interpolate(distance, [0, 1], [-10, 0], Extrapolation.CLAMP),
+          translateY: interpolate(distance, [0, 1], [-7, 0], Extrapolation.CLAMP),
         },
       ],
     };
@@ -178,11 +178,11 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
         <AnimatedPath
           animatedProps={waveProps}
           fill={colors.surface}
-          opacity={0.18}
+          opacity={0.14}
           stroke={colors.primary}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth={9}
+          strokeWidth={7}
         />
         <AnimatedPath
           animatedProps={waveProps}
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   tab: {
     alignItems: "center",
     flex: 1,
-    height: BAR_CONTENT_HEIGHT - 3,
+    height: BAR_CONTENT_HEIGHT - 2,
     justifyContent: "center",
   },
   tabContent: {
@@ -268,11 +268,11 @@ const styles = StyleSheet.create({
   },
   icon: {
     alignItems: "center",
-    height: 26,
+    height: 22,
     justifyContent: "center",
   },
   label: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
   },
 });
