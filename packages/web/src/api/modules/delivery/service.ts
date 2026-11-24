@@ -1786,6 +1786,27 @@ export interface RecordDeliveryResult {
   freightReceiptCode?: string | null;
 }
 
+/** Close only a fully successful run; failed stops remain visibly partial for Ops. */
+async function autoCloseFullyDeliveredRunsheet(executor: DbTransaction, runsheetId: string): Promise<void> {
+  const [sheet] = await executor
+    .select()
+    .from(runsheet)
+    .where(eq(runsheet.id, runsheetId))
+    .limit(1);
+  if (!sheet || sheet.status !== "dispatched" || sheet.plannedCount < 1 || sheet.failedCount > 0) return;
+
+  const [pending] = await executor
+    .select({ value: count() })
+    .from(runsheetItem)
+    .where(and(eq(runsheetItem.runsheetId, runsheetId), eq(runsheetItem.state, "pending")));
+  if ((pending?.value ?? 0) > 0 || sheet.deliveredCount < sheet.plannedCount) return;
+
+  await executor
+    .update(runsheet)
+    .set({ status: "closed", closedAt: new Date() })
+    .where(and(eq(runsheet.id, runsheetId), eq(runsheet.status, "dispatched")));
+}
+
 /**
  * Mark a parcel Delivered. The POD row is written FIRST, then the transition —
  * so a crash between the two leaves an orphan POD (harmless, visible) rather
@@ -2078,6 +2099,7 @@ export async function recordDelivery(
           codCollectedCents: sheet!.codCollectedCents + collected,
           freightCollectedCents: sheet!.freightCollectedCents + (freightCollection.entry?.amountCents ?? 0),
         }).where(eq(runsheet.id, sheet!.id));
+        await autoCloseFullyDeliveredRunsheet(tx, sheet!.id);
       }
     },
   );

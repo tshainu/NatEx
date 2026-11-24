@@ -110,7 +110,10 @@ export default function OpsRunsheets() {
       key: "status",
       header: "Status",
       width: "w-[110px]",
-      cell: (r) => <Badge variant={STATUS_VARIANT[r.status] ?? "muted"}>{humanise(r.status)}</Badge>,
+      cell: (r) => {
+        const partial = r.failedCount > 0 || (r.deliveredCount > 0 && r.deliveredCount < r.plannedCount);
+        return <Badge variant={partial ? "warn" : STATUS_VARIANT[r.status] ?? "muted"}>{partial ? "Partially delivered" : humanise(r.status)}</Badge>;
+      },
     },
     {
       key: "stops",
@@ -514,7 +517,10 @@ function RunsheetDrawer({
       ) : !sheet || !data ? null : (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={STATUS_VARIANT[sheet.status] ?? "muted"}>{humanise(sheet.status)}</Badge>
+            {(() => {
+              const partial = sheet.failedCount > 0 || (sheet.deliveredCount > 0 && sheet.deliveredCount < sheet.plannedCount);
+              return <Badge variant={partial ? "warn" : STATUS_VARIANT[sheet.status] ?? "muted"}>{partial ? "Partially delivered" : humanise(sheet.status)}</Badge>;
+            })()}
             {sheet.routeMethod ? <Badge variant="muted">route: {humanise(sheet.routeMethod)}</Badge> : null}
           </div>
 
@@ -699,7 +705,7 @@ function RunsheetDrawer({
           {sheet.status === "dispatched" && canClose ? (
             <section className="space-y-3 border-t pt-4">
               <h4 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-                End of day
+                {pendingStops.length === 0 && sheet.failedCount > 0 ? "Partially delivered run" : "End of day"}
               </h4>
               {pendingStops.length > 0 ? (
                 <>
@@ -719,6 +725,11 @@ function RunsheetDrawer({
                   </label>
                 </>
               ) : null}
+              {pendingStops.length === 0 && sheet.failedCount > 0 ? (
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  All stops have an outcome, but {sheet.failedCount} stop(s) were not delivered. Close this run to keep it recorded as partially delivered.
+                </p>
+              ) : null}
               <Field
                 label="Notes"
                 hint={pendingStops.length > 0 ? "Required when writing stops off — at least 10 characters." : "Optional."}
@@ -733,9 +744,9 @@ function RunsheetDrawer({
               <Button size="sm" variant={pendingStops.length > 0 ? "destructive" : "default"} disabled={closeBlocked} onClick={() => {
                   setCloseWritesOff(pendingStops.length);
                   setConfirm("close");
-                }}>
+              }}>
                 <Lock aria-hidden />
-                Close the run
+                {pendingStops.length === 0 && sheet.failedCount > 0 ? "Close as partially delivered" : "Close the run"}
               </Button>
             </section>
           ) : null}
@@ -832,14 +843,14 @@ function RunsheetDrawer({
           <ConfirmDialog
             open={confirm === "close"}
             onOpenChange={(o) => !o && setConfirm(null)}
-            title={closeWritesOff > 0 ? "Force-close this run?" : "Close this run?"}
+            title={closeWritesOff > 0 ? "Force-close this run?" : sheet.failedCount > 0 ? "Close as partially delivered?" : "Close this run?"}
             objectName={sheet.code}
             confirmLabel="Close the run"
             pending={close.isPending}
             body={
               closeWritesOff > 0
                 ? `${closeWritesOff} stop(s) will be written off as ran out of time and go back to stock. The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}.`
-                : `The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}. A closed run is never reopened.`
+                : `${sheet.failedCount > 0 ? "The run will remain recorded as partially delivered. " : ""}The rider's cash position is fixed at ${money(sheet.codCollectedCents)} collected of ${money(sheet.codExpectedCents)}. A closed run is never reopened.`
             }
             onConfirm={() =>
               close.mutate({
