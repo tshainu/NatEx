@@ -28,6 +28,7 @@ import {
   useRunsheetDispatch,
   useRunsheetOptimise,
   useRunsheetPage,
+  useRiderOpenRunsheets,
   useRunsheetRemove,
   type DeliveryOut,
   type RunsheetStatus,
@@ -112,7 +113,7 @@ export default function OpsRunsheets() {
       width: "w-[110px]",
       cell: (r) => {
         const partial = r.failedCount > 0 || (r.deliveredCount > 0 && r.deliveredCount < r.plannedCount);
-        return <Badge variant={partial ? "warn" : STATUS_VARIANT[r.status] ?? "muted"}>{partial ? "Partially delivered" : humanise(r.status)}</Badge>;
+        return <Badge variant={partial ? "outline" : STATUS_VARIANT[r.status] ?? "muted"} className={partial ? "border-sky-500/45 bg-sky-500/10 text-sky-700 dark:text-sky-300" : undefined}>{partial ? "Partially delivered" : humanise(r.status)}</Badge>;
       },
     },
     {
@@ -284,6 +285,8 @@ function CreateRunsheetDialog({
   const [riderId, setRiderId] = React.useState("");
   const [runDate, setRunDate] = React.useState(colomboToday());
   const [error, setError] = React.useState<string | null>(null);
+  const [openWarning, setOpenWarning] = React.useState(false);
+  const openRuns = useRiderOpenRunsheets(riderId, runDate);
   const create = useRunsheetCreate({
     onSuccess: (sheet) => {
       setError(null);
@@ -293,25 +296,28 @@ function CreateRunsheetDialog({
     onError: setError,
   });
 
+  const submitCreate = () => {
+    setError(null);
+    if ((openRuns.data?.rows.length ?? 0) > 0) {
+      setOpenWarning(true);
+      return;
+    }
+    create.mutate({ riderId, runDate });
+  };
+
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title="Open a runsheet"
-      description="One live run per rider per day — a second would split their cash accountability across two sheets."
+      description="Create a separate route and cash record for this rider."
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            pending={create.isPending}
-            disabled={!riderId}
-            onClick={() => {
-              setError(null);
-              create.mutate({ riderId, runDate });
-            }}
-          >
+          <Button pending={create.isPending} disabled={!riderId || openRuns.isPending} onClick={submitCreate}>
             Open as draft
           </Button>
         </div>
@@ -334,6 +340,48 @@ function CreateRunsheetDialog({
         {error ? <ErrorNote>{error}</ErrorNote> : null}
       </div>
     </Dialog>
+    <Dialog
+      open={openWarning}
+      onOpenChange={setOpenWarning}
+      title="Rider already has an open runsheet"
+      description="You can still create another runsheet, but keep the rider's parcels and cash clearly separated."
+      className="w-[560px]"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setOpenWarning(false)} disabled={create.isPending}>Cancel</Button>
+          <Button
+            pending={create.isPending}
+            onClick={() => {
+              setOpenWarning(false);
+              create.mutate({ riderId, runDate });
+            }}
+          >
+            Create another draft
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-3 text-[13px]">
+        <p className="leading-relaxed text-muted-foreground">
+          {openRuns.data?.rows.length === 1 ? "This rider has one" : `This rider has ${openRuns.data?.rows.length ?? 0}`} open runsheet{openRuns.data?.rows.length === 1 ? "" : "s"} for {date(runDate)}:
+        </p>
+        <ul className="space-y-2">
+          {(openRuns.data?.rows ?? []).map((run) => (
+            <li key={run.id} className="flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 dark:border-sky-900 dark:bg-sky-950/20">
+              <span className="font-mono font-medium">{run.code}</span>
+              <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                <Badge variant={run.status === "dispatched" ? "warn" : "muted"}>{humanise(run.status)}</Badge>
+                {run.plannedCount} stop{run.plannedCount === 1 ? "" : "s"}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-amber-950">
+          Multiple runsheets are allowed. Confirm only if this is intentional, because each sheet has its own route and cash record.
+        </p>
+      </div>
+    </Dialog>
+    </>
   );
 }
 
@@ -519,7 +567,7 @@ function RunsheetDrawer({
           <div className="flex flex-wrap items-center gap-2">
             {(() => {
               const partial = sheet.failedCount > 0 || (sheet.deliveredCount > 0 && sheet.deliveredCount < sheet.plannedCount);
-              return <Badge variant={partial ? "warn" : STATUS_VARIANT[sheet.status] ?? "muted"}>{partial ? "Partially delivered" : humanise(sheet.status)}</Badge>;
+              return <Badge variant={partial ? "outline" : STATUS_VARIANT[sheet.status] ?? "muted"} className={partial ? "border-sky-500/45 bg-sky-500/10 text-sky-700 dark:text-sky-300" : undefined}>{partial ? "Partially delivered" : humanise(sheet.status)}</Badge>;
             })()}
             {sheet.routeMethod ? <Badge variant="muted">route: {humanise(sheet.routeMethod)}</Badge> : null}
           </div>

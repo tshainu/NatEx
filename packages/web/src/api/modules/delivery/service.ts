@@ -854,27 +854,6 @@ export async function createRunsheet(
     if (!riderBranch || riderBranch.status !== "active") errors.conflict("The rider's branch is inactive and cannot receive new runsheets.");
   }
 
-  // One live run per rider per day. A second one splits the rider's cash
-  // accountability across two sheets, which §1's "money must reconcile"
-  // makes unacceptable.
-  const [existing] = await db
-    .select()
-    .from(runsheet)
-    .where(
-      and(
-        eq(runsheet.riderId, input.riderId),
-        eq(runsheet.runDate, runDate),
-        inArray(runsheet.status, ["draft", "dispatched"]),
-      ),
-    )
-    .limit(1);
-  if (existing) {
-    errors.conflict(
-      `${rider!.name} already has runsheet ${existing.code} open for ${formatLkDate(runDate)}.`,
-      { runsheetId: existing.id, code: existing.code, currentStatus: existing.status },
-    );
-  }
-
   const { result: [row] } = await insertWithFreshCode("delivery_runsheet", () => mintRunsheetCode(runDate), (code) => db
     .insert(runsheet)
     .values({

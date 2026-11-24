@@ -40,6 +40,16 @@ export function useRunsheetPage(filter: RunsheetFilter) {
   });
 }
 
+export function useRiderOpenRunsheets(riderId: string, runDate: string) {
+  return useQuery({
+    ...orpc.delivery.runsheetPage.queryOptions({
+      input: { status: ["draft", "dispatched"], riderId, runDate, page: 1, pageSize: 100 },
+    }),
+    enabled: Boolean(riderId && runDate),
+    refetchInterval: LIVE,
+  });
+}
+
 export function useRunsheet(runsheetId: string | null) {
   return useQuery({
     ...orpc.delivery.runsheetGet.queryOptions({ input: { runsheetId: runsheetId ?? "" } }),
