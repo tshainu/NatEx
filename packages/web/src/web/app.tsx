@@ -32,6 +32,7 @@ import OpsCodReconciliation from "./pages/ops/reports/cod";
 import OpsDeliveryAttemptsReport from "./pages/ops/reports/delivery";
 import OpsPerformance from "./pages/ops/reports/performance";
 import RiderRoutesReport from "./pages/ops/reports/rider-routes";
+import VehicleRunningReport from "./pages/ops/reports/vehicle-running";
 import MerchantCommissionsReport from "./pages/ops/reports/merchant-commissions";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
@@ -103,13 +104,7 @@ function Authenticated({ children }: { children: React.ReactNode }) {
 }
 
 /** A single authenticated route, wrapped in the shell and the role guard. */
-function Portal({
-  path,
-  children,
-}: {
-  path: string;
-  children: React.ReactNode;
-}) {
+function Portal({ path, children }: { path: string; children: React.ReactNode }) {
   return (
     <Route path={path}>
       <Authenticated>{children}</Authenticated>
@@ -128,8 +123,8 @@ function NotFound() {
     <Page title="No such screen" description="This address does not belong to any NatEx portal.">
       <Card className="max-w-xl">
         <p className="text-[13px] leading-relaxed text-muted-foreground">
-          Use the sidebar to reach a screen in your portal. If you followed a link here,
-          it may point at a screen that belongs to a different role.
+          Use the sidebar to reach a screen in your portal. If you followed a link here, it may
+          point at a screen that belongs to a different role.
         </p>
       </Card>
     </Page>
@@ -190,6 +185,9 @@ function Routes() {
       </Portal>
       <Portal path="/ops/reports/rider-routes">
         <RiderRoutesReport />
+      </Portal>
+      <Portal path="/ops/reports/vehicle-running">
+        <VehicleRunningReport />
       </Portal>
       <Portal path="/ops/reports/movement">
         <OpsHubMovement />
@@ -307,19 +305,45 @@ function Routes() {
       <Portal path="/hr">
         <Redirect to="/hr/dashboard" replace />
       </Portal>
-      <Portal path="/hr/dashboard"><HrDashboard /></Portal>
-      <Portal path="/hr/attendance"><HrAttendanceManagement /></Portal>
-      <Portal path="/hr/employees"><HrEmployees /></Portal>
-      <Portal path="/hr/packages"><HrPackages /></Portal>
-      <Portal path="/hr/timesheets"><HrTimesheets /></Portal>
-      <Portal path="/hr/leave"><HrLeave /></Portal>
-      <Portal path="/hr/calendar"><HrCalendar /></Portal>
-      <Portal path="/hr/payroll"><HrPayroll /></Portal>
-      <Portal path="/hr/payslips"><HrPayslips /></Portal>
-      <Portal path="/hr/terminations"><HrTerminations /></Portal>
-      <Portal path="/hr/attendance-management"><HrAttendanceManagement /></Portal>
-      <Portal path="/hr/approvals"><HrApprovals /></Portal>
-      <Portal path="/ops/attendance"><HrAttendanceManagement /></Portal>
+      <Portal path="/hr/dashboard">
+        <HrDashboard />
+      </Portal>
+      <Portal path="/hr/attendance">
+        <HrAttendanceManagement />
+      </Portal>
+      <Portal path="/hr/employees">
+        <HrEmployees />
+      </Portal>
+      <Portal path="/hr/packages">
+        <HrPackages />
+      </Portal>
+      <Portal path="/hr/timesheets">
+        <HrTimesheets />
+      </Portal>
+      <Portal path="/hr/leave">
+        <HrLeave />
+      </Portal>
+      <Portal path="/hr/calendar">
+        <HrCalendar />
+      </Portal>
+      <Portal path="/hr/payroll">
+        <HrPayroll />
+      </Portal>
+      <Portal path="/hr/payslips">
+        <HrPayslips />
+      </Portal>
+      <Portal path="/hr/terminations">
+        <HrTerminations />
+      </Portal>
+      <Portal path="/hr/attendance-management">
+        <HrAttendanceManagement />
+      </Portal>
+      <Portal path="/hr/approvals">
+        <HrApprovals />
+      </Portal>
+      <Portal path="/ops/attendance">
+        <HrAttendanceManagement />
+      </Portal>
 
       {/* Merchant portal — Milestone 3: dashboard, booking, bulk CSV, pickups, tracking, NDR */}
       <Portal path="/merchant">

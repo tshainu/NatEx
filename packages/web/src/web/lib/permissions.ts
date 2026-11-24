@@ -77,6 +77,7 @@ const REPORTS_NAV: NavItem[] = [
   { label: "COD reconciliation", to: "/ops/reports/cod" },
   { label: "Merchant enrollment commissions", to: "/ops/reports/merchant-commissions" },
   { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
+  { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
 ];
 
 const ADMIN: PortalConfig = {
@@ -118,7 +119,14 @@ const ULTIMATE_ADMIN: PortalConfig = {
  * The audit log and the job monitor are adminProc reads, so ops never sees
  * them — keep this list and ADMIN_ONLY_PATHS in step with the server gates.
  */
-const ADMIN_ONLY_PATHS = ["/admin/dashboard", "/admin/zones", "/admin/settings", "/admin/templates", "/admin/audit", "/admin/monitor"];
+const ADMIN_ONLY_PATHS = [
+  "/admin/dashboard",
+  "/admin/zones",
+  "/admin/settings",
+  "/admin/templates",
+  "/admin/audit",
+  "/admin/monitor",
+];
 
 /** The whole-company view — adminProc server-side, so admin's sidebar only. */
 const OVERVIEW_NAV: NavItem[] = [{ label: "Company dashboard", to: "/admin/dashboard" }];
@@ -137,6 +145,7 @@ const FINANCE: PortalConfig = {
     { label: "Payroll approvals", to: "/finance/payroll-approvals" },
     { label: "Rider performance", to: "/ops/reports/performance" },
     { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
+    { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
   ],
 };
 
@@ -158,6 +167,7 @@ const HR: PortalConfig = {
     { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },
     { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
+    { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
   ],
 };
 
@@ -232,11 +242,12 @@ export function navFor(role: Role): { title: string; items: NavItem[] }[] {
       { title: "Reports", items: REPORTS_NAV },
     ];
   }
-  if (role === "ops") return [
-    { title: "Operations", items: OPS.nav },
-    { title: "Transport", items: TRANSPORT_NAV },
-    { title: "Reports", items: REPORTS_NAV },
-  ];
+  if (role === "ops")
+    return [
+      { title: "Operations", items: OPS.nav },
+      { title: "Transport", items: TRANSPORT_NAV },
+      { title: "Reports", items: REPORTS_NAV },
+    ];
   if (role === "transport") {
     // A transport clerk's real tool is the mobile app; the web sidebar gives
     // them the desk-side view of the same custody screens.
@@ -266,7 +277,13 @@ export const ROLE_LABEL: Record<Role, string> = {
 export function mayVisit(role: Role, path: string): boolean {
   if (role === "super_admin" || role === "nos_admin") return true;
   if (path.startsWith("/ops")) {
-    if (path.startsWith("/ops/reports/performance") || path.startsWith("/ops/reports/merchant-commissions") || path.startsWith("/ops/reports/rider-routes")) return role === "ops" || role === "admin" || role === "hr" || role === "finance";
+    if (
+      path.startsWith("/ops/reports/performance") ||
+      path.startsWith("/ops/reports/merchant-commissions") ||
+      path.startsWith("/ops/reports/rider-routes") ||
+      path.startsWith("/ops/reports/vehicle-running")
+    )
+      return role === "ops" || role === "admin" || role === "hr" || role === "finance";
     if (role === "ops" || role === "admin") return true;
     // Transport staff reach the custody screens only, matching the server gate.
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));
@@ -277,7 +294,11 @@ export function mayVisit(role: Role, path: string): boolean {
   }
   if (path.startsWith("/finance")) return role === "finance" || role === "admin";
   if (path.startsWith("/hr")) {
-    return role === "hr" || role === "admin" || (role === "finance" && (path.startsWith("/hr/payroll") || path.startsWith("/hr/payslips")));
+    return (
+      role === "hr" ||
+      role === "admin" ||
+      (role === "finance" && (path.startsWith("/hr/payroll") || path.startsWith("/hr/payslips")))
+    );
   }
   if (path.startsWith("/merchant")) return role === "merchant";
   if (path.startsWith("/field")) return role === "rider" || role === "transport";
@@ -293,7 +314,17 @@ export function rolesOfUser(user: { role: Role; roles?: Role[] }): Role[] {
 }
 
 /** Priority order for choosing a multi-role user's home portal. */
-const PORTAL_PRIORITY: Role[] = ["super_admin", "nos_admin", "admin", "finance", "hr", "ops", "merchant", "transport", "rider"];
+const PORTAL_PRIORITY: Role[] = [
+  "super_admin",
+  "nos_admin",
+  "admin",
+  "finance",
+  "hr",
+  "ops",
+  "merchant",
+  "transport",
+  "rider",
+];
 
 /** Home portal for a role set: the highest-privilege portal the user holds. */
 export function portalForRoles(roles: readonly Role[]): PortalConfig {

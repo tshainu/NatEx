@@ -17,6 +17,7 @@
     { "path": "/ops/reports/delivery", "title": "Delivery and failed attempts" },
     { "path": "/ops/reports/movement", "title": "Hub and bag movement" },
     { "path": "/ops/reports/cod", "title": "COD reconciliation" },
+    { "path": "/ops/reports/vehicle-running", "title": "Vehicle running chart" },
     { "path": "/ops/bagging", "title": "Bagging" },
     { "path": "/ops/linehaul", "title": "Transit" },
     { "path": "/ops/inbound", "title": "Inbound bags" },
