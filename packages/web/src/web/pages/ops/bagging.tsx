@@ -109,7 +109,7 @@ export default function OpsBagging() {
     onSuccess: (row) => {
       setActiveBagId(row.id);
       setScanResult(null);
-      ok("Open bag created. Scan parcels into it; its physical seal number appears after sealing.");
+      ok("Open bag created with its seal number. Scan parcels into it, then seal the bag.");
     },
     onError: fail,
   });
@@ -405,20 +405,29 @@ export default function OpsBagging() {
           {detail?.canSeal ? (
             <Card title="Seal the bag" description="§6: a bag cannot move without a seal.">
               <div className="flex flex-col gap-3">
-                <Field label="Seal number" hint="The tamper-evident seal written on the bag.">
-                  <Input
-                    value={sealNumber}
-                    onChange={(e) => setSealNumber(e.target.value.toUpperCase())}
-                    placeholder="SL-004821"
-                    className="font-mono"
-                  />
-                </Field>
+                {detail.bag.sealNumber ? (
+                  <Field label="Assigned seal number" hint="This seal was entered when the bag was opened.">
+                    <Input value={detail.bag.sealNumber} readOnly className="font-mono bg-muted" />
+                  </Field>
+                ) : (
+                  <Field label="Seal number" hint="The tamper-evident seal written on the bag.">
+                    <Input
+                      value={sealNumber}
+                      onChange={(e) => setSealNumber(e.target.value.toUpperCase())}
+                      placeholder="SL-004821"
+                      className="font-mono"
+                    />
+                  </Field>
+                )}
                 <Button
-                  disabled={sealNumber.trim().length < 3}
+                  disabled={(detail.bag.sealNumber ?? sealNumber).trim().length < 3}
                   pending={seal.isPending}
                   onClick={() => {
                     if (!activeBagId) return;
-                    seal.mutate({ bagId: activeBagId, sealNumber: sealNumber.trim() });
+                    seal.mutate({
+                      bagId: activeBagId,
+                      sealNumber: (detail.bag.sealNumber ?? sealNumber).trim(),
+                    });
                   }}
                 >
                   <Lock aria-hidden />
@@ -473,10 +482,18 @@ export default function OpsBagging() {
                   ))}
                 </Select>
               </Field>
+              <Field label="Seal number" hint="Required now. Enter the tamper-evident seal assigned to this bag.">
+                <Input
+                  value={sealNumber}
+                  onChange={(e) => setSealNumber(e.target.value.toUpperCase())}
+                  placeholder="SL-004821"
+                  className="font-mono"
+                />
+              </Field>
               <Button
-                disabled={!destHubId}
+                disabled={!destHubId || sealNumber.trim().length < 3}
                 pending={createBag.isPending}
-                onClick={() => createBag.mutate({ destHubId })}
+                onClick={() => createBag.mutate({ destHubId, sealNumber: sealNumber.trim() })}
               >
                 <PackagePlus aria-hidden />
                 Open bag

@@ -48,6 +48,7 @@ export const bagCreate = transportProc
     z.object({
       destHubId: z.string().min(1),
       originHubId: z.string().min(1).optional(),
+      sealNumber: z.string().trim().min(3).max(32).optional(),
     }),
   )
   .handler(({ input, context }) =>

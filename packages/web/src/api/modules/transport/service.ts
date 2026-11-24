@@ -316,6 +316,7 @@ function mintCode(prefix: string): string {
 export interface CreateBagInput {
   destHubId: string;
   originHubId?: string;
+  sealNumber?: string;
 }
 
 export async function createBag(input: CreateBagInput, actor: Principal): Promise<BagRow> {
@@ -333,6 +334,17 @@ export async function createBag(input: CreateBagInput, actor: Principal): Promis
   if (!origin) errors.notFound("Origin hub");
   if (!dest) errors.notFound("Destination hub");
 
+  const seal = input.sealNumber?.trim().toUpperCase() || null;
+  if (seal) {
+    const [clash] = await db
+      .select({ code: bag.code })
+      .from(bag)
+      .where(and(eq(bag.sealNumber, seal), inArray(bag.status, ["sealed", "in_transit"])));
+    if (clash) {
+      errors.conflict(`Seal ${seal} is already on live bag ${clash.code}.`, { seal });
+    }
+  }
+
   const [row] = await db
     .insert(bag)
     .values({
@@ -342,6 +354,7 @@ export async function createBag(input: CreateBagInput, actor: Principal): Promis
       destHubId: input.destHubId,
       branchId: originHubId,
       status: "open",
+      sealNumber: seal,
       createdByName: actor.name,
     })
     .returning();
