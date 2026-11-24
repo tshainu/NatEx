@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "../../components/natex/button";
 import { Card, Panel } from "../../components/natex/card";
@@ -29,8 +30,9 @@ export default function EnrollMerchantScreen() {
   return (
     <Screen footer={<Button title="Submit for NOS approval" loading={enrollment.isPending} disabled={!canSubmit} onPress={() => enrollment.mutate({ name, contactName, contactPhone, address, vatNo: vatNo || null, codEnabled: true, podPolicy: "signature" })} />}>
       <ScreenHeader title="Enroll a merchant" subtitle="Introduce a business in your branch to NatEx." />
-      <Card style={styles.hero}>
-        <Title color="#FFFFFF">Grow your route</Title>
+      <Card style={{ ...styles.hero, backgroundColor: colors.primary }}>
+        <View style={styles.heroIcon}><Ionicons name="storefront-outline" size={22} color={colors.primaryForeground} /></View>
+        <Title color={colors.primaryForeground}>Grow your route</Title>
         <Small color="#E8F6EC">Every approved merchant earns a Rs. 1,500 commission. NOS reviews every submission before activation.</Small>
       </Card>
       {enrollment.error ? <Panel style={{ borderColor: colors.statusWarn }}><Body color={colors.statusWarn}>{apiMessage(enrollment.error, "Could not submit this enrollment.")}</Body></Panel> : null}
@@ -48,4 +50,4 @@ export default function EnrollMerchantScreen() {
   );
 }
 
-const styles = StyleSheet.create({ hero: { gap: 6, borderWidth: 0, marginBottom: 4 }, });
+const styles = StyleSheet.create({ hero: { gap: 8, borderWidth: 0, marginBottom: 4 }, heroIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" } });

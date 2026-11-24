@@ -122,11 +122,11 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: { boxShadow: "0px 3px 10px rgba(0,0,0,0.08)" },
       default: {
-        elevation: 2,
+        elevation: 4,
         shadowColor: "#000000",
         shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
+        shadowOpacity: 0.16,
+        shadowRadius: 14,
       },
     }),
   },

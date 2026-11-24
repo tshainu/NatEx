@@ -7,11 +7,11 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { Display, Small } from "./text";
-import { WorkspaceSwitcher } from "./workspace-switcher";
 
 /**
  * The screen shell every field screen uses.
@@ -112,8 +112,11 @@ export function ScreenHeader({
 }) {
   return (
     <View style={styles.header}>
-      <WorkspaceSwitcher />
+      <View style={styles.brandMark}>
+        <Ionicons name="flash" size={16} color="#052A20" />
+      </View>
       <View style={styles.flex}>
+        <View style={styles.eyebrow}><Small style={styles.eyebrowText}>NATEX FIELD APP</Small></View>
         <Display>{title}</Display>
         {subtitle ? <Small style={styles.headerSubtitle}>{subtitle}</Small> : null}
       </View>
@@ -170,7 +173,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Space.unit * 1.5,
+    marginBottom: 6,
+  },
+  brandMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: "#10B981",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  eyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 2,
+  },
+  eyebrowText: {
+    fontSize: 10,
+    letterSpacing: 1.4,
+    color: "#10B981",
   },
   headerSubtitle: { marginTop: 4 },
   headerRight: { alignItems: "flex-end" },

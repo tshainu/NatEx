@@ -48,18 +48,18 @@ const status = {
 } as const;
 
 const dark = {
-  background: ink.ink900,
+  background: "#06111D",
   foreground: ink.textHi,
-  card: ink.ink700,
+  card: "#102A40",
   cardForeground: ink.textHi,
-  surface: ink.ink800,
+  surface: "#0B2033",
   primary: ink.brand,
   primaryForeground: ink.onBrand,
-  secondary: "#163149",
+  secondary: "#173A50",
   secondaryForeground: ink.textHi,
-  muted: "#10273A",
+  muted: "#0D2A40",
   mutedForeground: ink.textLo,
-  accent: "#18364C",
+  accent: "#164B55",
   accentForeground: ink.textHi,
   border: ink.ink600,
   destructive: status.statusWarn,
@@ -74,18 +74,18 @@ const dark = {
  * identical in both schemes; only the ink shell inverts.
  */
 const light = {
-  background: "#F3F7FA",
+  background: "#F5F8F7",
   foreground: "#102235",
   card: "#FFFFFF",
   cardForeground: "#102235",
-  surface: "#E9F0F4",
+  surface: "#EAF3F0",
   primary: ink.brandInk,
   primaryForeground: "#FFFFFF",
-  secondary: "#E7EEF3",
+  secondary: "#E3F0EB",
   secondaryForeground: "#102235",
   muted: "#E9F0F4",
   mutedForeground: "#576E81",
-  accent: "#DDF4EA",
+  accent: "#D9F4E8",
   accentForeground: "#075C45",
   border: "#D8E3EA",
   destructive: status.statusWarn,
@@ -191,7 +191,7 @@ export const Space = {
   primaryButtonHeight: 56,
   /** Nothing tappable smaller than this. */
   minTouch: 48,
-  radius: 18,
+  radius: 22,
   radiusPill: 999,
 } as const;
 

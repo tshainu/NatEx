@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: Space.unit,
     borderWidth: 1,
-    borderRadius: Space.radius - 2,
+    borderRadius: 16,
   },
   primarySize: {
     height: Space.primaryButtonHeight,
@@ -115,13 +115,13 @@ const styles = StyleSheet.create({
   },
   primaryLift: {
     ...Platform.select({
-      web: { boxShadow: "0px 4px 8px rgba(0,0,0,0.16)" },
+      web: { boxShadow: "0px 8px 18px rgba(16,185,129,0.22)" },
       default: {
         elevation: 3,
         shadowColor: "#000000",
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.16,
-        shadowRadius: 8,
+        shadowOpacity: 0.22,
+        shadowRadius: 14,
       },
     }),
   },

@@ -1,4 +1,5 @@
 import { StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiMessage, orpc } from "../../lib/api";
@@ -40,6 +41,9 @@ export default function RiderTodayScreen() {
 
       {data ? (
         <Panel style={styles.overview}>
+          <View style={styles.summaryIcon}>
+            <Ionicons name="cube-outline" size={22} color={colors.primaryForeground} />
+          </View>
           <View style={styles.summaryText}>
             <Label color={colors.primary}>TODAY'S COLLECTION</Label>
             <Title>{plural(data.totals.manifests, "pickup stop")}</Title>
@@ -77,10 +81,10 @@ export default function RiderTodayScreen() {
           const pending = row.expectedCount - row.scannedCount;
           return (
             <Link key={row.id} href={`/(rider)/manifest/${row.id}`} asChild>
-              <Card
+                  <Card
                 accessibilityLabel={`Open pickup for ${row.merchantName}`}
                 onPress={() => {}}
-                style={index === 0 ? { borderColor: colors.primary, borderWidth: 2 } : undefined}
+                    style={index === 0 ? { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.accent } : undefined}
               >
                 <View style={styles.cardTop}>
                   <View style={styles.flex}>
@@ -125,6 +129,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   overview: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Space.unit * 2 },
   summaryText: { flex: 1, gap: 4 },
+  summaryIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#10B981", alignItems: "center", justifyContent: "center" },
   pendingCount: { minWidth: 64, minHeight: 64, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2 },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.unit },
   cardBottom: {

@@ -96,7 +96,10 @@ export default function RiderHandInScreen() {
 
       <Panel style={styles.batchSummary}>
         <View style={styles.flex}>
-          <Label color={colors.primary}>RETURN BATCH</Label>
+          <View style={styles.batchEyebrow}>
+            <Ionicons name="archive-outline" size={15} color={colors.primary} />
+            <Label color={colors.primary}>RETURN BATCH</Label>
+          </View>
           <Small>{plural(queue.length, "parcel")} queued</Small>
           <Small>Scan or enter every label before submitting.</Small>
         </View>
@@ -221,6 +224,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   rejectRow: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2, paddingVertical: Space.unit },
+  batchEyebrow: { flexDirection: "row", alignItems: "center", gap: 6 },
   queueCount: { minWidth: 52, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", gap: 2 },
   scanActions: { flexDirection: "row", gap: Space.unit },
   scanAction: { flex: 1 },

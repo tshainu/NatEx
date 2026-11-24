@@ -126,7 +126,10 @@ export default function RiderDeliveriesScreen() {
         <Panel style={styles.overview}>
           <View style={styles.overviewTop}>
             <View style={styles.flex}>
-              <Label color={colors.primary}>TODAY'S ROUTE</Label>
+              <View style={styles.routeEyebrow}>
+                <Ionicons name="navigate" size={14} color={colors.primary} />
+                <Label color={colors.primary}>TODAY'S ROUTE</Label>
+              </View>
               <Title>{run.runsheet.code}</Title>
               <Small>{run.hubName ?? "Hub"} · {date(run.runsheet.runDate)}</Small>
             </View>
@@ -303,6 +306,7 @@ export default function RiderDeliveriesScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   overview: { gap: Space.unit * 1.5 },
+  routeEyebrow: { flexDirection: "row", alignItems: "center", gap: 6 },
   overviewTop: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2 },
   leftCount: {
     minWidth: 62,
