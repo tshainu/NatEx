@@ -11,14 +11,43 @@ import {
 } from "@/lib/format";
 import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { Field, Textarea } from "@/components/ui/input";
-import { ConfirmDialog } from "@/components/ui/dialog";
-import { Link } from "wouter";
+import { Field, Input, Textarea } from "@/components/ui/input";
+import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { StatusPill } from "./status-pill";
 import { Timeline } from "./timeline";
 import { KeyValue, KeyValueGrid, ErrorNote } from "./page";
 import { statusColour } from "@/lib/status";
 import { ulid } from "@/lib/ulid";
+import { AddressFields } from "./address-fields";
+import { EMPTY_ADDRESS, addressPartsFromLegacy, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
+
+interface EditForm {
+  weightKg: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  description: string;
+  declaredValue: string;
+  codAmount: string;
+  originAddress: AddressParts;
+  consigneeName: string;
+  consigneePhone: string;
+  destAddress: AddressParts;
+}
+
+const EMPTY_EDIT: EditForm = {
+  weightKg: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
+  description: "",
+  declaredValue: "",
+  codAmount: "",
+  originAddress: { ...EMPTY_ADDRESS },
+  consigneeName: "",
+  consigneePhone: "",
+  destAddress: { ...EMPTY_ADDRESS },
+};
 
 /**
  * Parcel detail drawer — 480px, over a dimmed board (design.md). Shows the
@@ -77,6 +106,69 @@ export function ParcelDrawer({
   const parcel = detail.data?.parcel;
   const timeline = detail.data?.timeline ?? [];
   const commandable = detail.data?.commandable ?? [];
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [editForm, setEditForm] = React.useState<EditForm>(EMPTY_EDIT);
+
+  React.useEffect(() => {
+    if (!parcel) return;
+    setEditForm({
+      weightKg: (parcel.weightGrams / 1000).toFixed(3).replace(/0+$/, "").replace(/\.$/, ""),
+      lengthCm: parcel.lengthCm == null ? "" : String(parcel.lengthCm),
+      widthCm: parcel.widthCm == null ? "" : String(parcel.widthCm),
+      heightCm: parcel.heightCm == null ? "" : String(parcel.heightCm),
+      description: parcel.description ?? "",
+      declaredValue: ((parcel.declaredValueCents ?? 0) / 100).toFixed(2),
+      codAmount: (parcel.codAmountCents / 100).toFixed(2),
+      originAddress: addressPartsFromLegacy(parcel.originAddress),
+      consigneeName: parcel.consigneeName,
+      consigneePhone: parcel.consigneePhone,
+      destAddress: addressPartsFromLegacy(parcel.destAddress),
+    });
+  }, [parcel]);
+
+  const saveEdit = useMutation({
+    mutationFn: () => {
+      if (!parcel) throw new Error("Load a parcel before saving.");
+      return client.parcels.editAtOriginHub({
+        awbOrId: parcel.awb,
+        weightGrams: Math.round(Number(editForm.weightKg) * 1000),
+        lengthCm: editForm.lengthCm ? Number(editForm.lengthCm) : null,
+        widthCm: editForm.widthCm ? Number(editForm.widthCm) : null,
+        heightCm: editForm.heightCm ? Number(editForm.heightCm) : null,
+        description: editForm.description.trim() || null,
+        declaredValueCents: Math.round(Number(editForm.declaredValue) * 100),
+        codAmountCents: Math.round(Number(editForm.codAmount) * 100),
+        originAddress: formatAddress(editForm.originAddress),
+        originLat: parcel.originLat ?? null,
+        originLng: parcel.originLng ?? null,
+        consigneeName: editForm.consigneeName.trim(),
+        consigneePhone: editForm.consigneePhone.trim(),
+        destAddress: formatAddress(editForm.destAddress),
+        destLat: parcel.destLat ?? null,
+        destLng: parcel.destLng ?? null,
+        destZoneId: parcel.destZoneId ?? null,
+      });
+    },
+    onSuccess: () => {
+      setEditOpen(false);
+      void queryClient.invalidateQueries();
+    },
+  });
+
+  const editValid = Boolean(
+    parcel &&
+    parcel.status === "AtOriginHub" &&
+    Number.isFinite(Number(editForm.weightKg)) &&
+    Number(editForm.weightKg) > 0 &&
+    Number.isFinite(Number(editForm.declaredValue)) &&
+    Number(editForm.declaredValue) >= 0 &&
+    Number.isFinite(Number(editForm.codAmount)) &&
+    Number(editForm.codAmount) >= 0 &&
+    isCompleteAddress(editForm.originAddress) &&
+    editForm.consigneeName.trim().length >= 2 &&
+    editForm.consigneePhone.trim().length >= 9 &&
+    isCompleteAddress(editForm.destAddress),
+  );
 
   return (
     <>
@@ -103,7 +195,7 @@ export function ParcelDrawer({
                 status={parcel!.status}
                 readOnlyReason={detail.data.readOnlyReason}
                 canEditAtOriginHub={detail.data.canEditAtOriginHub === true}
-                editHref={awb ? `/ops/book?edit=${encodeURIComponent(awb)}` : null}
+                onEdit={() => { saveEdit.reset(); setEditOpen(true); }}
                 pendingTo={transition.isPending ? pendingTo : null}
                 onCommand={(to) => setPendingTo(to)}
               />
@@ -211,6 +303,79 @@ export function ParcelDrawer({
         ) : null}
       </Drawer>
 
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          if (!open && !saveEdit.isPending) {
+            saveEdit.reset();
+            setEditOpen(false);
+          }
+        }}
+        title={
+          <span className="flex items-center gap-2">
+            <span className="inline-flex size-2 rounded-full bg-sky-500" aria-hidden />
+            Edit parcel
+          </span>
+        }
+        description={
+          <span>
+            Update <span className="font-mono text-foreground">{parcel?.awb}</span> while it remains at Origin Hub.
+          </span>
+        }
+        className="w-[860px] max-w-[96vw]"
+        footer={
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[12px] text-muted-foreground">Changes are recorded securely against this parcel.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saveEdit.isPending}>Cancel</Button>
+              <Button pending={saveEdit.isPending} disabled={!editValid} onClick={() => saveEdit.mutate()}>
+                Save changes
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid gap-3 rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/20 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">Parcel identity</p>
+              <p className="mt-1 font-mono text-[16px] font-semibold tracking-wide">{parcel?.awb}</p>
+            </div>
+            {parcel ? <StatusPill status={parcel.status} size="lg" /> : null}
+          </div>
+
+          {saveEdit.error ? <ErrorNote>{apiMessage(saveEdit.error, "The parcel could not be updated.")}</ErrorNote> : null}
+
+          <section className="rounded-xl border border-border p-4">
+            <h3 className="mb-4 text-[13px] font-semibold">Parcel details</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <Field label="Weight (kg)" className="col-span-4 sm:col-span-1"><Input value={editForm.weightKg} onChange={(event) => setEditForm((prev) => ({ ...prev, weightKg: event.target.value }))} inputMode="decimal" /></Field>
+              <Field label="Length (cm)"><Input value={editForm.lengthCm} onChange={(event) => setEditForm((prev) => ({ ...prev, lengthCm: event.target.value }))} inputMode="numeric" /></Field>
+              <Field label="Width (cm)"><Input value={editForm.widthCm} onChange={(event) => setEditForm((prev) => ({ ...prev, widthCm: event.target.value }))} inputMode="numeric" /></Field>
+              <Field label="Height (cm)"><Input value={editForm.heightCm} onChange={(event) => setEditForm((prev) => ({ ...prev, heightCm: event.target.value }))} inputMode="numeric" /></Field>
+              <Field label="Declared value (Rs.)" className="col-span-2"><Input value={editForm.declaredValue} onChange={(event) => setEditForm((prev) => ({ ...prev, declaredValue: event.target.value }))} inputMode="decimal" /></Field>
+              <Field label="COD (Rs.)" className="col-span-2"><Input value={editForm.codAmount} onChange={(event) => setEditForm((prev) => ({ ...prev, codAmount: event.target.value }))} inputMode="decimal" /></Field>
+              <Field label="Description" className="col-span-4"><Input value={editForm.description} onChange={(event) => setEditForm((prev) => ({ ...prev, description: event.target.value }))} /></Field>
+            </div>
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-border p-4">
+              <h3 className="mb-4 text-[13px] font-semibold">Pickup address</h3>
+              <AddressFields title="" value={editForm.originAddress} onChange={(originAddress) => setEditForm((prev) => ({ ...prev, originAddress }))} />
+            </section>
+            <section className="rounded-xl border border-border p-4">
+              <h3 className="mb-4 text-[13px] font-semibold">Recipient</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Consignee name"><Input value={editForm.consigneeName} onChange={(event) => setEditForm((prev) => ({ ...prev, consigneeName: event.target.value }))} /></Field>
+                <Field label="Consignee phone"><Input value={editForm.consigneePhone} onChange={(event) => setEditForm((prev) => ({ ...prev, consigneePhone: event.target.value }))} inputMode="tel" /></Field>
+              </div>
+              <div className="mt-4"><AddressFields title="Delivery address" value={editForm.destAddress} onChange={(destAddress) => setEditForm((prev) => ({ ...prev, destAddress }))} /></div>
+            </section>
+          </div>
+        </div>
+      </Dialog>
+
       <ConfirmDialog
         open={Boolean(pendingTo)}
         onOpenChange={(open) => {
@@ -245,7 +410,7 @@ function CommandBar({
   status,
   readOnlyReason,
   canEditAtOriginHub,
-  editHref,
+  onEdit,
   pendingTo,
   onCommand,
 }: {
@@ -254,7 +419,7 @@ function CommandBar({
   status: string;
   readOnlyReason: string | null;
   canEditAtOriginHub: boolean;
-  editHref: string | null;
+  onEdit: () => void;
   pendingTo: string | null;
   onCommand: (to: string) => void;
 }) {
@@ -272,9 +437,9 @@ function CommandBar({
             size="sm"
             variant="outline"
             className="border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
-            asChild
+            onClick={onEdit}
           >
-            <Link href={editHref ?? "/ops/book"}>Edit parcel</Link>
+            Edit parcel
           </Button>
         ) : null}
         <p className="text-[12px] text-muted-foreground">
@@ -293,9 +458,9 @@ function CommandBar({
           size="sm"
           variant="outline"
           className="border-sky-500 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-400 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50"
-          asChild
+          onClick={onEdit}
         >
-          <Link href={editHref ?? "/ops/book"}>Edit parcel</Link>
+          Edit parcel
         </Button>
       ) : null}
       {visibleCommandable.map((to) => (

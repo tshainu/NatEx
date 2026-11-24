@@ -45,20 +45,6 @@ interface Form {
   destLng: string;
 }
 
-interface EditForm {
-  weightKg: string;
-  lengthCm: string;
-  widthCm: string;
-  heightCm: string;
-  description: string;
-  declaredValue: string;
-  codAmount: string;
-  originAddress: AddressParts;
-  consigneeName: string;
-  consigneePhone: string;
-  destAddress: AddressParts;
-}
-
 const EMPTY: Form = {
   merchantId: "",
   initialStatus: "Booked",
@@ -75,20 +61,6 @@ const EMPTY: Form = {
   destAddress: { ...EMPTY_ADDRESS },
   destLat: "",
   destLng: "",
-};
-
-const EMPTY_EDIT: EditForm = {
-  weightKg: "",
-  lengthCm: "",
-  widthCm: "",
-  heightCm: "",
-  description: "",
-  declaredValue: "",
-  codAmount: "",
-  originAddress: { ...EMPTY_ADDRESS },
-  consigneeName: "",
-  consigneePhone: "",
-  destAddress: { ...EMPTY_ADDRESS },
 };
 
 type Booking = Awaited<ReturnType<typeof client.parcels.create>>;
@@ -117,71 +89,9 @@ export default function OpsBook() {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState<Form>(EMPTY);
   const [booked, setBooked] = React.useState<Booking | null>(null);
-  const [editAwb, setEditAwb] = React.useState(
-    () => new URLSearchParams(window.location.search).get("edit")?.trim().toUpperCase() ?? "",
-  );
-  const [editParcel, setEditParcel] = React.useState<Awaited<ReturnType<typeof client.parcels.get>>["parcel"] | null>(null);
-  const [editForm, setEditForm] = React.useState<EditForm>(EMPTY_EDIT);
   const [printNotice, setPrintNotice] = React.useState<string | null>(null);
   const receiptPopupRef = React.useRef<ReceiptPrintWindow | null>(null);
   const submissionInFlight = React.useRef(false);
-
-  const loadEditParcel = useMutation({
-    mutationFn: () => client.parcels.get({ awbOrId: editAwb.trim().toUpperCase() }),
-    onSuccess: (detail) => {
-      const parcel = detail.parcel;
-      setEditParcel(parcel);
-      setEditForm({
-        weightKg: (parcel.weightGrams / 1000).toFixed(3).replace(/0+$/, "").replace(/\.$/, ""),
-        lengthCm: parcel.lengthCm == null ? "" : String(parcel.lengthCm),
-        widthCm: parcel.widthCm == null ? "" : String(parcel.widthCm),
-        heightCm: parcel.heightCm == null ? "" : String(parcel.heightCm),
-        description: parcel.description ?? "",
-        declaredValue: ((parcel.declaredValueCents ?? 0) / 100).toFixed(2),
-        codAmount: (parcel.codAmountCents / 100).toFixed(2),
-        originAddress: addressPartsFromLegacy(parcel.originAddress),
-        consigneeName: parcel.consigneeName,
-        consigneePhone: parcel.consigneePhone,
-        destAddress: addressPartsFromLegacy(parcel.destAddress),
-      });
-    },
-  });
-
-  const autoLoadEdit = React.useRef(false);
-  React.useEffect(() => {
-    if (autoLoadEdit.current || !editAwb.trim()) return;
-    autoLoadEdit.current = true;
-    loadEditParcel.mutate();
-  }, [editAwb, loadEditParcel]);
-
-  const saveEdit = useMutation({
-    mutationFn: () => {
-      if (!editParcel) throw new Error("Load a parcel before saving.");
-      return client.parcels.editAtOriginHub({
-        awbOrId: editParcel.awb,
-        weightGrams: Math.round(Number(editForm.weightKg) * 1000),
-        lengthCm: editForm.lengthCm ? Number(editForm.lengthCm) : null,
-        widthCm: editForm.widthCm ? Number(editForm.widthCm) : null,
-        heightCm: editForm.heightCm ? Number(editForm.heightCm) : null,
-        description: editForm.description.trim() || null,
-        declaredValueCents: Math.round(Number(editForm.declaredValue) * 100),
-        codAmountCents: Math.round(Number(editForm.codAmount) * 100),
-        originAddress: formatAddress(editForm.originAddress),
-        originLat: editParcel.originLat ?? null,
-        originLng: editParcel.originLng ?? null,
-        consigneeName: editForm.consigneeName.trim(),
-        consigneePhone: editForm.consigneePhone.trim(),
-        destAddress: formatAddress(editForm.destAddress),
-        destLat: editParcel.destLat ?? null,
-        destLng: editParcel.destLng ?? null,
-        destZoneId: editParcel.destZoneId ?? null,
-      });
-    },
-    onSuccess: (updated) => {
-      setEditParcel(updated);
-      void queryClient.invalidateQueries();
-    },
-  });
 
   const merchants = useQuery({
     ...orpc.merchants.options.queryOptions(),
@@ -375,96 +285,12 @@ export default function OpsBook() {
     create.mutate();
   };
 
-  const editValid = Boolean(
-    editParcel &&
-    editParcel.status === "AtOriginHub" &&
-    Number.isFinite(Number(editForm.weightKg)) &&
-    Number(editForm.weightKg) > 0 &&
-    Number.isFinite(Number(editForm.declaredValue)) &&
-    Number(editForm.declaredValue) >= 0 &&
-    Number.isFinite(Number(editForm.codAmount)) &&
-    Number(editForm.codAmount) >= 0 &&
-    isCompleteAddress(editForm.originAddress) &&
-    editForm.consigneeName.trim().length >= 2 &&
-    editForm.consigneePhone.trim().length >= 9 &&
-    isCompleteAddress(editForm.destAddress),
-  );
-
   return (
     <Page
       title="Book a parcel"
       description="Creates the parcel at the selected starting custody state and writes the first custody event. A supplied tracking number must be an unused sticker allocated to the selected merchant."
     >
       {receiptContact.error ? <ErrorNote>{apiMessage(receiptContact.error, "Receipt contact details could not be loaded.")}</ErrorNote> : null}
-      <Card
-        title="Edit parcel"
-        description="Load an existing parcel by tracking number and correct it here before it leaves At Origin Hub."
-        className="mb-5 max-w-5xl border-sky-400/70 bg-sky-50/30 dark:bg-sky-950/10"
-      >
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Tracking number" hint="Only parcels currently at At Origin Hub can be edited." className="min-w-[260px] flex-1">
-            <Input
-              value={editAwb}
-              onChange={(event) => setEditAwb(event.target.value.toUpperCase())}
-              placeholder="NX1234567890"
-              className="font-mono"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  if (editAwb.trim()) loadEditParcel.mutate();
-                }
-              }}
-            />
-          </Field>
-          <Button
-            type="button"
-            variant="outline"
-            pending={loadEditParcel.isPending}
-            disabled={!editAwb.trim()}
-            onClick={() => loadEditParcel.mutate()}
-          >
-            Load parcel
-          </Button>
-        </div>
-        {loadEditParcel.error ? <ErrorNote className="mt-3">{apiMessage(loadEditParcel.error, "This parcel could not be loaded.")}</ErrorNote> : null}
-        {editParcel ? (
-          <div className="mt-4 space-y-4 border-t border-border pt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono font-medium">{editParcel.awb}</span>
-              <StatusPill status={editParcel.status} />
-              {editParcel.status !== "AtOriginHub" ? (
-                <span className="text-[12px] text-muted-foreground">Editing is available only at At Origin Hub.</span>
-              ) : null}
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="grid grid-cols-4 gap-3">
-                <Field label="Weight (kg)" className="col-span-4 sm:col-span-1">
-                  <Input value={editForm.weightKg} onChange={(event) => setEditForm((prev) => ({ ...prev, weightKg: event.target.value }))} inputMode="decimal" />
-                </Field>
-                <Field label="L (cm)"><Input value={editForm.lengthCm} onChange={(event) => setEditForm((prev) => ({ ...prev, lengthCm: event.target.value }))} inputMode="numeric" /></Field>
-                <Field label="W (cm)"><Input value={editForm.widthCm} onChange={(event) => setEditForm((prev) => ({ ...prev, widthCm: event.target.value }))} inputMode="numeric" /></Field>
-                <Field label="H (cm)"><Input value={editForm.heightCm} onChange={(event) => setEditForm((prev) => ({ ...prev, heightCm: event.target.value }))} inputMode="numeric" /></Field>
-                <Field label="Declared value (Rs.)" className="col-span-2"><Input value={editForm.declaredValue} onChange={(event) => setEditForm((prev) => ({ ...prev, declaredValue: event.target.value }))} inputMode="decimal" /></Field>
-                <Field label="COD (Rs.)" className="col-span-2"><Input value={editForm.codAmount} onChange={(event) => setEditForm((prev) => ({ ...prev, codAmount: event.target.value }))} inputMode="decimal" /></Field>
-                <Field label="Description" className="col-span-4"><Input value={editForm.description} onChange={(event) => setEditForm((prev) => ({ ...prev, description: event.target.value }))} /></Field>
-                <Field label="Pickup address" className="col-span-4"><AddressFields title="" value={editForm.originAddress} onChange={(originAddress) => setEditForm((prev) => ({ ...prev, originAddress }))} /></Field>
-              </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Consignee name"><Input value={editForm.consigneeName} onChange={(event) => setEditForm((prev) => ({ ...prev, consigneeName: event.target.value }))} /></Field>
-                  <Field label="Consignee phone"><Input value={editForm.consigneePhone} onChange={(event) => setEditForm((prev) => ({ ...prev, consigneePhone: event.target.value }))} inputMode="tel" /></Field>
-                </div>
-                <AddressFields title="Delivery address" value={editForm.destAddress} onChange={(destAddress) => setEditForm((prev) => ({ ...prev, destAddress }))} />
-              </div>
-            </div>
-            {saveEdit.error ? <ErrorNote>{apiMessage(saveEdit.error, "The parcel could not be updated.")}</ErrorNote> : null}
-            {saveEdit.data ? <p className="text-[12px] text-status-good">Parcel updated successfully.</p> : null}
-            <Button type="button" pending={saveEdit.isPending} disabled={!editValid} onClick={() => saveEdit.mutate()}>
-              Save parcel changes
-            </Button>
-          </div>
-        ) : null}
-      </Card>
       {booked ? (
         <Card className="max-w-3xl border-status-good/40 bg-status-good/8">
           <div className="flex items-start gap-3">
