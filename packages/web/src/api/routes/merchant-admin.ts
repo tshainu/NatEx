@@ -1,11 +1,14 @@
 import { z } from "zod";
-import { adminProc, mutate, opsProc } from "../middleware/pipeline";
+import { adminProc, authedProc, mutate, opsProc } from "../middleware/pipeline";
 import { usersForMerchant } from "../modules/identity/admin";
 import { getUserByPhone, getUserByUsername, isActiveRiderInBranch, requireActiveBranch } from "../modules/identity/service";
 import * as merchantsService from "../modules/merchants/service";
 import { approveStaffOnboardingRequest, onboardMerchant } from "../modules/merchants/onboarding";
 import { errors } from "../shared/errors";
 import { normaliseLkPhone } from "../shared/sms";
+import { requireRole } from "../middleware/auth";
+
+const reportProc = authedProc.use(requireRole("ops", "admin"));
 
 /**
  * merchants routes, onboarding half (§10 M5 "merchant onboarding").
@@ -63,6 +66,9 @@ export const onboardingRequests = opsProc
 
 export const onboardingRequestCount = opsProc
   .handler(({ context }) => merchantsService.staffOnboardingRequestCount(context.principal));
+
+export const riderEnrollmentCommissionReport = reportProc
+  .handler(({ context }) => merchantsService.riderEnrollmentCommissionReport(context.principal));
 
 export const onboardingRequest = opsProc
   .input(z.object({ id: z.string().min(1).max(100) }))
@@ -225,6 +231,7 @@ export const merchantAdmin = {
   rejectRegistrationRequest,
   onboardingRequests,
   onboardingRequestCount,
+  riderEnrollmentCommissionReport,
   onboardingRequest,
   approveOnboardingRequest,
 };

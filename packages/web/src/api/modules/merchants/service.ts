@@ -205,13 +205,13 @@ export async function createMerchant(
 
 export type StaffOnboardingInput = Omit<CreateMerchantInput, "branchId">;
 
-/** Ops can only submit into the authenticated principal's allocated branch. */
+/** Ops and riders can only submit into the authenticated principal's allocated branch. */
 export async function createStaffOnboardingRequest(
   input: StaffOnboardingInput,
   actor: Principal,
   now = new Date(),
 ): Promise<MerchantOnboardingRequestRow> {
-  if (actor.role !== "ops") errors.forbidden("Only Operations staff can submit an onboarding request.");
+  if (actor.role !== "ops" && actor.role !== "rider") errors.forbidden("Only Operations staff or riders can submit an onboarding request.");
   const branchId = actor.branchId;
   if (!branchId) errors.forbidden("An allocated branch is required to submit an onboarding request.");
   await requireActiveBranch(branchId);
@@ -259,6 +259,22 @@ export async function staffOnboardingRequestCount(scope: Principal): Promise<{ p
   ].filter((filter) => filter !== undefined);
   const [row] = await db.select({ value: count() }).from(merchantOnboardingRequest).where(and(...filters));
   return { pendingCount: row?.value ?? 0 };
+}
+
+/** Commission is earned only once NOS approves the enrollment: LKR 1,500 per merchant. */
+export async function riderEnrollmentCommissionReport(scope: Principal) {
+  if (!isGlobalScope(scope.role) && scope.role !== "ops") errors.forbidden("Only NOS and Operations can view enrollment commissions.");
+  const filters = [
+    eq(merchantOnboardingRequest.status, "approved"),
+    scope.role === "ops" ? eq(merchantOnboardingRequest.branchId, scope.branchId) : undefined,
+  ].filter((filter): filter is NonNullable<typeof filter> => Boolean(filter));
+  const rows = await db.select().from(merchantOnboardingRequest).where(and(...filters)).orderBy(desc(merchantOnboardingRequest.approvedAt));
+  return {
+    commissionPerMerchantLkr: 1500,
+    totalMerchants: rows.length,
+    totalCommissionLkr: rows.length * 1500,
+    rows: rows.map((row) => ({ id: row.id, merchantName: row.name, branchId: row.branchId, enrolledById: row.createdById, enrolledByName: row.createdByName, approvedAt: row.approvedAt, status: row.status, commissionLkr: 1500 })),
+  };
 }
 
 export async function getStaffOnboardingRequest(id: string, scope: Principal): Promise<MerchantOnboardingRequestRow> {

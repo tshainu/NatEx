@@ -9,6 +9,7 @@ import { isGlobalScope, type Principal } from "../../shared/auth";
 import { colomboToday } from "../../shared/time";
 import { assertRequestSchedulable, markRequestScheduled } from "./pickups";
 import { getMerchant } from "../merchants/service";
+import { isClockedIn } from "../hr/attendance";
 import {
   getParcelByAwb,
   parcelsByIds,
@@ -163,6 +164,9 @@ export async function listManifests(
 /** The rider app's home screen: today's assigned pickups. */
 export async function riderToday(scope: Principal, pickupDate?: string) {
   const date = pickupDate ?? colomboToday();
+  if (date === colomboToday() && !(await isClockedIn(scope, date))) {
+    return { pickupDate: date, manifests: [], totals: { manifests: 0, expected: 0, scanned: 0, pending: 0 } };
+  }
   const rows = await db
     .select()
     .from(manifest)

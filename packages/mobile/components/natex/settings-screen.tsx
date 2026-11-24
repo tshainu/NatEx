@@ -19,6 +19,7 @@ import { useColors } from "../../hooks/use-colors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { orpc } from "../../lib/api";
 import { Input } from "./input";
+import { flushRiderGps } from "../../lib/rider-gps";
 
 /**
  * The Settings tab, shared by both role groups — a rider and a transport
@@ -77,6 +78,15 @@ export function SettingsScreen({ note }: { note?: string }) {
       ) : null}
 
       {role === "rider" ? <RiderAttendance /> : null}
+      {role === "rider" ? <RiderGpsSummary /> : null}
+
+      {role === "rider" ? (
+        <Section title="Rider tools" icon="briefcase-outline">
+          <MenuButton label="Enroll a merchant" detail="Submit a business to NOS for approval" onPress={() => router.push("/(rider)/enroll-merchant")} />
+          <MenuButton label="Delivered history" detail="Review completed deliveries" onPress={() => router.push("/(rider)/delivered")} />
+          <MenuButton label="Failed attempts" detail="Review NDRs and reattempts" onPress={() => router.push("/(rider)/failed-attempts")} />
+        </Section>
+      ) : null}
 
       {/* ── This device ─────────────────────────────────────────── */}
       <Section title="This device" icon="phone-portrait-outline">
@@ -122,13 +132,27 @@ function RiderAttendance() {
   const types = (balances.data ?? []).filter((item) => item.leaveTypeId);
   React.useEffect(() => { if (!leaveTypeId && types[0]?.leaveTypeId) setLeaveTypeId(types[0].leaveTypeId); }, [leaveTypeId, types]);
   return <Section title="Attendance & leave" icon="time-outline">
-    <View style={styles.attendanceCard}><Body color={colors.mutedForeground}>Regular time 08:30–17:00 · short leave until 09:30 · half day until 12:30</Body><View style={styles.attendanceActions}>{!row?.clockInAt || row?.clockOutAt ? <Button title="Clock in" loading={clockIn.isPending} onPress={() => clockIn.mutate({})} style={styles.smallAction} /> : <Button title="Clock out" loading={clockOut.isPending} onPress={() => clockOut.mutate({})} style={styles.smallAction} />}</View>{row ? <Small>Today: {row.clockInAt ? `in ${new Date(row.clockInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "not clocked in"}{row.clockOutAt ? ` · out ${new Date(row.clockOutAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""} · {row.approvalStatus}</Small> : null}</View>
+    <View style={styles.attendanceCard}><Body color={colors.mutedForeground}>Regular time 08:30–17:00 · short leave until 09:30 · half day until 12:30</Body><View style={styles.attendanceActions}>{!row?.clockInAt || row?.clockOutAt ? <Button title="Clock in" loading={clockIn.isPending} onPress={() => clockIn.mutate({})} style={styles.smallAction} /> : <Button title="Clock out" loading={clockOut.isPending} onPress={() => { void flushRiderGps(status.data?.workDate).catch(() => undefined).finally(() => clockOut.mutate({})); }} style={styles.smallAction} />}</View>{row ? <Small>Today: {row.clockInAt ? `in ${new Date(row.clockInAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "not clocked in"}{row.clockOutAt ? ` · out ${new Date(row.clockOutAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""} · {row.approvalStatus}</Small> : null}</View>
     <View style={styles.leaveSummary}>{types.slice(0, 4).map((item) => <View key={item.leaveTypeId} style={styles.leaveMetric}><Small>{item.leaveType}</Small><Body>{item.availableHalfDays / 2} d balance</Body></View>)}<View style={styles.leaveMetric}><Small>Short leave</Small><Body>{summary.data?.shortLeaveDays ?? 0} / 2</Body></View><View style={styles.leaveMetric}><Small>Half days</Small><Body>{summary.data?.halfDays ?? 0}</Body></View></View>
     <Button title="Open day registry" variant="secondary" onPress={() => router.push("/(rider)/day-registry")} />
     <View style={styles.settlement}><Label>SETTLEMENT TO HUB</Label><Mono>Rs. {((cash.data?.liabilityCents ?? 0) / 100).toLocaleString()}</Mono><Small>COD collected plus delivery charges currently assigned to you.</Small></View>
-    <View style={styles.leaveForm}><Label>APPLY LEAVE IN ADVANCE</Label><View style={styles.formGap}><Input label="Leave type" value={types.find((item) => item.leaveTypeId === leaveTypeId)?.leaveType ?? "Select a leave type"} editable={false} /><View style={styles.leaveTypeButtons}>{types.slice(0, 4).map((item) => <Pressable key={item.leaveTypeId} onPress={() => setLeaveTypeId(item.leaveTypeId)} style={[styles.leaveType, { borderColor: item.leaveTypeId === leaveTypeId ? colors.primary : colors.border }]}><Small>{item.leaveType}</Small></Pressable>)}</View><Input label="Start date" placeholder="YYYY-MM-DD" value={startsOn} onChangeText={setStartsOn} /><Input label="End date" placeholder="YYYY-MM-DD" value={endsOn} onChangeText={setEndsOn} /><Input label="Reason" value={reason} onChangeText={setReason} multiline /><Button title="Send leave request" loading={applyLeave.isPending} disabled={!leaveTypeId || !startsOn || !endsOn || !reason.trim()} onPress={() => applyLeave.mutate({ employeeId: "self", leaveTypeId, startsOn, endsOn, halfDays: 1, reason })} /></View></View>
+    <View style={styles.leaveForm}><Label>APPLY LEAVE IN ADVANCE</Label><View style={styles.formGap}><Input label="Leave type" value={types.find((item) => item.leaveTypeId === leaveTypeId)?.leaveType ?? "Select a leave type"} editable={false} /><View style={styles.leaveTypeButtons}>{types.slice(0, 4).map((item) => <Pressable key={item.leaveTypeId} onPress={() => setLeaveTypeId(item.leaveTypeId)} style={[styles.leaveType, { borderColor: item.leaveTypeId === leaveTypeId ? colors.primary : colors.border }]}><Small>{item.leaveType}</Small></Pressable>)}</View><Input label="Start date" placeholder="YYYY-MM-DD" value={startsOn} onChangeText={setStartsOn} /><Input label="End date" placeholder="YYYY-MM-DD" value={endsOn} onChangeText={setEndsOn} /><Input label="Reason" value={reason} onChangeText={setReason} multiline /><Button title="Send leave request" loading={applyLeave.isPending} disabled={!leaveTypeId || !startsOn || !endsOn || !reason.trim() || Number.isNaN(Date.parse(startsOn)) || Number.isNaN(Date.parse(endsOn)) || Date.parse(endsOn) < Date.parse(startsOn)} onPress={() => { const days = Math.floor((Date.parse(endsOn) - Date.parse(startsOn)) / 86400000) + 1; applyLeave.mutate({ employeeId: "self", leaveTypeId, startsOn, endsOn, halfDays: days * 2, reason }); }} /></View></View>
     {message ? <Small color={colors.primary}>{message}</Small> : null}
   </Section>;
+}
+
+function MenuButton({ label, detail, onPress }: { label: string; detail: string; onPress: () => void }) {
+  const colors = useColors();
+  return <Pressable onPress={onPress} style={[styles.menuButton, { borderBottomColor: colors.border }]} accessibilityRole="button">
+    <View style={styles.switchText}><Body>{label}</Body><Small>{detail}</Small></View>
+    <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
+  </Pressable>;
+}
+
+function RiderGpsSummary() {
+  const result = useQuery(orpc.riderGps.own.queryOptions({ input: {} }));
+  const distance = (result.data?.day?.distanceMeters ?? 0) / 1000;
+  return <Section title="Route tracking" icon="navigate-outline"><View style={styles.attendanceCard}><Body>{distance.toFixed(2)} km recorded today</Body><Small>{result.data?.day?.clockOutAt ? "Tracking ended at clock-out." : result.data?.day ? "Tracking is active while clocked in. Keep GPS enabled." : "Clock in to begin route tracking."}</Small><Button title="View visited route" variant="secondary" onPress={() => router.push("/(rider)/route")} /></View></Section>;
 }
 
 /* ── Building blocks ─────────────────────────────────────────────────────── */
@@ -339,6 +363,14 @@ const styles = StyleSheet.create({
   switchText: {
     flex: 1,
     gap: 2,
+  },
+  menuButton: {
+    minHeight: Space.minTouch,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   segmentRow: { flexDirection: "row", gap: Space.unit },
   segment: {

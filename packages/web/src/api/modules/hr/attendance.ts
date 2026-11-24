@@ -36,6 +36,12 @@ export async function clockStatus(principal: Principal, workDate = colomboToday(
   return { workDate, employeeId: employee.id, employeeCode: employee.employeeCode, row: row ?? null, regularStart: "08:30", regularEnd: "17:00", shortLeaveCutoff: "09:30", halfDayCutoff: "12:30" };
 }
 
+/** A rider's current field assignment is released only after clock-in. */
+export async function isClockedIn(principal: Principal, workDate = colomboToday()) {
+  const status = await clockStatus(principal, workDate);
+  return Boolean(status.row?.clockInAt && !status.row.clockOutAt);
+}
+
 export async function clockIn(principal: Principal) {
   const employee = await employeeForPrincipal(principal);
   const workDate = colomboToday();

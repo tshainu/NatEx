@@ -75,6 +75,8 @@ const REPORTS_NAV: NavItem[] = [
   { label: "Rider performance & stars", to: "/ops/reports/performance" },
   { label: "Hub & bag movement", to: "/ops/reports/movement" },
   { label: "COD reconciliation", to: "/ops/reports/cod" },
+  { label: "Merchant enrollment commissions", to: "/ops/reports/merchant-commissions" },
+  { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
 ];
 
 const ADMIN: PortalConfig = {
@@ -134,6 +136,7 @@ const FINANCE: PortalConfig = {
     { label: "Disputes", to: "/finance/disputes" },
     { label: "Payroll approvals", to: "/finance/payroll-approvals" },
     { label: "Rider performance", to: "/ops/reports/performance" },
+    { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
   ],
 };
 
@@ -154,6 +157,7 @@ const HR: PortalConfig = {
     { label: "Approvals", to: "/hr/approvals" },
     { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },
+    { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
   ],
 };
 
@@ -262,7 +266,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 export function mayVisit(role: Role, path: string): boolean {
   if (role === "super_admin" || role === "nos_admin") return true;
   if (path.startsWith("/ops")) {
-    if (path.startsWith("/ops/reports/performance")) return role === "ops" || role === "admin" || role === "hr" || role === "finance";
+    if (path.startsWith("/ops/reports/performance") || path.startsWith("/ops/reports/merchant-commissions") || path.startsWith("/ops/reports/rider-routes")) return role === "ops" || role === "admin" || role === "hr" || role === "finance";
     if (role === "ops" || role === "admin") return true;
     // Transport staff reach the custody screens only, matching the server gate.
     return role === "transport" && TRANSPORT_PATHS.some((prefix) => path.startsWith(prefix));

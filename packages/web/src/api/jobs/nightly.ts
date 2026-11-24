@@ -1,5 +1,6 @@
 import { hasScheduledInvariantRun, runBalanceInvariant } from "../modules/cod/service";
 import { colomboToday, TZ } from "../shared/time";
+import { closeStaleDays } from "../modules/rider-gps/service";
 
 /**
  * Nightly balance-invariant schedule (PROJECT.md §8 "Checked nightly by a
@@ -48,6 +49,7 @@ export type NightlyOutcome =
 /** One scheduling decision. Exported so a probe can drive it deterministically. */
 export async function nightlyTick(now: Date = new Date()): Promise<NightlyOutcome> {
   const runDate = colomboToday(now);
+  await closeStaleDays(runDate);
   if (g.__natexNightlyBusy) return { ran: false, runDate, reason: "busy" };
   if (colomboHour(now) < runHour()) return { ran: false, runDate, reason: "before-hour" };
   g.__natexNightlyBusy = true;

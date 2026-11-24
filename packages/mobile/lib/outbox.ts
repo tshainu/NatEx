@@ -91,6 +91,7 @@ let snapshot: OutboxSnapshot = {
 let nextSeq = 1;
 let loadedFor: string | null = null;
 let loading: Promise<void> | null = null;
+let loadGeneration = 0;
 let inflight: Promise<DrainOutcome> | null = null;
 const listeners = new Set<() => void>();
 
@@ -138,12 +139,14 @@ export async function loadOutbox(): Promise<void> {
   const userId = currentUserId();
   if (!userId) return;
   if (loadedFor === userId && snapshot.loaded) return;
+  const generation = loadGeneration;
   loading ??= (async () => {
     const data = await readJson<Persisted>(storageKey(userId), {
       nextSeq: 1,
       cursor: 0,
       entries: [],
     });
+    if (generation !== loadGeneration || currentUserId() !== userId) return;
     loadedFor = userId;
     // Never trust the stored counter below what the entries already used.
     const maxSeq = data.entries.reduce((m, e) => Math.max(m, e.seq), 0);
@@ -410,7 +413,9 @@ export async function retrySignaturePODRejection(clientOpId: string): Promise<bo
 }
 
 /** Forget the in-memory queue on sign-out; the disk copy stays with that user. */
-export function resetOutboxMemory(): void {
+export function clearOutbox(): void {
+  loadGeneration += 1;
+  loading = null;
   loadedFor = null;
   nextSeq = 1;
   emit({
@@ -424,6 +429,9 @@ export function resetOutboxMemory(): void {
     cursor: 0,
   });
 }
+
+/** Backwards-compatible name used by the auth provider. */
+export const resetOutboxMemory = clearOutbox;
 
 export function describeKind(kind: OutboxKind): string {
   return kind === "delivery.deliver" ? "delivery" : "failed attempt";

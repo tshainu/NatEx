@@ -55,3 +55,12 @@
 - [ ] Safely backfill from the earliest audited accountability-transfer event; use current branch only when no transfer event exists. Leave malformed, conflicting, or dangling references unresolved instead of guessing.
 - [ ] Implement read-only-by-default, pinned-target backfill CLI. Live apply requires durable verified backup ID, database fingerprint, reviewed plan hash, explicit confirmation and explicit partial-backfill permission when unresolved rows exist.
 - [ ] Run scratch DB tests, typecheck, build, review exact schema diff; then prepare the approved schema-enabled Production/Demo release without running it unless the complete backup/backfill plan is verified.
+
+
+# Rider GPS Route Tracking (2026-11-24)
+
+- [x] **Clocked-in GPS lifecycle:** Begin tracking only after rider clock-in, show runsheets after clock-in, stop at clock-out or midnight, and continue syncing offline points after connectivity returns while prompting riders to enable GPS.
+- [x] **Distance and filtering:** Combine multiple runsheets into one daily travelled-distance total; accept only GPS points with accuracy up to 100 m and reject unrealistic jumps/speeds; retain raw points for 90 days.
+- [x] **Rider route view:** Show the rider today's kilometres, sync/tracking state, and visited route line from accepted points.
+- [x] **Role-scoped Reports:** Add OpenStreetMap-backed rider route reports for Operations, HR, Finance, Admin, and NOS Admin with daily totals, branch/rider filters, route line, accepted/rejected point counts, and sync status.
+- [ ] **Validation and release:** The migration is reviewed and focused GPS/service/mobile/web validation passes; native Android build, migration application, commit/push, VPS deployment, and production verification remain release-gated.

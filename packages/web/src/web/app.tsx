@@ -31,6 +31,8 @@ import OpsHubMovement from "./pages/ops/reports/movement";
 import OpsCodReconciliation from "./pages/ops/reports/cod";
 import OpsDeliveryAttemptsReport from "./pages/ops/reports/delivery";
 import OpsPerformance from "./pages/ops/reports/performance";
+import RiderRoutesReport from "./pages/ops/reports/rider-routes";
+import MerchantCommissionsReport from "./pages/ops/reports/merchant-commissions";
 import AdminDashboard from "./pages/admin/dashboard";
 import AdminUsers from "./pages/admin/users";
 import AdminMerchantUsers from "./pages/admin/merchant-users";
@@ -182,6 +184,12 @@ function Routes() {
       </Portal>
       <Portal path="/ops/reports/performance">
         <OpsPerformance />
+      </Portal>
+      <Portal path="/ops/reports/merchant-commissions">
+        <MerchantCommissionsReport />
+      </Portal>
+      <Portal path="/ops/reports/rider-routes">
+        <RiderRoutesReport />
       </Portal>
       <Portal path="/ops/reports/movement">
         <OpsHubMovement />

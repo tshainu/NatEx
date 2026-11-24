@@ -31,6 +31,7 @@ import {
 } from "../parcels/service";
 import { MAX_DELIVERY_ATTEMPTS, shouldAutoRto } from "../parcels/state-machine";
 import { getBranch, getUserById } from "../identity/service";
+import { isClockedIn } from "../hr/attendance";
 import { getMerchant } from "../merchants/service";
 import {
   chargeByParcel,
@@ -301,6 +302,7 @@ export async function myRunsheet(
   runDate?: string,
 ): Promise<RunsheetDetail | null> {
   const date = runDate ?? colomboToday();
+  if (scope.role === "rider" && date === colomboToday() && !(await isClockedIn(scope, date))) return null;
   const [row] = await db
     .select()
     .from(runsheet)

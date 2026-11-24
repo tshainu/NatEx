@@ -5,7 +5,11 @@ import { Fonts, Space, Type } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { useOutboxDriver, useReasonCodes, useRiderRun } from "../../hooks/use-rider-run";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { orpc } from "../../lib/api";
+import { flushRiderGps, startRiderGps, stopRiderGps } from "../../lib/rider-gps";
 
 /**
  * §7 plumbing that must run on EVERY rider screen, not just the run list: a
@@ -18,6 +22,28 @@ function OutboxDriver() {
   useOutboxDriver(runQuery.data?.run ?? null);
   // The failure screen's reason list must be on the phone BEFORE signal goes.
   useReasonCodes();
+  return null;
+}
+
+function GpsDriver() {
+  const status = useQuery({ ...orpc.hr.clockStatus.queryOptions({ input: {} }), refetchInterval: 30_000 });
+  const clockedIn = Boolean(status.data?.row?.clockInAt && !status.data?.row?.clockOutAt);
+  const warned = useRef(false);
+  useEffect(() => {
+    if (!clockedIn) {
+      void (async () => { await flushRiderGps(status.data?.workDate); await stopRiderGps(); })();
+      warned.current = false;
+      return;
+    }
+    void startRiderGps().then((result) => {
+      if (!result.enabled && !warned.current) {
+        warned.current = true;
+        Alert.alert("GPS is required for your shift", result.message ?? "Switch on GPS permission so NatEx can record your route while you are clocked in.");
+      }
+    });
+    const timer = setInterval(() => { void flushRiderGps(status.data?.workDate); }, 30_000);
+    return () => clearInterval(timer);
+  }, [clockedIn, status.data?.workDate]);
   return null;
 }
 
@@ -37,6 +63,7 @@ export default function RiderLayout() {
   return (
     <RoleGate allow={["rider"]}>
       <OutboxDriver />
+      <GpsDriver />
       <Tabs
         screenOptions={{
           headerShown: false,
@@ -123,6 +150,8 @@ export default function RiderLayout() {
         <Tabs.Screen name="delivered" options={{ href: null }} />
         <Tabs.Screen name="failed-attempts" options={{ href: null }} />
         <Tabs.Screen name="day-registry" options={{ href: null }} />
+        <Tabs.Screen name="enroll-merchant" options={{ href: null }} />
+        <Tabs.Screen name="route" options={{ href: null }} />
       </Tabs>
     </RoleGate>
   );

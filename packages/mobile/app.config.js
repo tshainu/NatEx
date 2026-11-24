@@ -20,6 +20,10 @@ module.exports = ({ config = {} } = {}) => {
         ...expo.android,
         softwareKeyboardLayoutMode: "pan",
       },
+      plugins: [
+        ...(expo.plugins ?? []),
+        ["expo-location", { locationAlwaysAndWhenInUsePermission: "NatEx records your route while you are clocked in, including when the app is in the background." }],
+      ],
       extra: { ...expo.extra, appVariant: "field" },
     };
   }

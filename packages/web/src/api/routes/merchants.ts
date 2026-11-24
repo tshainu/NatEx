@@ -37,6 +37,7 @@ const registrationPhone = z
   .pipe(z.string().regex(/^\+947\d{8}$/));
 
 const operationsProc = authedProc.use(requireRole("ops"));
+const riderProc = authedProc.use(requireRole("rider"));
 
 export const registrationInputSchema = z.object({
   businessName: z.string().trim().min(2).max(160),
@@ -164,6 +165,29 @@ export const submitOnboardingRequest = operationsProc
     );
   });
 
+/** Riders may enroll merchants only into their own assigned branch; NOS/Admin approval remains required. */
+export const riderEnrollMerchant = riderProc
+  .input(z.object({
+    name: z.string().trim().min(2).max(160),
+    vatNo: z.string().trim().max(40).nullish(),
+    address: z.string().trim().min(4),
+    contactName: z.string().trim().min(2).max(120),
+    contactPhone: z.string().min(9).max(20),
+    codEnabled: z.boolean().default(true),
+    podPolicy: z.enum(["signature", "otp", "photo"]).default("signature"),
+  }))
+  .handler(({ input, context }) => mutate(
+    context,
+    input,
+    {
+      route: "merchants.riderEnrollMerchant",
+      entity: "merchants_onboarding_request",
+      entityId: (result) => (result as merchantsService.MerchantOnboardingRequestRow).id,
+      action: "merchant.rider_enrollment_requested",
+    },
+    () => merchantsService.createStaffOnboardingRequest(input, context.principal),
+  ));
+
 export const setStatus = opsProc
   .input(
     z.object({
@@ -193,5 +217,6 @@ export const merchants = {
   options,
   create,
   submitOnboardingRequest,
+  riderEnrollMerchant,
   setStatus,
 };

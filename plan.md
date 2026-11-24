@@ -178,3 +178,27 @@ The Operations Parcels list is filtered server-side by sender branch, including 
 The one-time backfill uses the earliest append-only `Accountability moved from <source> to <destination>.` event to reconstruct moved parcels. With no movement event, the legacy current branch is used. Malformed, conflicting, or dangling branch evidence is left null and reported, never guessed. The CLI is read-only by default; apply requires the pinned target, exact database fingerprint, exact plan hash, explicit Production/Demo confirmation, and a verified durable backup identifier. Unresolved history is updated only when the operator explicitly permits a partial backfill. No destructive or bulk rewrites are allowed.
 
 Release order after scratch tests: take and restore-verify a durable backup; apply the additive nullable column and index through the documented schema-enabled deploy; run/review the target-specific plan; apply the hash-bound backfill; verify origin counts and sender-scope regression cases; verify API readiness and GitHub refs. This is an approved schema change, not a code-only release.
+
+
+# Rider GPS Route Tracking (2026-11-24)
+
+## Product scope and decisions
+
+After rider clock-in, mobile GPS tracking records the rider's actual route until clock-out or automatic midnight stop. Runsheets become available after clock-in, but multiple runsheets are combined into one daily distance. GPS continues offline and syncs later; riders are prompted to enable GPS. Accepted points require accuracy no worse than 100 m and reject unrealistic jumps/speeds. Raw route points are retained for 90 days, while daily summaries remain available for reporting. Riders see their own distance and visited route; Operations sees assigned hub scope; HR, Finance, Admin, and NOS Admin receive role-based read access.
+
+## Implementation approach
+
+The HR clock-in/out endpoints start and finish a `rider_gps_day` record. The mobile app uses Expo Location and Task Manager to sample balanced-accuracy points every 30 seconds or 50 metres, stores them in an offline queue, and syncs batches through the authenticated `riderGps.points` procedure. Server-side Haversine distance accumulation and filtering is authoritative. Reports join daily summaries to HR employee/branch data and render route lines over OpenStreetMap tiles with attribution.
+
+## Project structure
+
+- `packages/web/src/api/database/schema/rider-gps.ts`: daily route summaries and sampled points.
+- `packages/web/src/api/modules/rider-gps/service.ts`: validation, Haversine accumulation, retention, and role scope.
+- `packages/web/src/api/routes/rider-gps.ts`: authenticated start, point sync, finish, own-route, and report procedures.
+- `packages/mobile/lib/rider-gps.ts`: background task, permissions, offline queue, and sync.
+- `packages/mobile/app/(rider)/route.tsx`: rider visited-route view.
+- `packages/web/src/web/pages/ops/reports/rider-routes.tsx`: role-scoped OSM report.
+
+## Design
+
+Reuse NatEx operational green, compact metric cards, and map overlays. Route lines use accepted GPS points only, with a green start marker and amber end marker. The web report uses OpenStreetMap tile imagery and credits OpenStreetMap contributors.

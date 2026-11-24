@@ -40,6 +40,7 @@ import { sync } from "./routes/sync";
 import { transport } from "./routes/transport";
 import { transportReport } from "./routes/transport-report";
 import { awbBatches } from "./routes/awb-batches";
+import { riderGps } from "./routes/rider-gps";
 import { registerPublicLocationsRoute } from "./routes/public-locations";
 import { problemResponse, problem } from "./shared/errors";
 import { listBranches } from "./modules/identity/service";
@@ -88,6 +89,7 @@ export const router = {
   // Round 6 — admin company dashboard.
   dashboard,
   awbBatches,
+  riderGps,
 };
 
 export type AppRouter = typeof router;
