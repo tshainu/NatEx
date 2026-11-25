@@ -49,7 +49,7 @@ export const performanceReadProc = authedProc.use(requireRole("ops", "hr", "fina
  * a rider hands parcels *to* a hub, it never bags or seals them.
  */
 export const transportProc = authedProc.use(requireRole("transport", "ops", "admin", "gom"));
-export const adminProc = authedProc.use(requireRole("admin", "gom"));
+export const adminProc = authedProc.use(requireRole("admin", "gom", "super_admin", "nos_admin"));
 /** Company dashboard and system-control surfaces are restricted to roles created in the backend. */
 export const ultimateAdminProc = authedProc.use(requireRole("super_admin", "nos_admin"));
 export const merchantProc = authedProc.use(requireRole("merchant"));
@@ -82,7 +82,7 @@ export const staffProc = authedProc.use(
  * message sent to a consignee) or commercial terms (rate cards). A rider's or
  * transport clerk's app never needs them (M5 security review: least privilege).
  */
-export const deskProc = authedProc.use(requireRole("ops", "admin", "finance", "gom"));
+export const deskProc = authedProc.use(requireRole("ops", "admin", "finance", "gom", "super_admin", "nos_admin"));
 /**
  * Money reads a merchant may also make about itself: statements, settlements,
  * invoices, holds, AR, payable balance and payout (bank) details. The finance

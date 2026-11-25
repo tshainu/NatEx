@@ -41,14 +41,18 @@ interface UserRow {
 
 export default function AdminUsers() {
   const { session } = useAuth();
-  const isAdmin = (session!.user.roles ?? [session!.user.role]).includes("admin");
+  const roles = session!.user.roles ?? [session!.user.role];
+  const canManageUsers = roles.some((role) =>
+    ["admin", "gom", "super_admin", "nos_admin"].includes(role),
+  );
+  const canOpenUsers = canManageUsers;
 
   const [search, setSearch] = React.useState("");
   const [role, setRole] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [target, setTarget] = React.useState<UserRow | null>(null);
   const [openId, setOpenId] = React.useState<string | null>(null);
-  const factors = useMfaFactors(isAdmin);
+  const factors = useMfaFactors(canOpenUsers);
   const factorFor = React.useCallback(
     (userId: string) => factors.data?.find((f) => f.userId === userId),
     [factors.data],
@@ -61,7 +65,7 @@ export default function AdminUsers() {
   });
   const sessions = useQuery({
     ...orpc.identity.sessionCounts.queryOptions(),
-    enabled: isAdmin,
+    enabled: canOpenUsers,
     refetchInterval: 30_000,
   });
 
@@ -147,7 +151,7 @@ export default function AdminUsers() {
       width: "w-[95px]",
       className: "font-mono",
       cell: (r) =>
-        isAdmin ? (
+        canOpenUsers ? (
           <span className={activeSessions(r.id) ? "text-status-good" : "text-muted-foreground"}>
             {activeSessions(r.id)}
           </span>
@@ -160,9 +164,9 @@ export default function AdminUsers() {
       header: "MFA",
       width: "w-[110px]",
       cell: (r) => {
-        if (!["ops", "admin", "finance"].some((x) => (r.roles?.length ? r.roles : [r.role]).includes(x)))
+        if (!["ops", "admin", "finance", "hr", "gom", "super_admin", "nos_admin"].some((x) => (r.roles?.length ? r.roles : [r.role]).includes(x)))
           return <span className="text-muted-foreground">n/a</span>;
-        if (!isAdmin) return <span className="text-muted-foreground">—</span>;
+        if (!canOpenUsers) return <span className="text-muted-foreground">—</span>;
         const f = factorFor(r.id);
         return f?.enrolled ? (
           <Badge variant={f.seeded ? "muted" : "good"}>{f.seeded ? "Dev seed" : "Enrolled"}</Badge>
@@ -185,7 +189,7 @@ export default function AdminUsers() {
       width: "w-[110px]",
       align: "right",
       cell: (r) =>
-        isAdmin && r.id !== session!.user.id ? (
+        canManageUsers && r.id !== session!.user.id ? (
           <Button
             variant="ghost"
             size="sm"
@@ -204,12 +208,12 @@ export default function AdminUsers() {
     <Page
       title="Users"
       description={
-        isAdmin
+        canManageUsers
           ? "Official staff and field accounts only; Merchant portal logins are managed on the separate Merchant users screen. A rider is bound to a single device; suspending a user revokes every active session. Open a row to edit the user, see live sessions or reset an authenticator."
           : "Read-only. Only an administrator may create users or change their status; the server refuses the write regardless of what this page shows."
       }
       actions={
-        isAdmin ? (
+        canManageUsers ? (
           <Button onClick={() => setCreating(true)}>
             <Plus aria-hidden />
             Add user
@@ -223,7 +227,7 @@ export default function AdminUsers() {
         columns={columns}
         rows={rows}
         rowKey={(r) => r.id}
-        onRowClick={isAdmin ? (r) => setOpenId(r.id) : undefined}
+        onRowClick={canOpenUsers ? (r) => setOpenId(r.id) : undefined}
         loading={users.isLoading}
         error={users.error ? apiMessage(users.error, "The user register is unavailable.") : null}
         emptyTitle="No user matches these filters"
@@ -262,14 +266,14 @@ export default function AdminUsers() {
         className="min-h-0 flex-1"
       />
 
-      {isAdmin ? (
+      {canManageUsers ? (
         <CreateUserDialog
           open={creating}
           onOpenChange={setCreating}
         />
       ) : null}
 
-      {isAdmin ? (
+      {canOpenUsers ? (
         <UserDrawer
           user={rows.find((r) => r.id === openId) ?? ((users.data ?? []) as unknown as UserRow[]).find((r) => r.id === openId) ?? null}
           selfId={session!.user.id}
