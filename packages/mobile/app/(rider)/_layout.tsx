@@ -48,7 +48,7 @@ function GpsDriver() {
 }
 
 /**
- * The rider's four tabs, and nothing else.
+ * The rider's five primary tabs, and nothing else.
  *
  * The rider's whole day (§5, §10 M3): collect from merchants, hand in at the
  * hub, take the delivery run out. The tab bar carries those three plus the
@@ -73,11 +73,11 @@ export default function RiderLayout() {
         <Tabs.Screen
           name="index"
           options={{
-            title: "Home",
+            title: "Pick-ups",
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
-                name={focused ? "home" : "home-outline"}
-                size={focused ? size + 4 : size}
+                name={focused ? "cube" : "cube-outline"}
+                size={size}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -91,6 +91,19 @@ export default function RiderLayout() {
               <Ionicons
                 name={focused ? "bicycle" : "bicycle-outline"}
                 size={size}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="home"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "home" : "home-outline"}
+                size={focused ? size + 5 : size + 1}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),

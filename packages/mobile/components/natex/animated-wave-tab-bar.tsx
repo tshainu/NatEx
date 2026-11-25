@@ -1,7 +1,7 @@
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
 import { useEffect, useState } from "react";
 import type { ColorValue, StyleProp, ViewStyle } from "react-native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
   Extrapolation,
@@ -13,6 +13,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
@@ -121,11 +122,15 @@ function WaveTabItem({
 /** A shared pill-shaped wave tab bar for the rider, transport and merchant workspaces. */
 export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: BottomTabBarProps) {
   const colors = useColors();
+  const safeArea = useSafeAreaInsets();
   const width = useSharedValue(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const selectedIndex = useSharedValue(Math.max(0, state.index));
-  const safeBottom = insets.bottom;
-  const height = BAR_CONTENT_HEIGHT + safeBottom;
+  // Android edge-to-edge devices can report zero from React Navigation while
+  // still drawing the three-button/gesture navigation area over the app.
+  // Lift the entire bar above that area and keep a small, predictable gap.
+  const safeBottom = Math.max(insets.bottom, safeArea.bottom, Platform.OS === "android" ? 24 : 0);
+  const height = BAR_CONTENT_HEIGHT;
 
   const routes = state.routes.filter((route) => {
     const options = descriptors[route.key].options;
@@ -167,7 +172,7 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
   if (hiddenRoute || routes.length === 0) return null;
 
   return (
-    <View onLayout={onLayout} style={[styles.container, { height, backgroundColor: colors.card }]}>
+    <View onLayout={onLayout} style={[styles.container, { height, marginBottom: safeBottom, backgroundColor: colors.card }]}>
       <Svg
         height={height}
         pointerEvents="none"
@@ -193,7 +198,7 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
           strokeWidth={1.4}
         />
       </Svg>
-      <View style={[styles.row, { height, paddingBottom: safeBottom }]}>
+      <View style={[styles.row, { height }]}>
         {routes.map((route) => {
           const routeIndex = routes.findIndex((candidate) => candidate.key === route.key);
           const focused = route.key === currentRoute?.key;
