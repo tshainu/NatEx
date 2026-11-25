@@ -222,6 +222,7 @@ export default function RiderHandInScreen() {
 }
 
 const styles = StyleSheet.create({
+  compactAction: { minHeight: 42, paddingVertical: 8 },
   flex: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   rejectRow: { flexDirection: "row", alignItems: "center", gap: Space.unit },

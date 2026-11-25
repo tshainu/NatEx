@@ -167,7 +167,7 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
   if (hiddenRoute || routes.length === 0) return null;
 
   return (
-    <View onLayout={onLayout} style={[styles.container, { height }]}>
+    <View onLayout={onLayout} style={[styles.container, { height, backgroundColor: colors.card }]}>
       <Svg
         height={height}
         pointerEvents="none"
@@ -247,6 +247,10 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
 const styles = StyleSheet.create({
   container: {
     backgroundColor: "transparent",
+    elevation: 18,
+    zIndex: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.14)",
     overflow: "visible",
     width: "100%",
   },

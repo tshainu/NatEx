@@ -1,4 +1,5 @@
 import React from "react";
+import { Ionicons } from "@expo/vector-icons";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -6,12 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  Pressable,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { Display, Small } from "./text";
+import { useRiderDrawer } from "./rider-drawer";
 
 /**
  * The screen shell every field screen uses.
@@ -46,6 +48,7 @@ export function Screen({
   scroll = true,
 }: ScreenProps) {
   const colors = useColors();
+  const riderDrawer = useRiderDrawer();
   const [footerHeight, setFooterHeight] = React.useState(0);
   const edges = inTabs
     ? (["top", "left", "right"] as const)
@@ -114,16 +117,16 @@ export function ScreenHeader({
   subtitle?: string;
   right?: React.ReactNode;
 }) {
+  const colors = useColors();
+  const riderDrawer = useRiderDrawer();
   return (
     <View style={styles.header}>
-      <View style={styles.brandMark}>
-        <Ionicons name="flash" size={16} color="#052A20" />
-      </View>
       <View style={styles.flex}>
         <View style={styles.eyebrow}><Small style={styles.eyebrowText}>NATEX FIELD APP</Small></View>
         <Display>{title}</Display>
         {subtitle ? <Small style={styles.headerSubtitle}>{subtitle}</Small> : null}
       </View>
+      {riderDrawer ? <Pressable accessibilityLabel="Open rider menu" onPress={riderDrawer.open} style={styles.menuButton}><Ionicons name="menu" size={25} color={colors.foreground} /></Pressable> : null}
       {right ? <View style={styles.headerRight}>{right}</View> : null}
     </View>
   );
@@ -185,15 +188,6 @@ const styles = StyleSheet.create({
     gap: Space.unit * 1.5,
     marginBottom: 6,
   },
-  brandMark: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: "#10B981",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-  },
   eyebrow: {
     flexDirection: "row",
     alignItems: "center",
@@ -206,6 +200,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: { marginTop: 4 },
   headerRight: { alignItems: "flex-end" },
+  menuButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14 },
   section: { gap: Space.unit * 0.75 },
   divider: { height: StyleSheet.hairlineWidth, opacity: 0.8 },
 });

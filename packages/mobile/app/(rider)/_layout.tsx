@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { orpc } from "../../lib/api";
 import { flushRiderGps, startRiderGps, stopRiderGps } from "../../lib/rider-gps";
+import { RiderDrawerProvider } from "../../components/natex/rider-drawer";
 
 /**
  * §7 plumbing that must run on EVERY rider screen, not just the run list: a
@@ -58,6 +59,7 @@ export default function RiderLayout() {
   const colors = useColors();
   return (
     <RoleGate allow={["rider"]}>
+      <RiderDrawerProvider>
       <OutboxDriver />
       <GpsDriver />
       <Tabs
@@ -71,11 +73,11 @@ export default function RiderLayout() {
         <Tabs.Screen
           name="index"
           options={{
-            title: "Pickups",
+            title: "Home",
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
-                name={focused ? "cube" : "cube-outline"}
-                size={size}
+                name={focused ? "home" : "home-outline"}
+                size={focused ? size + 4 : size}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -131,6 +133,7 @@ export default function RiderLayout() {
         <Tabs.Screen name="enroll-merchant" options={{ href: null }} />
         <Tabs.Screen name="route" options={{ href: null }} />
       </Tabs>
+      </RiderDrawerProvider>
     </RoleGate>
   );
 }

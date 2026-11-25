@@ -80,14 +80,6 @@ export function SettingsScreen({ note }: { note?: string }) {
       {role === "rider" ? <RiderAttendance /> : null}
       {role === "rider" ? <RiderGpsSummary /> : null}
 
-      {role === "rider" ? (
-        <Section title="Rider tools" icon="briefcase-outline">
-          <MenuButton label="Enroll a merchant" detail="Submit a business to NOS for approval" onPress={() => router.push("/(rider)/enroll-merchant")} />
-          <MenuButton label="Delivered history" detail="Review completed deliveries" onPress={() => router.push("/(rider)/delivered")} />
-          <MenuButton label="Failed attempts" detail="Review NDRs and reattempts" onPress={() => router.push("/(rider)/failed-attempts")} />
-        </Section>
-      ) : null}
-
       {/* ── This device ─────────────────────────────────────────── */}
       <Section title="This device" icon="phone-portrait-outline">
         <Row label="Device id" value={deviceId()} mono />
