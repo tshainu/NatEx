@@ -18,16 +18,16 @@ import { Fonts } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const BAR_CONTENT_HEIGHT = 50;
-const TOP_EDGE_Y = 11;
-const BUMP_PEAK_Y = 1;
+const BAR_CONTENT_HEIGHT = 68;
+const TOP_EDGE_Y = 13;
+const BUMP_PEAK_Y = 3;
 
 function makeWavePath(width: number, height: number, count: number, index: number) {
   "worklet";
   if (!width || !height || !count) return "";
 
-  const bottom = height - 3;
-  const radius = Math.min(18, bottom / 2);
+  const bottom = height - 4;
+  const radius = Math.min(22, bottom / 2);
   const step = width / count;
   const halfBump = Math.min(23, step * 0.31);
   const center = Math.max(radius + halfBump, Math.min(width - radius - halfBump, (index + 0.5) * step));
@@ -274,10 +274,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     minWidth: 48,
+    gap: 5,
   },
   icon: {
     alignItems: "center",
-    height: 20,
+    height: 30,
     justifyContent: "center",
   },
   label: {
