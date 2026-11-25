@@ -14,6 +14,7 @@ import {
   ROLES,
   MOBILE_FIELD_ROLES,
   resolveMobileRole,
+  isGlobalScope,
   type MfaLevel,
   type MobileFieldRole,
   type Principal,
@@ -735,7 +736,7 @@ export async function listUsers(scope: Principal) {
     .orderBy(user.name);
 
   const shaped = rows.map((r) => ({ ...r, roles: rolesOf(r) }));
-  if (scope.roles.includes("admin") || scope.roles.includes("finance")) return shaped;
+  if (scope.roles.some(isGlobalScope)) return shaped;
   return shaped.filter((r) => r.branchId === scope.branchId);
 }
 
