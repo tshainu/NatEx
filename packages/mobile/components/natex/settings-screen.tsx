@@ -34,20 +34,7 @@ export function SettingsScreen({ note }: { note?: string }) {
   const colors = useColors();
 
   return (
-    <Screen
-      inTabs
-      footer={
-        <Button
-          title="Sign out"
-          variant="secondary"
-          icon={<Ionicons name="log-out-outline" size={18} color={colors.foreground} />}
-          onPress={async () => {
-            await signOut();
-            router.replace("/login");
-          }}
-        />
-      }
-    >
+    <Screen inTabs>
       <ScreenHeader
         title="Settings"
         subtitle={user ? `${user.name} | ${role ? humanise(role) : "Rider"} | ${user.branchName ?? "—"}` : undefined}
@@ -98,6 +85,16 @@ export function SettingsScreen({ note }: { note?: string }) {
       <Section title="About" icon="information-circle-outline">
         <Row label="App version" value={Constants.expoConfig?.version ?? "—"} last />
       </Section>
+
+      <Button
+        title="Sign out"
+        variant="secondary"
+        icon={<Ionicons name="log-out-outline" size={18} color={colors.foreground} />}
+        onPress={async () => {
+          await signOut();
+          router.replace("/login");
+        }}
+      />
     </Screen>
   );
 }

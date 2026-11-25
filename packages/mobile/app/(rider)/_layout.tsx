@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { RoleGate } from "../../components/natex/role-gate";
 import { AnimatedWaveTabBar } from "../../components/natex/animated-wave-tab-bar";
 import { useColors } from "../../hooks/use-colors";
@@ -86,10 +87,10 @@ export default function RiderLayout() {
         <Tabs.Screen
           name="deliveries"
           options={{
-            title: "Run",
+            title: "Delivery",
             tabBarIcon: ({ size, focused }) => (
-              <Ionicons
-                name={focused ? "bicycle" : "bicycle-outline"}
+              <MaterialCommunityIcons
+                name="motorbike"
                 size={25}
                 color={focused ? colors.primary : colors.mutedForeground}
               />

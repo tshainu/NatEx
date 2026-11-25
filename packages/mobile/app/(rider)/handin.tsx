@@ -109,7 +109,7 @@ export default function RiderHandInScreen() {
         </View>
       </Panel>
 
-      <Card style={styles.scanCard}>
+      <Card style={{ ...styles.scanCard, borderColor: colors.primary }}>
         <View style={[styles.scanAccent, { borderTopColor: "#142B38", borderRightColor: "#2E5260", borderBottomColor: "#5B3049", borderLeftColor: "#1F5948", shadowColor: "#10242C" }]}>
         <Input
           ref={inputRef}
@@ -131,7 +131,7 @@ export default function RiderHandInScreen() {
               variant="secondary"
               icon={<Ionicons name="barcode-outline" size={18} color={colors.foreground} />}
               onPress={() => setScannerOpen(true)}
-              style={styles.fullWidthButton}
+              style={{ ...styles.fullWidthButton, ...styles.compactAction }}
             />
           </View>
           <View style={styles.scanAction}>
@@ -140,7 +140,7 @@ export default function RiderHandInScreen() {
               variant="secondary"
               disabled={normaliseAwb(awb).length === 0}
               onPress={() => add()}
-              style={styles.fullWidthButton}
+              style={{ ...styles.fullWidthButton, ...styles.compactAction }}
             />
           </View>
         </View>
@@ -222,20 +222,20 @@ export default function RiderHandInScreen() {
 }
 
 const styles = StyleSheet.create({
-  compactAction: { minHeight: 42, paddingVertical: 8 },
+  compactAction: { height: 40, minHeight: 40, paddingVertical: 4 },
   flex: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   rejectRow: { flexDirection: "row", alignItems: "center", gap: Space.unit },
   batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2, paddingVertical: Space.unit },
   batchEyebrow: { flexDirection: "row", alignItems: "center", gap: 6 },
   queueCount: { minWidth: 52, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", gap: 2 },
-  scanCard: { padding: Space.unit, borderWidth: 0 },
+  scanCard: { padding: Space.unit, borderWidth: 2, shadowColor: "#0D2833", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   scanAccent: { borderWidth: 3, borderRadius: 16, padding: Space.unit, gap: Space.unit, shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   scanActions: { flexDirection: "row", gap: Space.unit },
   scanAction: { flex: 1 },
   footerActions: { flexDirection: "row", gap: Space.unit },
   footerAction: { flex: 1 },
   fullWidthButton: { width: "100%" },
-  compactPrimary: { height: 46, minHeight: 46, paddingVertical: 4 },
+  compactPrimary: { height: 40, minHeight: 40, paddingVertical: 2 },
   emptyCompact: { paddingVertical: Space.unit * 1.5 },
 });
