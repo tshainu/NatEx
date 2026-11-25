@@ -18,8 +18,8 @@ import { Fonts } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const BAR_CONTENT_HEIGHT = 68;
-const TOP_EDGE_Y = 13;
+const BAR_CONTENT_HEIGHT = 74;
+const TOP_EDGE_Y = 14;
 const BUMP_PEAK_Y = 3;
 
 function makeWavePath(width: number, height: number, count: number, index: number) {
@@ -27,7 +27,7 @@ function makeWavePath(width: number, height: number, count: number, index: numbe
   if (!width || !height || !count) return "";
 
   const bottom = height - 4;
-  const radius = Math.min(22, bottom / 2);
+  const radius = Math.min(24, bottom / 2);
   const step = width / count;
   const halfBump = Math.min(23, step * 0.31);
   const center = Math.max(radius + halfBump, Math.min(width - radius - halfBump, (index + 0.5) * step));
