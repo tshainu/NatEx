@@ -73,7 +73,7 @@ export default function RiderHandInScreen() {
               loading={handIn.isPending}
               disabled={queue.length === 0}
               onPress={() => handIn.mutate(queue)}
-              style={styles.fullWidthButton}
+              style={{ ...styles.fullWidthButton, ...styles.compactPrimary }}
             />
           </View>
           {queue.length > 0 && !handIn.isPending ? (
@@ -109,8 +109,8 @@ export default function RiderHandInScreen() {
         </View>
       </Panel>
 
-      <Card style={{ ...styles.scanCard, borderColor: colors.border }}>
-        <View style={[styles.scanAccent, { borderTopColor: "#1C2A35", borderRightColor: "#30404B", borderBottomColor: "#3A303B", borderLeftColor: "#223B34" }]}>
+      <Card style={styles.scanCard}>
+        <View style={[styles.scanAccent, { borderTopColor: "#142B38", borderRightColor: "#2E5260", borderBottomColor: "#5B3049", borderLeftColor: "#1F5948", shadowColor: "#10242C" }]}>
         <Input
           ref={inputRef}
           label="Scan or type tracking number"
@@ -229,8 +229,8 @@ const styles = StyleSheet.create({
   batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2, paddingVertical: Space.unit },
   batchEyebrow: { flexDirection: "row", alignItems: "center", gap: 6 },
   queueCount: { minWidth: 52, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", gap: 2 },
-  scanCard: { padding: Space.unit, borderWidth: 1 },
-  scanAccent: { borderWidth: 2, borderRadius: 16, padding: Space.unit, gap: Space.unit },
+  scanCard: { padding: Space.unit, borderWidth: 0 },
+  scanAccent: { borderWidth: 3, borderRadius: 16, padding: Space.unit, gap: Space.unit, shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   scanActions: { flexDirection: "row", gap: Space.unit },
   scanAction: { flex: 1 },
   footerActions: { flexDirection: "row", gap: Space.unit },

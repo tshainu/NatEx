@@ -77,7 +77,7 @@ export default function RiderLayout() {
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "cube" : "cube-outline"}
-                size={size}
+                size={25}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -90,7 +90,7 @@ export default function RiderLayout() {
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "bicycle" : "bicycle-outline"}
-                size={size}
+                size={25}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -103,7 +103,7 @@ export default function RiderLayout() {
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "home" : "home-outline"}
-                size={focused ? size + 5 : size + 1}
+                size={focused ? 29 : 27}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -116,7 +116,7 @@ export default function RiderLayout() {
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "log-in" : "log-in-outline"}
-                size={size}
+                size={25}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -129,7 +129,7 @@ export default function RiderLayout() {
             tabBarIcon: ({ size, focused }) => (
               <Ionicons
                 name={focused ? "settings" : "settings-outline"}
-                size={size}
+                size={25}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -145,6 +145,9 @@ export default function RiderLayout() {
         <Tabs.Screen name="day-registry" options={{ href: null }} />
         <Tabs.Screen name="enroll-merchant" options={{ href: null }} />
         <Tabs.Screen name="route" options={{ href: null }} />
+        <Tabs.Screen name="transport" options={{ href: null }} />
+        <Tabs.Screen name="overtime" options={{ href: null }} />
+        <Tabs.Screen name="leave" options={{ href: null }} />
       </Tabs>
       </RiderDrawerProvider>
     </RoleGate>

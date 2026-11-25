@@ -50,25 +50,27 @@ export function SettingsScreen({ note }: { note?: string }) {
     >
       <ScreenHeader
         title="Settings"
-        subtitle={user ? `${user.name} · ${role ? humanise(role) : ""}` : undefined}
+        subtitle={user ? `${user.name} | ${role ? humanise(role) : "Rider"} | ${user.branchName ?? "—"}` : undefined}
       />
 
+      {role === "rider" ? <RiderAttendance /> : null}
+
       {/* ── Account ─────────────────────────────────────────────── */}
-      <Section title="Account" icon="person-circle-outline">
+      {role !== "rider" ? <Section title="Account" icon="person-circle-outline">
         <Row label="Name" value={user?.name ?? "—"} />
         <Row label="Role" value={role ? humanise(role) : "—"} />
         <Row label="Branch" value={user?.branchName ?? "—"} last />
-      </Section>
+      </Section> : null}
 
       {/* ── Appearance ──────────────────────────────────────────── */}
-      <Section title="Appearance" icon="contrast-outline">
+      {role !== "rider" ? <Section title="Appearance" icon="contrast-outline">
         <ThemePicker />
-      </Section>
+      </Section> : null}
 
       {/* ── Scanning ────────────────────────────────────────────── */}
-      <Section title="Scanning" icon="barcode-outline">
+      {role !== "rider" ? <Section title="Scanning" icon="barcode-outline">
         <ScanSwitches />
-      </Section>
+      </Section> : null}
 
       {/* ── Sync — rider only; transport has no offline outbox ───── */}
       {role === "rider" ? (
@@ -76,8 +78,6 @@ export function SettingsScreen({ note }: { note?: string }) {
           <SyncRows />
         </Section>
       ) : null}
-
-      {role === "rider" ? <RiderAttendance /> : null}
 
       {/* ── This device ─────────────────────────────────────────── */}
       <Section title="This device" icon="phone-portrait-outline">

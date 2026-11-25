@@ -11,9 +11,9 @@ import { Body, Small, Title } from "./text";
 const MENU = [
   ["Delivery", "Today’s active route", "bicycle-outline", "/(rider)/deliveries"],
   ["Pick-up", "Merchant collection list", "cube-outline", "/(rider)"],
-  ["Transport", "Running chart and route", "navigate-outline", "/(rider)/route"],
-  ["Over-time earning", "Earnings and attendance", "cash-outline", "/(rider)/day-registry"],
-  ["Leave management", "Attendance, balances and requests", "calendar-outline", "/(rider)/day-registry"],
+  ["Transport", "Active linehaul and run details", "navigate-outline", "/(rider)/transport"],
+  ["Over-time earning", "Monthly approved overtime", "cash-outline", "/(rider)/overtime"],
+  ["Leave management", "Balances and leave requests", "calendar-outline", "/(rider)/leave"],
   ["Running chart", "View your GPS route", "map-outline", "/(rider)/route"],
   ["Enrol New Merchant", "Submit a new merchant", "storefront-outline", "/(rider)/enroll-merchant"],
   ["Delivery history", "Completed deliveries", "time-outline", "/(rider)/delivered"],
