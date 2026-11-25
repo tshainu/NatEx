@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     fontSize: Type.small,
   },
-  attendanceCard: { gap: 10, padding: 12, borderRadius: Space.radius, backgroundColor: "rgba(128,128,128,0.08)" },
+  attendanceCard: { gap: 10, padding: 12, borderRadius: Space.radius, borderWidth: 1, borderColor: "rgba(16,185,129,0.72)", backgroundColor: "rgba(16,185,129,0.07)" },
   attendanceActions: { flexDirection: "row", gap: 8 },
   smallAction: { flex: 1 },
   leaveSummary: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: Space.unit },

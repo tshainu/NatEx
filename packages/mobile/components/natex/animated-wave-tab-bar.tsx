@@ -17,7 +17,7 @@ import { Fonts } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const BAR_CONTENT_HEIGHT = 58;
+const BAR_CONTENT_HEIGHT = 50;
 const TOP_EDGE_Y = 11;
 const BUMP_PEAK_Y = 1;
 
@@ -124,7 +124,7 @@ export function AnimatedWaveTabBar({ state, descriptors, navigation, insets }: B
   const width = useSharedValue(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const selectedIndex = useSharedValue(Math.max(0, state.index));
-  const safeBottom = Math.max(insets.bottom, 8);
+  const safeBottom = insets.bottom;
   const height = BAR_CONTENT_HEIGHT + safeBottom;
 
   const routes = state.routes.filter((route) => {
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   tab: {
     alignItems: "center",
     flex: 1,
-    height: BAR_CONTENT_HEIGHT - 2,
+    height: BAR_CONTENT_HEIGHT - 1,
     justifyContent: "center",
   },
   tabContent: {
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   icon: {
     alignItems: "center",
-    height: 22,
+    height: 20,
     justifyContent: "center",
   },
   label: {

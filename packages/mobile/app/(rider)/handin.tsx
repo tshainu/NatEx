@@ -109,7 +109,8 @@ export default function RiderHandInScreen() {
         </View>
       </Panel>
 
-      <Card>
+      <Card style={{ ...styles.scanCard, borderColor: colors.border }}>
+        <View style={[styles.scanAccent, { borderTopColor: "#1C2A35", borderRightColor: "#30404B", borderBottomColor: "#3A303B", borderLeftColor: "#223B34" }]}>
         <Input
           ref={inputRef}
           label="Scan or type tracking number"
@@ -126,7 +127,7 @@ export default function RiderHandInScreen() {
         <View style={styles.scanActions}>
           <View style={styles.scanAction}>
             <Button
-              title="Scan with camera"
+              title="Scan"
               variant="secondary"
               icon={<Ionicons name="barcode-outline" size={18} color={colors.foreground} />}
               onPress={() => setScannerOpen(true)}
@@ -146,6 +147,7 @@ export default function RiderHandInScreen() {
         {duplicate ? (
           <Small color={colors.statusMoving}>{duplicate} is already on the list.</Small>
         ) : null}
+        </View>
       </Card>
 
       {handIn.isError ? (
@@ -226,10 +228,13 @@ const styles = StyleSheet.create({
   batchSummary: { flexDirection: "row", alignItems: "center", gap: Space.unit * 2, paddingVertical: Space.unit },
   batchEyebrow: { flexDirection: "row", alignItems: "center", gap: 6 },
   queueCount: { minWidth: 52, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", gap: 2 },
+  scanCard: { padding: Space.unit, borderWidth: 1 },
+  scanAccent: { borderWidth: 2, borderRadius: 16, padding: Space.unit, gap: Space.unit },
   scanActions: { flexDirection: "row", gap: Space.unit },
   scanAction: { flex: 1 },
   footerActions: { flexDirection: "row", gap: Space.unit },
   footerAction: { flex: 1 },
   fullWidthButton: { width: "100%" },
+  compactPrimary: { height: 46, minHeight: 46, paddingVertical: 4 },
   emptyCompact: { paddingVertical: Space.unit * 1.5 },
 });
