@@ -12,7 +12,7 @@ import {
 import { changeUserStatus } from "../modules/identity/admin";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
-import { isGlobalScope, MOBILE_FIELD_ROLES, ROLES } from "../shared/auth";
+import { isAdminRole, isGlobalScope, MOBILE_FIELD_ROLES, ROLES } from "../shared/auth";
 import { toE6 } from "../shared/geo";
 import { isDevelopment } from "../shared/env";
 
@@ -168,7 +168,7 @@ export const logout = authedProc.handler(({ context }) =>
 export const listBranches = staffProc
   .input(z.object({ includeInactive: z.boolean().optional() }).optional())
   .handler(({ input, context }) => {
-    if (input?.includeInactive && !context.principal.roles.includes("admin")) {
+    if (input?.includeInactive && !context.principal.roles.some(isAdminRole)) {
       errors.forbidden("Only administrators may include inactive branches.");
     }
     return identityService.listBranches({ includeInactive: input?.includeInactive });

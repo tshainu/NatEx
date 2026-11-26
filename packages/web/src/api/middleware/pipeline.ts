@@ -74,7 +74,7 @@ export const ndrProc = authedProc.use(requireRole("merchant", "ops", "admin", "g
 export const disputeProc = authedProc.use(requireRole("merchant", "ops", "finance", "admin", "gom"));
 /** Any staff member who can read the operational board. */
 export const staffProc = authedProc.use(
-  requireRole("ops", "admin", "finance", "gom", "transport", "rider"),
+  requireRole("ops", "admin", "finance", "gom", "transport", "rider", "super_admin", "nos_admin"),
 );
 /**
  * The desks: ops, finance and admin — web-portal staff, never field roles.
