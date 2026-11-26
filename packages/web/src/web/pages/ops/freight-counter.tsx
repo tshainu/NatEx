@@ -100,7 +100,7 @@ function sortCounterHistory(rows: CounterHistoryRow[], sort: HistorySort): Count
 export default function RetailFreightCounter() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
-  const canChooseBranch = session?.user.role === "admin";
+  const canChooseBranch = ["admin", "super_admin", "nos_admin", "gom"].includes(session?.user.role ?? "");
   const branchOptions = useQuery({
     ...orpc.identity.listBranches.queryOptions(),
     enabled: canChooseBranch,

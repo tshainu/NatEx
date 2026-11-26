@@ -1245,10 +1245,11 @@ export async function createRetailCounterBooking(
   input: RetailCounterBookingInput,
   actor: Principal,
 ): Promise<RetailCounterBookingResult> {
-  if (actor.role !== "ops" && actor.role !== "admin") {
+  const canAcceptAcrossBranches = actor.role === "admin" || actor.role === "gom" || isUltimateAdminRole(actor.role);
+  if (actor.role !== "ops" && !canAcceptAcrossBranches) {
     errors.forbidden("Only branch Operations or Admin may accept a retail counter parcel.");
   }
-  if (actor.role !== "admin" && input.branchId !== actor.branchId) {
+  if (!canAcceptAcrossBranches && input.branchId !== actor.branchId) {
     errors.forbidden("A branch operator may only book a retail parcel at their own branch.");
   }
   if (input.requestId.trim().length < 8) errors.badRequest("A valid booking request id is required.");
