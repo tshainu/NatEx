@@ -37,6 +37,7 @@ interface Form {
   heightCm: string;
   declaredValue: string;
   codAmount: string;
+  codIncludesDeliveryCharge: boolean;
   originAddress: AddressParts;
   consigneeName: string;
   consigneePhone: string;
@@ -55,6 +56,7 @@ const EMPTY: Form = {
   heightCm: "",
   declaredValue: "0",
   codAmount: "0",
+  codIncludesDeliveryCharge: false,
   originAddress: { ...EMPTY_ADDRESS },
   consigneeName: "",
   consigneePhone: "",
@@ -195,6 +197,7 @@ export default function OpsBook() {
         heightCm: form.heightCm ? Number(form.heightCm) : null,
         declaredValueCents: centsOf(declared),
         codAmountCents: centsOf(cod),
+        codIncludesDeliveryCharge: form.codIncludesDeliveryCharge,
         originAddress: formatAddress(form.originAddress),
         consigneeName: form.consigneeName.trim(),
         consigneePhone: form.consigneePhone.trim(),
@@ -407,12 +410,11 @@ export default function OpsBook() {
                 hint={"error" in cod ? undefined : cod.cents === 0 ? "Prepaid parcel" : money(cod.cents)}
                 error={"error" in cod ? cod.error : null}
               >
-                <Input
-                  value={form.codAmount}
-                  onChange={set("codAmount")}
-                  inputMode="decimal"
-                  className="font-mono"
-                />
+                <Input value={form.codAmount} onChange={set("codAmount")} inputMode="decimal" className="font-mono" />
+                <label className="mt-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <input type="checkbox" checked={form.codIncludesDeliveryCharge} onChange={(e) => setForm((prev) => ({ ...prev, codIncludesDeliveryCharge: e.target.checked }))} />
+                  Included Delivery charge
+                </label>
               </Field>
             </div>
             <AddressFields title="Pickup address" value={form.originAddress} onChange={(originAddress) => setForm((prev) => ({ ...prev, originAddress }))} />

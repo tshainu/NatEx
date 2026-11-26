@@ -33,6 +33,10 @@ export const parcel = sqliteTable(
     /** MONEY: integer cents, LKR (PROJECT.md §9). Never float/double. */
     declaredValueCents: integer("declared_value_cents").default(0),
     codAmountCents: integer("cod_amount_cents").notNull().default(0),
+    /** Immutable booking split: the entered COD amount included this charge. */
+    codIncludesDeliveryCharge: integer("cod_includes_delivery_charge", { mode: "boolean" }).notNull().default(false),
+    /** Exact rate-card charge captured at booking; null for legacy/unincluded rows. */
+    deliveryChargeIncludedCents: integer("delivery_charge_included_cents"),
     /** Locked once Delivered; only Finance may adjust, with audit (PROJECT.md §6). */
     codLockedAt: integer("cod_locked_at", { mode: "timestamp" }),
 

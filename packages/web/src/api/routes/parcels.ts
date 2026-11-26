@@ -195,6 +195,7 @@ export const create = authedProc
       /** MONEY: integer cents. The API refuses anything else (§9). */
       declaredValueCents: z.number().int().min(0).default(0),
       codAmountCents: z.number().int().min(0).default(0),
+      codIncludesDeliveryCharge: z.boolean().default(false),
       originAddress: z.string().min(4),
       originLat: z.number().int().nullish(),
       originLng: z.number().int().nullish(),

@@ -6,6 +6,7 @@ import { prefixedId } from "../../shared/ulid";
 import { errors } from "../../shared/errors";
 import { enqueue } from "../../shared/outbox";
 import { isGlobalScope, isUltimateAdminRole, type Principal } from "../../shared/auth";
+import { districtFromAddress } from "../../shared/address";
 import { getMerchant, merchantMayBeBookedByDistrict } from "../merchants/service";
 import {
   chargeableWeightLimitMessage,
@@ -1012,6 +1013,7 @@ export interface CreateParcelInput {
   heightCm?: number | null;
   declaredValueCents: number;
   codAmountCents: number;
+  codIncludesDeliveryCharge?: boolean;
   originAddress: string;
   originLat?: number | null;
   originLng?: number | null;
@@ -1048,6 +1050,7 @@ export async function createParcel(
   if (!Number.isInteger(input.codAmountCents) || input.codAmountCents < 0) {
     errors.badRequest("COD must be a non-negative integer number of cents.");
   }
+  const includesDeliveryCharge = input.codIncludesDeliveryCharge === true;
   const initialStatus = input.initialStatus ?? "Booked";
   if (!roleMayCommand(actor.role, initialStatus)) {
     errors.forbidden(`Role ${actor.role} may not create parcels at ${initialStatus}.`);
@@ -1061,7 +1064,7 @@ export async function createParcel(
   }
   const owner = await getMerchant(input.merchantId);
   if (!owner) errors.notFound(`Merchant ${input.merchantId}`);
-  await identityService.requireActiveBranch(input.branchId);
+  const bookingBranch = await identityService.requireActiveBranch(input.branchId);
   if (owner!.branchId !== input.branchId) await identityService.requireActiveBranch(owner!.branchId);
   if (!(await merchantMayBeBookedByDistrict(owner!, actor))) {
     errors.forbidden("This merchant is outside your assigned district.", {
@@ -1088,6 +1091,35 @@ export async function createParcel(
     errors.badRequest(`Merchant ${owner!.name} is not enabled for cash on delivery.`, {
       codAmountCents: input.codAmountCents,
     });
+  }
+
+  // The browser sends the inclusive total. Re-price on the server and persist
+  // the split so later rate-card changes never restate booking history.
+  let includedDeliveryChargeCents: number | null = null;
+  let actualCodAmountCents = input.codAmountCents;
+  let inclusiveQuote: Awaited<ReturnType<typeof rateCardService.quoteForMerchant>> | null = null;
+  if (includesDeliveryCharge) {
+    const originDistrict = districtFromAddress(input.originAddress);
+    const destinationDistrict = districtFromAddress(input.destAddress);
+    if (!originDistrict || !destinationDistrict) {
+      errors.badRequest("Select a valid origin and destination district before including the delivery charge.");
+    }
+    inclusiveQuote = await rateCardService.quoteForMerchant(input.merchantId, {
+      band: originDistrict === destinationDistrict ? "local" : "outstation",
+      weightGrams: input.weightGrams,
+      lengthCm: input.lengthCm,
+      widthCm: input.widthCm,
+      heightCm: input.heightCm,
+      requested: [],
+    });
+    includedDeliveryChargeCents = inclusiveQuote.totalCents;
+    if (input.codAmountCents < includedDeliveryChargeCents) {
+      errors.badRequest("The inclusive COD amount must be at least the applicable delivery charge.", {
+        enteredCents: input.codAmountCents,
+        deliveryChargeCents: includedDeliveryChargeCents,
+      });
+    }
+    actualCodAmountCents = input.codAmountCents - includedDeliveryChargeCents;
   }
 
   if (actor.role === "merchant" && !input.awb?.trim()) {
@@ -1120,7 +1152,9 @@ export async function createParcel(
             widthCm: input.widthCm ?? null,
             heightCm: input.heightCm ?? null,
             declaredValueCents: input.declaredValueCents,
-            codAmountCents: input.codAmountCents,
+            codAmountCents: actualCodAmountCents,
+            codIncludesDeliveryCharge: includesDeliveryCharge,
+            deliveryChargeIncludedCents: includedDeliveryChargeCents,
             originAddress: input.originAddress,
             originLat: input.originLat ?? null,
             originLng: input.originLng ?? null,
@@ -1135,6 +1169,32 @@ export async function createParcel(
           })
           .returning();
         if (!saved) throw new Error("The parcel booking was not saved.");
+        if (includesDeliveryCharge && inclusiveQuote && bookingBranch) {
+          await createRetailChargeInTransaction(tx, {
+            parcelId: saved.id,
+            awb,
+            branchId: input.branchId,
+            branchName: bookingBranch.name,
+            payer: "recipient",
+            amountCents: includedDeliveryChargeCents!,
+            pricingSnapshot: {
+              kind: "cod_inclusive_delivery_charge",
+              enteredCents: input.codAmountCents,
+              actualCodCents: actualCodAmountCents,
+              ...inclusiveQuote,
+            },
+            senderName: owner!.contactName,
+            senderPhone: owner!.contactPhone,
+            senderAddress: input.originAddress,
+            recipientName: input.consigneeName,
+            recipientPhone: input.consigneePhone,
+            destinationAddress: input.destAddress,
+            createdById: actor.userId,
+            createdByName: actor.name,
+            createdByRole: actor.role,
+            requestId: `${saved.id}:inclusive-delivery-charge`,
+          });
+        }
         await appendParcelEvent({
           parcelId: saved.id,
           fromStatus: null,
