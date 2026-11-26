@@ -38,7 +38,7 @@ export const authedProc = publicProc.use(withAuth);
 export const mfaProc = publicProc.use(withAuthAllowingPendingMfa);
 
 export const riderProc = authedProc.use(requireRole("rider"));
-export const opsProc = authedProc.use(requireRole("ops", "admin", "gom"));
+export const opsProc = authedProc.use(requireRole("ops", "admin", "gom", "super_admin", "nos_admin"));
 export const financeProc = authedProc.use(requireRole("finance", "admin", "gom"));
 export const hrProc = authedProc.use(requireRole("hr", "admin", "gom"));
 export const payrollReadProc = authedProc.use(requireRole("hr", "finance", "admin", "gom"));

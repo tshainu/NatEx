@@ -5,6 +5,7 @@ import { createRetailCounterBooking } from "../modules/parcels/service";
 import * as rateCardService from "../modules/merchants/rate-cards";
 import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../modules/merchants/pricing";
 import { errors } from "../shared/errors";
+import { isAdminRole } from "../shared/auth";
 
 const paymentMethod = z.enum(["cash", "bank_transfer", "qr", "card"]);
 
@@ -54,7 +55,7 @@ export const counterQuote = opsProc
     destinationAddress: z.string().trim().min(4).max(1000),
   }))
   .handler(({ input, context }) => {
-    if (context.principal.role !== "admin" && input.branchId !== context.principal.branchId) {
+    if (!isAdminRole(context.principal.role) && context.principal.role !== "gom" && input.branchId !== context.principal.branchId) {
       errors.forbidden("You may only quote a Counter parcel for your own branch/hub.");
     }
     const { branchId, ...quoteInput } = input;

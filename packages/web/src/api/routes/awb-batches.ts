@@ -5,6 +5,7 @@ import { MAX_LABELS_PER_GENERATION, MAX_NUMBERS_PER_BATCH } from "../modules/par
 import * as merchantsService from "../modules/merchants/service";
 import * as identityService from "../modules/identity/service";
 import { errors } from "../shared/errors";
+import { isAdminRole } from "../shared/auth";
 
 export const list = adminProc.handler(async ({ context }) => {
   const [batches, merchants, locations] = await Promise.all([
@@ -110,7 +111,7 @@ export const checkBranch = opsProc
     awb: z.string().trim().min(1).max(24),
   }))
   .handler(({ input, context }) => {
-    if (context.principal.role !== "admin" && context.principal.branchId !== input.branchId) {
+    if (!isAdminRole(context.principal.role) && context.principal.role !== "gom" && context.principal.branchId !== input.branchId) {
       return errors.forbidden("A branch operator may only validate tracking numbers assigned to their own branch or hub.");
     }
     return awbBatchService.checkBranchAwb(input.branchId, input.awb);
