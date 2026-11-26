@@ -22,7 +22,7 @@ function daysBefore(value: string, days: number) {
 
 function RiderTotals({ totals }: { totals: RiderResponse["totals"] }) {
   return <>
-    <div className="grid min-w-[900px] grid-cols-[1.2fr_repeat(5,1fr)] border-t-2 border-border bg-muted/60 px-4 py-3 text-right text-[13px] font-semibold"><span className="text-left">Totals</span><span className="font-mono tabular-nums">{money(totals.expectedCents)}</span><span className="font-mono tabular-nums">{money(totals.collectedCents)}</span><span className="font-mono tabular-nums">{money(totals.balanceCents)}</span><span className="font-mono tabular-nums">{money(totals.deliveryChargeCollectedCents)}</span><span className="font-mono tabular-nums">{money(totals.totalOutstandingCents)}</span></div>
+    <div className="grid min-w-[1100px] grid-cols-[1.2fr_0.9fr_repeat(6,1fr)] border-t-2 border-border bg-muted/60 px-4 py-3 text-right text-[13px] font-semibold"><span className="text-left">Totals</span><span className="font-mono tabular-nums">{(totals.deliveredWeightGrams / 1000).toFixed(2)} kg</span><span className="font-mono tabular-nums">{money(totals.deliveryChargeExpectedCents)}</span><span className="font-mono tabular-nums">{money(totals.expectedCents)}</span><span className="font-mono tabular-nums">{money(totals.collectedCents)}</span><span className="font-mono tabular-nums">{money(totals.balanceCents)}</span><span className="font-mono tabular-nums">{money(totals.deliveryChargeCollectedCents)}</span><span className="font-mono tabular-nums">{money(totals.totalOutstandingCents)}</span></div>
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm"><span className="font-medium">Total handover-able amount</span><span className="font-mono text-base font-semibold tabular-nums">{money(totals.totalOutstandingCents)}</span><span className="text-xs text-muted-foreground">COD balance + unpaid delivery charges</span></div>
   </>;
 }
@@ -38,6 +38,8 @@ function RiderReportTab() {
   const report = useQuery({ queryKey: ["cod", "riderReport", request], queryFn: () => client.cod.riderReport(request), enabled: enteredFrom.length === 10 && enteredTo.length === 10 && !invalid });
   const columns: Column<RiderRow>[] = [
     { key: "rider", header: "Rider", width: "w-[210px]", cell: (row) => <><span className="font-medium">{row.riderName}</span><br /><MonoCell>{row.branchName}</MonoCell></> },
+    { key: "weight", header: "Delivered weight", align: "right", className: "font-mono tabular-nums", cell: (row) => `${(row.deliveredWeightGrams / 1000).toFixed(2)} kg` },
+    { key: "weightCharge", header: "Weight-based delivery charge", align: "right", className: "font-mono tabular-nums", cell: (row) => money(row.deliveryChargeExpectedCents) },
     { key: "expected", header: "Expected COD", align: "right", className: "font-mono tabular-nums", cell: (row) => money(row.expectedCents) },
     { key: "collected", header: "Collected COD", align: "right", className: "font-mono tabular-nums", cell: (row) => money(row.collectedCents) },
     { key: "balance", header: "Balance", align: "right", className: "font-mono tabular-nums", cell: (row) => money(row.balanceCents) },

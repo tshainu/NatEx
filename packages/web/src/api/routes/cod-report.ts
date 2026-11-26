@@ -2,7 +2,8 @@ import { z } from "zod";
 import { authedProc, opsProc } from "../middleware/pipeline";
 import { requireRole } from "../middleware/auth";
 import { db } from "../database";
-import { runsheet } from "../database/schema/delivery";
+import { runsheet, runsheetItem } from "../database/schema/delivery";
+import { parcel } from "../database/schema/parcels";
 import { and, asc, eq, gte, inArray, lte, like, or, sql } from "drizzle-orm";
 import * as codService from "../modules/cod/service";
 import * as parcelsService from "../modules/parcels/service";
@@ -123,7 +124,6 @@ export const riderReport = riderReportProc
 
     const expected = sql<number>`coalesce(sum(${runsheet.codExpectedCents}), 0)`;
     const collected = sql<number>`coalesce(sum(${runsheet.codCollectedCents}), 0)`;
-    const freightExpected = sql<number>`coalesce(sum(${runsheet.freightExpectedCents}), 0)`;
     const freightCollected = sql<number>`coalesce(sum(${runsheet.freightCollectedCents}), 0)`;
     const grouped = await db.select({
       riderId: runsheet.riderId,
@@ -131,28 +131,37 @@ export const riderReport = riderReportProc
       branchId: runsheet.branchId,
       expectedCents: expected,
       collectedCents: collected,
-      freightExpectedCents: freightExpected,
       freightCollectedCents: freightCollected,
     }).from(runsheet).where(and(...filters)).groupBy(runsheet.riderId, runsheet.riderName, runsheet.branchId).orderBy(asc(runsheet.riderName), asc(runsheet.riderId));
+    const deliveredWeight = sql<number>`coalesce(sum(${parcel.weightGrams}), 0)`;
+    const deliveredCharge = sql<number>`coalesce(sum(${runsheetItem.freightAmountCents}), 0)`;
+    const delivered = await db.select({ riderId: runsheet.riderId, branchId: runsheet.branchId, deliveredWeightGrams: deliveredWeight, deliveryChargeExpectedCents: deliveredCharge })
+      .from(runsheet).innerJoin(runsheetItem, eq(runsheetItem.runsheetId, runsheet.id)).innerJoin(parcel, eq(parcel.id, runsheetItem.parcelId))
+      .where(and(...filters, eq(runsheetItem.state, "delivered"))).groupBy(runsheet.riderId, runsheet.branchId);
+    const deliveredByKey = new Map(delivered.map((row) => [`${row.riderId}:${row.branchId}`, row]));
 
     const allBranches = await listBranches({ includeInactive: true });
     const labelById = new Map(allBranches.map((branch) => [branch.id, `${branch.code} · ${branch.name}`]));
     const rows = grouped.map((row) => {
       const expectedCents = Number(row.expectedCents ?? 0);
       const collectedCents = Number(row.collectedCents ?? 0);
-      const freightExpectedCents = Number(row.freightExpectedCents ?? 0);
       const freightCollectedCents = Number(row.freightCollectedCents ?? 0);
+      const deliveredRow = deliveredByKey.get(`${row.riderId}:${row.branchId}`);
+      const deliveredWeightGrams = Number(deliveredRow?.deliveredWeightGrams ?? 0);
+      const deliveryChargeExpectedCents = Number(deliveredRow?.deliveryChargeExpectedCents ?? 0);
       const balanceCents = Math.max(0, expectedCents - collectedCents);
-      const unpaidDeliveryChargesCents = Math.max(0, freightExpectedCents - freightCollectedCents);
-      return { riderId: row.riderId, riderName: row.riderName, branchId: row.branchId, branchName: labelById.get(row.branchId) ?? row.branchId, expectedCents, collectedCents, balanceCents, deliveryChargeCollectedCents: freightCollectedCents, unpaidDeliveryChargesCents, totalOutstandingCents: balanceCents + unpaidDeliveryChargesCents };
+      const unpaidDeliveryChargesCents = Math.max(0, deliveryChargeExpectedCents - freightCollectedCents);
+      return { riderId: row.riderId, riderName: row.riderName, branchId: row.branchId, branchName: labelById.get(row.branchId) ?? row.branchId, deliveredWeightGrams, deliveryChargeExpectedCents, expectedCents, collectedCents, balanceCents, deliveryChargeCollectedCents: freightCollectedCents, unpaidDeliveryChargesCents, totalOutstandingCents: balanceCents + unpaidDeliveryChargesCents };
     });
     const totals = rows.reduce((sum, row) => ({
+      deliveredWeightGrams: sum.deliveredWeightGrams + row.deliveredWeightGrams,
+      deliveryChargeExpectedCents: sum.deliveryChargeExpectedCents + row.deliveryChargeExpectedCents,
       expectedCents: sum.expectedCents + row.expectedCents,
       collectedCents: sum.collectedCents + row.collectedCents,
       balanceCents: sum.balanceCents + row.balanceCents,
       deliveryChargeCollectedCents: sum.deliveryChargeCollectedCents + row.deliveryChargeCollectedCents,
       totalOutstandingCents: sum.totalOutstandingCents + row.totalOutstandingCents,
-    }), { expectedCents: 0, collectedCents: 0, balanceCents: 0, deliveryChargeCollectedCents: 0, totalOutstandingCents: 0 });
+    }), { deliveredWeightGrams: 0, deliveryChargeExpectedCents: 0, expectedCents: 0, collectedCents: 0, balanceCents: 0, deliveryChargeCollectedCents: 0, totalOutstandingCents: 0 });
     const pageSize = input.pageSize === 0 ? Math.max(rows.length, 1) : input.pageSize;
     const branches = allBranches.filter((branch) => authorizedBranchIds === null || authorizedBranchIds.includes(branch.id)).map((branch) => ({ id: branch.id, code: branch.code, name: branch.name, type: branch.type, parentHubId: branch.parentHubId }));
     return { rows: rows.slice((input.page - 1) * pageSize, input.page * pageSize), totals, riders: rows.map((row) => ({ id: row.riderId, name: row.riderName, branchId: row.branchId })), branches, page: input.page, pageSize, total: rows.length };
