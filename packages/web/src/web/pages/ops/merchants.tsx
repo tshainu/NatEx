@@ -26,7 +26,7 @@ import type { MerchantRegistrationRequest } from "./merchant-registration";
 import { StaffOnboardingRequests } from "./staff-onboarding-requests";
 import type { StaffOnboardingRequest } from "./staff-onboarding-request";
 
-const MERCHANT_TABS = ["register", "requests", "onboarding"] as const;
+const MERCHANT_TABS = ["register", "onboarding"] as const;
 
 /**
  * Merchant register (§5 merchants). Ops and admin manage it; a merchant user
@@ -102,14 +102,12 @@ export default function Merchants({
     refetchInterval: 30_000,
   });
   const pendingOnboardingCount = canWrite ? onboardingCount.data?.pendingCount ?? 0 : 0;
+  const pendingApprovalCount = pendingOnboardingCount + (isAdmin ? newRequestCount : 0);
   const visibleTab = canWrite ? activeTab : "register";
   const tabItems: { id: typeof MERCHANT_TABS[number]; label: string; badge?: number }[] = [
     { id: "register", label: "Merchants" },
-    ...(isAdmin
-      ? [{ id: "requests" as const, label: "Merchants Requests", ...(newRequestCount > 0 ? { badge: newRequestCount } : {}) }]
-      : []),
     ...(canWrite
-      ? [{ id: "onboarding" as const, label: "Onboarding approvals", ...(pendingOnboardingCount > 0 ? { badge: pendingOnboardingCount } : {}) }]
+      ? [{ id: "onboarding" as const, label: "Onboarding approvals", ...(pendingApprovalCount > 0 ? { badge: pendingApprovalCount } : {}) }]
       : []),
   ];
 
@@ -192,7 +190,7 @@ export default function Merchants({
               className="relative"
               aria-label={newRequestCount > 0 ? `${newRequestCount} new merchant requests` : "Merchant requests"}
               title={newRequestCount > 0 ? `${newRequestCount} new merchant requests` : "Merchant requests"}
-              onClick={() => setActiveTab("requests")}
+              onClick={() => setActiveTab("onboarding")}
             >
               <Bell aria-hidden />
               {newRequestCount > 0 ? (
@@ -260,30 +258,33 @@ export default function Merchants({
       />
       </div> : null}
 
-      {isAdmin && visibleTab === "requests" ? <div
-        role="tabpanel"
-        id="panel-requests"
-        aria-labelledby="tab-requests"
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <RegistrationRequests
-          onOnboard={(request) => {
-            setRegistrationTarget(request);
-            setCreating(true);
-          }}
-          onViewMerchant={(merchantId) => {
-            setActiveTab("register");
-            setOpenId(merchantId);
-          }}
-        />
-      </div> : null}
-
       {canWrite && visibleTab === "onboarding" ? <div
         role="tabpanel"
         id="panel-onboarding"
         aria-labelledby="tab-onboarding"
-        className="flex min-h-0 flex-1 flex-col"
+        className="flex min-h-0 flex-1 flex-col gap-5"
       >
+        {isAdmin ? <section className="flex min-h-0 flex-1 flex-col gap-2">
+          <div>
+            <h2 className="font-display text-[16px] font-semibold">Public merchant requests</h2>
+            <p className="text-[12px] text-muted-foreground">Review applications submitted through the merchant enrollment form, then onboard them into NatEx.</p>
+          </div>
+          <RegistrationRequests
+            onOnboard={(request) => {
+              setRegistrationTarget(request);
+              setCreating(true);
+            }}
+            onViewMerchant={(merchantId) => {
+              setActiveTab("register");
+              setOpenId(merchantId);
+            }}
+          />
+        </section> : null}
+        <section className="flex min-h-0 flex-1 flex-col gap-2">
+          <div>
+            <h2 className="font-display text-[16px] font-semibold">Rider and hub submissions</h2>
+            <p className="text-[12px] text-muted-foreground">Review merchant enrollments submitted by riders and Hub Managers. Approved submissions remain available in the approved view.</p>
+          </div>
         <StaffOnboardingRequests
           branchName={branchName}
           canApprove={isAdmin}
@@ -297,6 +298,7 @@ export default function Merchants({
             setOpenId(merchantId);
           }}
         />
+        </section>
       </div> : null}
 
       <MerchantDrawer
