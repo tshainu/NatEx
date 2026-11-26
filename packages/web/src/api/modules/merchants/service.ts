@@ -244,7 +244,7 @@ export async function createStaffOnboardingRequest(
 }
 
 function assertOnboardingRequestRole(scope: Principal): void {
-  if (scope.role !== "admin" && scope.role !== "ops") errors.forbidden("Onboarding requests are available only to Operations and Admin.");
+  if (scope.role !== "admin" && scope.role !== "ops" && scope.role !== "gom" && isUltimateAdminRole(scope.role)) errors.forbidden("Onboarding requests are available only to Operations and Admin.");
 }
 
 export async function listStaffOnboardingRequests(
