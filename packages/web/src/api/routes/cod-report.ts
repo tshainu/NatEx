@@ -198,7 +198,11 @@ export const merchantSettlementReport = riderReportProc
     const from = new Date(`${input.enteredFrom}T00:00:00+05:30`);
     const toExclusive = new Date(`${input.enteredTo}T00:00:00+05:30`);
     toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
-    const filters = [eq(codEntry.type, "ACCRUE"), gte(codEntry.ts, from), lt(codEntry.ts, toExclusive), sql`${codEntry.merchantId} is not null`];
+    // The operational receivable is created when the rider collects cash
+    // (COLLECT). ACCRUE is a later bank/settlement checkpoint and may not exist
+    // yet, so filtering only for ACCRUE makes a valid current-period report
+    // appear empty.
+    const filters = [eq(codEntry.type, "COLLECT"), gte(codEntry.ts, from), lt(codEntry.ts, toExclusive), sql`${codEntry.merchantId} is not null`];
     if (input.branchId) filters.push(eq(codEntry.branchId, input.branchId));
     else if (authorizedBranchIds !== null && authorizedBranchIds.length) filters.push(inArray(codEntry.branchId, authorizedBranchIds));
     else if (authorizedBranchIds !== null) filters.push(sql`0 = 1`);
