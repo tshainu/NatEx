@@ -6,7 +6,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 import { useAuth } from "../../lib/auth";
-import { Small } from "./text";
 
 /** Remains visible for the entire outage and disappears only after connectivity returns. */
 export function ConnectivityAlert() {
@@ -34,11 +33,8 @@ export function ConnectivityAlert() {
 
   return (
     <View pointerEvents="none" style={[styles.overlay, { top: insets.top + Space.unit }]}>
-      <View style={[styles.alert, { backgroundColor: colors.statusWarn, borderColor: colors.card }]}>
-        <Ionicons name="cloud-offline-outline" size={20} color={colors.card} />
-        <Small style={styles.copy} color={colors.card}>
-          No internet connection. Delivery updates are saved on this phone and will sync when internet is back.
-        </Small>
+      <View accessibilityLabel="No internet connection" style={[styles.alert, { backgroundColor: colors.statusWarn, borderColor: colors.card }]}>
+        <Ionicons name="cloud-offline-outline" size={21} color={colors.card} />
       </View>
     </View>
   );
@@ -51,15 +47,14 @@ const styles = StyleSheet.create({
     right: Space.page,
     zIndex: 100,
     elevation: 100,
+    alignItems: "flex-end",
   },
   alert: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: Space.unit,
+    justifyContent: "center",
     borderWidth: 1,
-    borderRadius: Space.radius,
-    paddingHorizontal: Space.unit * 1.5,
-    paddingVertical: Space.unit * 1.25,
+    borderRadius: 999,
+    width: 38,
+    height: 38,
   },
-  copy: { flex: 1 },
 });

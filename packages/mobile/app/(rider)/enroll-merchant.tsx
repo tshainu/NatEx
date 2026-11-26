@@ -33,7 +33,26 @@ export default function EnrollMerchantScreen() {
   const [branch, setBranch] = useState("");
   const [picker, setPicker] = useState<{ title: string; options: readonly string[]; value: string; onChange: (value: string) => void } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const enrollment = useMutation({ ...orpc.merchants.riderEnrollMerchant.mutationOptions(), onSuccess: () => setMessage("Merchant sent to NOS for approval.") });
+  const clearForm = () => {
+    setBusinessName("");
+    setBusinessPhone("");
+    setContactName("");
+    setPhone("");
+    setEmail("");
+    setDistrict("");
+    setBusinessType("Online");
+    setVolume("Under 50");
+    setAccount("");
+    setBank("");
+    setBranch("");
+  };
+  const enrollment = useMutation({
+    ...orpc.merchants.riderEnrollMerchant.mutationOptions(),
+    onSuccess: () => {
+      clearForm();
+      setMessage("Merchant enrollment request sent to NOS for approval. You can add another merchant now.");
+    },
+  });
   const canSubmit = businessName.trim().length >= 2 && businessPhone.trim().length >= 9 && contactName.trim().length >= 2 && phone.trim().length >= 9 && district.trim().length >= 2;
   const submit = () => enrollment.mutate({ name: businessName, contactName, contactPhone: phone, address: district, vatNo: account || null, codEnabled: true, podPolicy: "signature" });
 
