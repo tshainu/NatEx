@@ -37,7 +37,8 @@ interface BranchRow {
 
 export default function AdminBranches() {
   const { session } = useAuth();
-  const isAdmin = session!.user.role === "admin";
+  const userRoles = session?.user.roles ?? (session?.user.role ? [session.user.role] : []);
+  const isAdmin = userRoles.some((role) => ["admin", "gom", "super_admin", "nos_admin"].includes(role));
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<BranchRow | null>(null);
 
