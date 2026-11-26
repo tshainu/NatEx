@@ -61,8 +61,9 @@ export default function Merchants({
 }) {
   const { session } = useAuth();
   const role = session!.user.role;
-  const canWrite = role === "ops" || role === "admin";
-  const isAdmin = role === "admin";
+  const roles = session!.user.roles ?? [role];
+  const canWrite = roles.some((currentRole) => ["ops", "admin", "gom", "super_admin", "nos_admin"].includes(currentRole));
+  const isAdmin = roles.some((currentRole) => ["admin", "gom", "super_admin", "nos_admin"].includes(currentRole));
 
   const [search, setSearch] = React.useState("");
   const [page, setPage] = React.useState(1);
