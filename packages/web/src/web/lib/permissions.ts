@@ -145,6 +145,7 @@ const FINANCE: PortalConfig = {
     { label: "Disputes", to: "/finance/disputes" },
     { label: "Payroll approvals", to: "/finance/payroll-approvals" },
     { label: "Rider performance", to: "/ops/reports/performance" },
+    { label: "Rider COD report", to: "/ops/reports/cod" },
     { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
     { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
   ],
@@ -167,6 +168,7 @@ const HR: PortalConfig = {
     { label: "Approvals", to: "/hr/approvals" },
     { label: "Terminations", to: "/hr/terminations" },
     { label: "Rider performance", to: "/ops/reports/performance" },
+    { label: "Rider COD report", to: "/ops/reports/cod" },
     { label: "Rider GPS routes", to: "/ops/reports/rider-routes" },
     { label: "Vehicle running chart", to: "/ops/reports/vehicle-running" },
   ],
@@ -193,7 +195,7 @@ const FIELD: PortalConfig = {
   portal: "field",
   name: "Field staff",
   home: "/field",
-  nav: [{ label: "Use the mobile app", to: "/field" }, { label: "Merchants list", to: "/ops/reports/merchants" }],
+  nav: [{ label: "Use the mobile app", to: "/field" }, { label: "Rider COD report", to: "/ops/reports/cod" }, { label: "Merchants list", to: "/ops/reports/merchants" }],
 };
 
 export function portalFor(role: Role): PortalConfig {
@@ -285,7 +287,8 @@ export function mayVisit(role: Role, path: string): boolean {
       path.startsWith("/ops/reports/merchant-commissions") ||
       path.startsWith("/ops/reports/rider-routes") ||
       path.startsWith("/ops/reports/vehicle-running") ||
-      path.startsWith("/ops/reports/merchants")
+      path.startsWith("/ops/reports/merchants") ||
+      path.startsWith("/ops/reports/cod")
     )
       return ["ops", "admin", "hr", "finance", "rider", "transport"].includes(role);
     if (role === "ops" || role === "admin") return true;

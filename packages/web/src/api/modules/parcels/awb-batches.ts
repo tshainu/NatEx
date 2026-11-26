@@ -5,7 +5,7 @@ import { getMerchant } from "../merchants/service";
 import { getBranch } from "../identity/service";
 import { errors } from "../../shared/errors";
 import { prefixedId } from "../../shared/ulid";
-import type { Principal } from "../../shared/auth";
+import { isAdminRole, type Principal } from "../../shared/auth";
 import type { DbTransaction } from "../../database/transaction";
 import { AWB_LABELS_PER_BATCH, MAX_LABELS_PER_GENERATION, MAX_NUMBERS_PER_BATCH, createAwbSeries, planAwbBatchRanges, randomAwbSeriesStart } from "./awb-series";
 
@@ -254,7 +254,7 @@ export async function assignAwbBatch(
   assigneeId: string,
   actor: Principal,
 ) {
-  if (actor.role !== "admin") errors.forbidden("Only an admin can assign a tracking number batch.");
+  if (!isAdminRole(actor.role)) errors.forbidden("Only an admin can assign a tracking number batch.");
   await ensureSeriesNumbers();
   let assigneeName: string;
   if (assigneeType === "merchant") {
@@ -279,7 +279,7 @@ export async function assignAwbBatchToNewMerchant(
   actor: Principal,
   executor: DbTransaction,
 ) {
-  if (actor.role !== "admin") errors.forbidden("Only an admin can assign a tracking number batch.");
+  if (!isAdminRole(actor.role)) errors.forbidden("Only an admin can assign a tracking number batch.");
   if (merchantOwner.status !== "active") errors.conflict("A tracking number batch can only be assigned to an active merchant.");
   return assignAwbBatchInTransaction(batchId, "merchant", merchantOwner.id, merchantOwner.name, actor, executor);
 }
