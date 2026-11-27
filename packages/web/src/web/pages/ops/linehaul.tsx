@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Truck, PackagePlus, Send, MapPin, Camera, ImageIcon } from "lucide-react";
+import { Truck, PackagePlus, Send, MapPin, Camera, ImageIcon, RotateCcw, Eye } from "lucide-react";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,7 @@ export default function OpsLinehaul() {
   const [bagToLoad, setBagToLoad] = React.useState("");
   const [notice, setNotice] = React.useState<string | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
+  const [viewCleared, setViewCleared] = React.useState(false);
 
   const board = useLinehaul();
   const branches = useBranches();
@@ -242,11 +243,18 @@ export default function OpsLinehaul() {
   ];
 
   const trips = (board.data?.trips ?? []) as unknown as TripRow[];
+  const visibleTrips = viewCleared ? [] : trips;
 
   return (
     <Page
       title="Transit"
       description="Hub-to-hub trips. A bag must be sealed before it can be loaded, a trip must carry at least one bag before it can depart, and departure is what moves every parcel aboard into In transit."
+      actions={
+        <Button type="button" variant="outline" size="sm" onClick={() => setViewCleared((cleared) => !cleared)} title="This only changes the current view; it does not delete Transit records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </Button>
+      }
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <MetricTile
@@ -270,12 +278,12 @@ export default function OpsLinehaul() {
         <Card title="Trips" description="Click a trip to load, despatch or receive it." bodyClassName="p-0">
           <DataTable
             columns={columns}
-            rows={trips}
+            rows={visibleTrips}
             rowKey={(r) => r.id}
             loading={board.isLoading}
             error={board.error ? "The Transit board is unavailable right now." : null}
-            emptyTitle="No Transit trips"
-            emptyDescription="Create a trip on the right, then load this hub's sealed bags onto it."
+            emptyTitle={viewCleared ? "Transit view cleared" : "No Transit trips"}
+            emptyDescription={viewCleared ? "Records are preserved. Select Restore view to show them again." : "Create a trip on the right, then load this hub's sealed bags onto it."}
             onRowClick={(r) => {
               setOpenTripId(r.id);
               setProblem(null);

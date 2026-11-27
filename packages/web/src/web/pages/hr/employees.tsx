@@ -10,6 +10,7 @@ import { HrNavigation } from "./navigation";
 import { EmployeeDetails } from "./employee-details";
 import { shouldAssignSalaryPackage } from "./salary-edit";
 import { Dialog } from "@/components/ui/dialog";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 type EmployeeForm = {
   fullName: string;
@@ -282,7 +283,7 @@ export default function HrEmployees() {
           <Button onClick={() => { setEditingId(null); setForm(emptyForm()); setInitialPackageId(""); setNote(null); setEmployeeFormOpen(true); }}>Enrol New Employee</Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-[13px]">
+          <ExportableTable filename="natex-employees.csv" className="w-full min-w-[880px] text-left text-[13px]">
             <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Employee</th><th className="p-2">Official staff account</th><th className="p-2">Branch</th><th className="p-2">Department / title</th><th className="p-2">EPF</th><th className="p-2">Status</th><th className="p-2">Action</th></tr></thead>
             <tbody>
               {(employees.data ?? []).map((employee) => (
@@ -298,7 +299,7 @@ export default function HrEmployees() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ExportableTable>
           {!employees.isPending && (employees.data?.length ?? 0) === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No employees match this search.</p> : null}
         </div>
       </Card>

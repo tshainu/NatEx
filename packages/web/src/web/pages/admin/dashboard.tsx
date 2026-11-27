@@ -19,6 +19,7 @@ import {
   StatusDonut,
 } from "@/components/natex/charts";
 import { useCompanyDashboard, type CompanyDashboard } from "@/queries/dashboard";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 /**
  * Company dashboard (Round 6) — the admin's whole-company view and the admin
@@ -246,7 +247,7 @@ function TopMerchants({ rows }: { rows: CompanyDashboard["topMerchants"] }) {
   if (rows.length === 0) return <Empty>No parcels booked in this window.</Empty>;
   const max = Math.max(...rows.map((r) => r.parcels), 1);
   return (
-    <table className="w-full text-[13px]">
+    <ExportableTable filename="natex-dashboard.csv" className="w-full text-[13px]">
       <thead>
         <tr className="label-xs text-left text-muted-foreground">
           <th className="pb-2 font-medium">Merchant</th>
@@ -275,7 +276,7 @@ function TopMerchants({ rows }: { rows: CompanyDashboard["topMerchants"] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </ExportableTable>
   );
 }
 
@@ -300,7 +301,7 @@ function People({ data }: { data: CompanyDashboard }) {
           </p>
         </div>
       </div>
-      <table className="w-full text-[13px]">
+      <ExportableTable filename="natex-dashboard.csv" className="w-full text-[13px]">
         <thead>
           <tr className="label-xs text-left text-muted-foreground">
             <th className="pb-1.5 font-medium">Role</th>
@@ -319,7 +320,7 @@ function People({ data }: { data: CompanyDashboard }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </ExportableTable>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/dialog";
 import { Card, ErrorNote, SuccessNote } from "@/components/natex/page";
 import { useRateCardVersion, type RateCardVersionDoc } from "@/queries/admin";
 import { MAX_ACCEPTED_WEIGHT_GRAMS } from "../../../api/modules/merchants/pricing";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 /**
  * One tariff version: read-only when live or superseded, an editor when it is
@@ -157,7 +158,7 @@ function ReadOnlyVersion({ doc }: { doc: RateCardVersionDoc }) {
             <h4 className="font-medium">
               {b.label} <span className="font-mono text-[11px] text-muted-foreground">{b.band}</span>
             </h4>
-            <table className="mt-2 w-full max-w-md text-[12px]">
+            <ExportableTable filename="natex-rate_card_editor.csv" className="mt-2 w-full max-w-md text-[12px]">
               <thead>
                 <tr className="text-left text-muted-foreground">
                   <th className="py-1 font-normal">Up to</th>
@@ -178,7 +179,7 @@ function ReadOnlyVersion({ doc }: { doc: RateCardVersionDoc }) {
                   <td className="py-1 text-right font-mono">{money(b.extraPerKgCents)}</td>
                 </tr>
               </tbody>
-            </table>
+            </ExportableTable>
           </div>
         ))}
         <p className="text-[12px] text-muted-foreground">
@@ -710,7 +711,7 @@ function QuotePreview({ doc }: { doc: RateCardVersionDoc }) {
               Actual {grams(q.actualGrams)} · volumetric {grams(q.volumetricGrams)} · chargeable {grams(q.chargeableGrams)} → rounded{" "}
               {grams(q.roundedGrams)}
             </p>
-            <table className="w-full text-[13px]">
+            <ExportableTable filename="natex-rate_card_editor.csv" className="w-full text-[13px]">
               <tbody>
                 {q.lines.map((l) => (
                   <tr key={l.code} className="border-b border-border">
@@ -728,7 +729,7 @@ function QuotePreview({ doc }: { doc: RateCardVersionDoc }) {
                   </td>
                 </tr>
               </tbody>
-            </table>
+            </ExportableTable>
             {q.rateCard.placeholder ? (
               <p className="border-t border-border px-3 py-2 text-[12px] text-status-warn">Placeholder tariff — not a real price.</p>
             ) : null}

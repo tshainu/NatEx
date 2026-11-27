@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 type Row = Awaited<ReturnType<typeof client.freight.entries>>["rows"][number];
 type ChargeRow = Awaited<ReturnType<typeof client.freight.charges>>["rows"][number];
@@ -121,7 +122,7 @@ export default function FinanceFreight() {
         </div>
         {chargeList.isError ? <ErrorNote>The freight charge register could not be loaded.</ErrorNote> : null}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-left text-[12px]">
+          <ExportableTable filename="natex-freight.csv" className="w-full min-w-[900px] border-collapse text-left text-[12px]">
             <thead><tr className="border-b text-muted-foreground"><th className="p-2">Booked / charge</th><th className="p-2">tracking number / customers</th><th className="p-2">Freight payer</th><th className="p-2 text-right">Charge</th><th className="p-2 text-right">Net paid</th><th className="p-2 text-right">Balance</th><th className="p-2">Action</th></tr></thead>
             <tbody>
               {(chargeList.data?.rows ?? []).map((row) => (
@@ -137,7 +138,7 @@ export default function FinanceFreight() {
               ))}
               {!chargeList.isPending && (chargeList.data?.rows.length ?? 0) === 0 ? <tr><td className="p-8 text-center text-muted-foreground" colSpan={7}>No customer-freight charges match these filters.</td></tr> : null}
             </tbody>
-          </table>
+          </ExportableTable>
         </div>
         <div className="mt-4 flex items-center justify-between text-[12px] text-muted-foreground"><span>{chargeList.data ? `${chargeList.data.total} freight charges · page ${chargeList.data.page}` : "Loading charges…"}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={chargePage <= 1} onClick={() => setChargePage((value) => value - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!chargeList.data || chargePage * chargeList.data.pageSize >= chargeList.data.total} onClick={() => setChargePage((value) => value + 1)}>Next</Button></div></div>
       </Card>
@@ -148,7 +149,7 @@ export default function FinanceFreight() {
         </div>
         {list.isError ? <ErrorNote>The courier-freight ledger could not be loaded.</ErrorNote> : null}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] border-collapse text-left text-[12px]">
+          <ExportableTable filename="natex-freight.csv" className="w-full min-w-[1000px] border-collapse text-left text-[12px]">
             <thead><tr className="border-b text-muted-foreground"><th className="p-2">Date / receipt</th><th className="p-2">tracking number / customer</th><th className="p-2">Payer / route</th><th className="p-2">Entry</th><th className="p-2 text-right">Amount</th><th className="p-2">Collected by</th><th className="p-2">Reconciliation</th><th className="p-2">Actions</th></tr></thead>
             <tbody>
               {(list.data?.rows ?? []).map((row) => (
@@ -165,7 +166,7 @@ export default function FinanceFreight() {
               ))}
               {!list.isPending && (list.data?.rows.length ?? 0) === 0 ? <tr><td className="p-8 text-center text-muted-foreground" colSpan={8}>No customer-freight entries match these filters.</td></tr> : null}
             </tbody>
-          </table>
+          </ExportableTable>
         </div>
         <div className="mt-4 flex items-center justify-between text-[12px] text-muted-foreground"><span>{list.data ? `${list.data.total} ledger entries · page ${list.data.page}` : "Loading ledger…"}</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!list.data || page * list.data.pageSize >= list.data.total} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div>
       </Card>
@@ -211,7 +212,7 @@ function ReceiptSlip({ row }: { row: Row }) {
       <section className="freight-ledger-slip max-w-3xl rounded-lg border border-border bg-card p-6" aria-label="Printable courier freight receipt">
         <div className="flex items-start justify-between border-b pb-4"><div><h2 className="text-xl font-bold">NatEx · Customer Freight {isRefund ? "Refund" : "Receipt"}</h2><p className="mt-1 text-sm text-muted-foreground">Retail consignment · independent of COD</p></div><div className="text-right"><p className="font-mono font-semibold">{entry.code}</p><p className="text-xs">{dateTime(entry.ts)}</p></div></div>
         <div className="grid grid-cols-2 gap-4 py-4 text-sm"><div><p className="font-semibold">Sender</p><p>{charge.senderName}</p><p>{charge.senderPhone}</p></div><div><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p></div></div>
-        <table><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Entry</td><td className="right">{humanise(entry.entryType)}</td></tr><tr><td>Amount {isRefund ? "refunded" : "received"}</td><td className="right">{money(Math.abs(entry.amountCents))}</td></tr><tr><td>Payment method</td><td className="right">{humanise(entry.paymentMethod)}</td></tr><tr><td>Collected / refunded by</td><td className="right">{entry.collectorName}</td></tr>{entry.externalReference ? <tr><td>Payment reference</td><td className="right">{entry.externalReference}</td></tr> : null}</tbody></table>
+        <ExportableTable filename="natex-freight.csv"><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Entry</td><td className="right">{humanise(entry.entryType)}</td></tr><tr><td>Amount {isRefund ? "refunded" : "received"}</td><td className="right">{money(Math.abs(entry.amountCents))}</td></tr><tr><td>Payment method</td><td className="right">{humanise(entry.paymentMethod)}</td></tr><tr><td>Collected / refunded by</td><td className="right">{entry.collectorName}</td></tr>{entry.externalReference ? <tr><td>Payment reference</td><td className="right">{entry.externalReference}</td></tr> : null}</tbody></ExportableTable>
         <p className="mt-5 border-t pt-3 text-xs text-muted-foreground">Keep this document for your records. Customer courier freight is separate from Cash on Delivery and Merchant settlements. This is a payment receipt, not a VAT tax invoice.</p>
       </section>
     </>
@@ -226,7 +227,7 @@ function ChargeSlip({ row }: { row: ChargeRow }) {
       <section className="freight-charge-slip max-w-3xl rounded-lg border border-border bg-card p-6" aria-label="Printable customer freight charge notice">
         <div className="flex items-start justify-between border-b pb-4"><div><h2 className="text-xl font-bold">NatEx · Customer Freight Charge</h2><p className="mt-1 text-sm text-muted-foreground">Retail parcel booking · separate from COD</p></div><div className="text-right"><p className="font-mono font-semibold">{charge.code}</p><p className="text-xs">{dateTime(charge.createdAt)}</p></div></div>
         <div className="grid grid-cols-2 gap-4 py-4 text-sm"><div><p className="font-semibold">Sender</p><p>{charge.senderName}</p><p>{charge.senderPhone}</p><p>{charge.senderAddress ?? ""}</p></div><div><p className="font-semibold">Recipient</p><p>{charge.recipientName}</p><p>{charge.recipientPhone}</p><p>{charge.destinationAddress}</p></div></div>
-        <table><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Freight payer</td><td className="right">{charge.payer === "sender" ? "Sender · counter" : "Recipient · delivery"}</td></tr><tr><td>Paid so far</td><td className="right">{money(paidCents)}</td></tr><tr><td>Balance due</td><td className="right">{money(dueCents)}</td></tr><tr><td>Payment status</td><td className="right">{dueCents <= 0 ? "Settled" : "Due"}</td></tr><tr><td>COD</td><td className="right">Rs. 0.00 · not a COD parcel</td></tr></tbody></table>
+        <ExportableTable filename="natex-freight.csv"><tbody><tr><td>tracking number</td><td className="right">{charge.awb}</td></tr><tr><td>Booked at</td><td className="right">{charge.branchName}</td></tr><tr><td>Courier freight charge</td><td className="right">{money(charge.amountCents)}</td></tr><tr><td>Freight payer</td><td className="right">{charge.payer === "sender" ? "Sender · counter" : "Recipient · delivery"}</td></tr><tr><td>Paid so far</td><td className="right">{money(paidCents)}</td></tr><tr><td>Balance due</td><td className="right">{money(dueCents)}</td></tr><tr><td>Payment status</td><td className="right">{dueCents <= 0 ? "Settled" : "Due"}</td></tr><tr><td>COD</td><td className="right">Rs. 0.00 · not a COD parcel</td></tr></tbody></ExportableTable>
         <p className="mt-5 border-t pt-3 text-xs text-muted-foreground">A recipient-paid charge is collected by the Rider at delivery. This notice records the courier freight charge; a separate receipt is issued after payment. This is not a VAT tax invoice.</p>
       </section>
     </>

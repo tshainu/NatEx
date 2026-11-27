@@ -1,5 +1,5 @@
 import * as React from "react";
-import { PackageCheck, AlertTriangle } from "lucide-react";
+import { PackageCheck, AlertTriangle, RotateCcw, Eye } from "lucide-react";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +63,7 @@ export default function OpsInbound() {
   const [receivedBy, setReceivedBy] = React.useState(session?.user.name ?? "");
   const [result, setResult] = React.useState<ReceiptResult | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
+  const [viewCleared, setViewCleared] = React.useState(false);
   const [sealOutlineGradient] = React.useState(
     () => SEAL_OUTLINE_GRADIENTS[Math.floor(Math.random() * SEAL_OUTLINE_GRADIENTS.length)],
   );
@@ -137,6 +138,7 @@ export default function OpsInbound() {
   ];
 
   const rows = (inbound.data ?? []) as unknown as InboundRow[];
+  const visibleRows = viewCleared ? [] : rows;
   const manifest = (detail?.items ?? []).filter((i) => !i.removedAt);
   const sealDisagrees =
     Boolean(seal.trim()) &&
@@ -147,11 +149,17 @@ export default function OpsInbound() {
     <Page
       title="Inbound bags"
       description="Receive a bag that has arrived from another hub. Enter the seal you actually found and scan what is actually inside — the system compares both against the origin hub's manifest and raises an exception for every disagreement."
+      actions={
+        <Button type="button" variant="outline" size="sm" onClick={() => { setViewCleared((cleared) => !cleared); setBagId(null); setResult(null); setProblem(null); }} title="This only changes the current view; it does not delete Inbound Bags records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </Button>
+      }
     >
       <div className="grid gap-4 sm:grid-cols-3">
         <MetricTile
           label="Bags inbound"
-          value={rows.length}
+          value={viewCleared ? 0 : rows.length}
           hint="In transit to your hub, not yet received."
         />
         <MetricTile
@@ -175,12 +183,12 @@ export default function OpsInbound() {
           >
             <DataTable
               columns={columns}
-              rows={rows}
+              rows={visibleRows}
               rowKey={(r) => r.id}
               loading={inbound.isLoading}
               error={inbound.error ? "The inbound queue is unavailable right now." : null}
-              emptyTitle="Nothing inbound"
-              emptyDescription="Bags appear here once the origin hub seals them and despatches the Transit trip carrying them to you."
+              emptyTitle={viewCleared ? "Inbound view cleared" : "Nothing inbound"}
+              emptyDescription={viewCleared ? "Records are preserved. Select Restore view to show them again." : "Bags appear here once the origin hub seals them and despatches the Transit trip carrying them to you."}
               onRowClick={(r) => {
                 setBagId(r.id);
                 setResult(null);

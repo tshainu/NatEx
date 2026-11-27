@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card, ErrorNote, Page } from "@/components/natex/page";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 function monthBounds(month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -230,7 +231,7 @@ export default function VehicleRunningReport() {
         description="One row per rider. Click a row to open date-wise running details."
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-[13px]">
+          <ExportableTable filename="natex-vehicle_running.csv" className="w-full min-w-[720px] text-left text-[13px]">
             <thead>
               <tr className="border-b text-[11px] uppercase text-muted-foreground">
                 <th className="p-2">Rider</th>
@@ -271,7 +272,7 @@ export default function VehicleRunningReport() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ExportableTable>
           {!report.isPending && summary.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No vehicle running records for this month and filter.
@@ -301,7 +302,7 @@ export default function VehicleRunningReport() {
           description="Clock times use Asia/Colombo. An open current session is shown as Active and runs through the current time."
         >
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-[13px]">
+            <ExportableTable filename="natex-vehicle_running.csv" className="w-full min-w-[980px] text-left text-[13px]">
               <thead>
                 <tr className="border-b text-[11px] uppercase text-muted-foreground">
                   <th className="p-2">Date</th>
@@ -344,7 +345,7 @@ export default function VehicleRunningReport() {
                   );
                 })}
               </tbody>
-            </table>
+            </ExportableTable>
           </div>
         </Card>
       ) : null}

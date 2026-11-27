@@ -39,6 +39,8 @@ import {
   useCanWriteMoney,
   useRupees,
 } from "./shared";
+import { ExportableTable } from "@/components/natex/exportable-table";
+
 
 /**
  * Merchant invoicing (§10 M4 "invoicing with VAT/SSCL, credit notes, AR
@@ -333,7 +335,7 @@ function InvoiceDrawer({ invoiceId, canWrite, onClose }: { invoiceId: string | n
           <section className="space-y-2">
             <SectionTitle>Lines ({detail.data.lines.length})</SectionTitle>
             <div className="max-h-[300px] overflow-auto rounded-md border">
-              <table className="w-full text-[12px]">
+              <ExportableTable filename="natex-invoices.csv" className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-1.5 font-medium">Description</th>
@@ -356,7 +358,7 @@ function InvoiceDrawer({ invoiceId, canWrite, onClose }: { invoiceId: string | n
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ExportableTable>
             </div>
           </section>
 

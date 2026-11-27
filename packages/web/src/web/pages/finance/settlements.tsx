@@ -43,6 +43,8 @@ import {
   StatusBadge,
   useCanWriteMoney,
 } from "./shared";
+import { ExportableTable } from "@/components/natex/exportable-table";
+
 
 /**
  * Settlement runs (§8 checkpoints 4–5, §10 M4 "settlement runs with
@@ -686,7 +688,7 @@ function SettlementDrawer({
           <section className="space-y-2">
             <SectionTitle>Lines ({detail.data.lines.length})</SectionTitle>
             <div className="max-h-[340px] overflow-auto rounded-md border">
-              <table className="w-full text-[12px]">
+              <ExportableTable filename="natex-settlements.csv" className="w-full text-[12px]">
                 <thead className="sticky top-0 bg-muted text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-1.5 font-medium">Type</th>
@@ -705,7 +707,7 @@ function SettlementDrawer({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ExportableTable>
             </div>
           </section>
 

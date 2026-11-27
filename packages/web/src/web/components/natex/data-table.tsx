@@ -1,7 +1,8 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { downloadCsv } from "@/lib/csv";
 
 /**
  * DataTable — design.md: "one component for every list across all four
@@ -49,6 +50,7 @@ export function DataTable<T>({
   className,
   tableClassName,
   reveal = true,
+  exportFilename = "natex-table.csv",
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -68,7 +70,10 @@ export function DataTable<T>({
   className?: string;
   tableClassName?: string;
   reveal?: boolean;
+  /** Filename used by the universal visible-row CSV export. */
+  exportFilename?: string;
 }) {
+  const tableRef = React.useRef<HTMLTableElement>(null);
   const totalPages = pagination
     ? Math.max(1, Math.ceil(pagination.total / Math.max(1, pagination.pageSize)))
     : 1;
@@ -80,14 +85,38 @@ export function DataTable<T>({
         className,
       )}
     >
-      {filters ? (
+      {filters || exportFilename ? (
         <div className="flex flex-wrap items-end gap-3 border-b border-border px-4 py-3">
-          {filters}
+          {filters ? <div className="flex flex-1 flex-wrap items-end gap-3">{filters}</div> : null}
+          {exportFilename ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const table = tableRef.current;
+                if (!table) return;
+                const header = Array.from(table.querySelectorAll("thead th")).map(
+                  (cell) => cell.textContent?.trim() ?? "",
+                );
+                const body = Array.from(table.querySelectorAll("tbody tr"))
+                  .filter((row) => row.querySelectorAll("td").length === columns.length)
+                  .map((row) =>
+                    Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent?.trim() ?? ""),
+                  );
+                downloadCsv(exportFilename, header, body);
+              }}
+              title="Exports the rows currently visible in this table."
+            >
+              <Download aria-hidden />
+              Export visible CSV
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
       <div className="natex-scroll min-h-0 flex-1 overflow-auto">
-        <table className={cn("w-full border-collapse text-left", tableClassName)}>
+        <table ref={tableRef} className={cn("w-full border-collapse text-left", tableClassName)}>
           <thead className="sticky top-0 z-10">
             <tr className="bg-muted">
               {columns.map((column) => (

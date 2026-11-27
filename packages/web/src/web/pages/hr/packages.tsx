@@ -8,6 +8,7 @@ import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { centsToLkr, HR_CONTROL_CLASS, lkrToCents } from "./shared";
 import { calculatePackageContributionEstimate, type PackagePayBasis } from "./package-contributions";
 import { HrNavigation } from "./navigation";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 type ItemForm = {
   label: string;
@@ -131,10 +132,10 @@ export default function HrPackages() {
               <p className="text-[12px] text-muted-foreground">{monthly ? "Full-period recurring earnings are included; attendance, overtime are not estimated." : "Daily/hourly amounts are per-unit base-only estimates. Fixed recurring components are shown separately and excluded from these estimates."}</p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[780px] text-left text-[12px]">
+              <ExportableTable filename="natex-packages.csv" className="w-full min-w-[780px] text-left text-[12px]">
                 <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Gross earnings{monthly ? " / month" : ` / ${form.payBasis === "daily" ? "day" : "hour"}`}</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">ETF employer contribution · 3%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">Take-home before other deductions</th></tr></thead>
                 <tbody><tr className="font-mono"><td className="p-2">{estimate ? lkr(estimate.grossCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEpfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employeeEtfCents) : "—"}</td><td className="p-2 text-right">{estimate ? lkr(estimate.employerEpfCents) : "—"}</td><td className="p-2 text-right font-semibold">{estimate ? lkr(estimate.earningsAfterEmployeeDeductionsCents) : "—"}</td></tr></tbody>
-              </table>
+              </ExportableTable>
             </div>
             {estimate ? <p className="text-[12px] text-muted-foreground">Fixed recurring components per pay period: {lkr(estimate.recurringEarningsCents)} earnings and {lkr(estimate.recurringDeductionsCents)} deductions{monthly ? " (earnings included above; deductions not subtracted from the statutory-deduction total)." : " (reported separately; excluded from the per-unit figures)."} ETF is paid by the employer at 3% of ETF-eligible pay and is not deducted from employee take-home.</p> : <p className="text-[12px] text-muted-foreground">Enter a positive base pay and valid positive amounts for every component to see exact LKR estimates.</p>}
           </section>
@@ -159,7 +160,7 @@ export default function HrPackages() {
       </Card>
 
       <Card title="Package catalogue">
-        <div className="overflow-x-auto"><table className="w-full min-w-[1550px] text-left text-[13px]">
+        <div className="overflow-x-auto"><ExportableTable filename="natex-packages.csv" className="w-full min-w-[1550px] text-left text-[13px]">
           <thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Code</th><th className="p-2">Package</th><th className="p-2">Basis</th><th className="p-2 text-right">Gross / basis</th><th className="p-2 text-right">EPF staff deduction · 8%</th><th className="p-2 text-right">EPF Company contribution · 12%</th><th className="p-2 text-right">ETF Company contribution · 3%</th><th className="p-2 text-right">Total earnings after staff EPF</th><th className="p-2">Fixed components / pay period</th><th className="p-2">Components</th><th className="p-2">Status</th><th className="p-2"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{(packages.data ?? []).map((pkg) => {
             const packageEstimate = calculatePackageContributionEstimate({
@@ -189,7 +190,7 @@ export default function HrPackages() {
               <td className="p-2"><Button size="sm" variant="outline" onClick={() => edit(pkg)}>Edit</Button></td>
             </tr>;
           })}</tbody>
-        </table>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
+        </ExportableTable>{(packages.data?.length ?? 0) === 0 && !packages.isPending ? <p className="py-7 text-center text-[13px] text-muted-foreground">No salary packages have been created.</p> : null}</div>
         <p className="mt-3 text-[12px] text-muted-foreground">Monthly rows show full-period estimates. Daily/hourly rows show base-only values per day/hour, with fixed recurring components kept separate. ETF is a 3% employer contribution on ETF-eligible pay and is not deducted from employee take-home. Other deductions are not deducted from the displayed estimate.</p>
       </Card>
     </Page>

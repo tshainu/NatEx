@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Search, RotateCcw } from "lucide-react";
+import { Search, RotateCcw, Eye } from "lucide-react";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,7 @@ export default function OpsScanLog() {
   const [searchDraft, setSearchDraft] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [openAwb, setOpenAwb] = React.useState<string | null>(null);
+  const [viewCleared, setViewCleared] = React.useState(false);
 
   const log = useScanLog({
     ...(kind ? { kind } : {}),
@@ -87,6 +88,7 @@ export default function OpsScanLog() {
   });
 
   const rows: ScanRow[] = log.data ?? [];
+  const visibleRows = viewCleared ? [] : rows;
   const tally = tallyOutcomes(rows);
 
   const columns: Column<ScanRow>[] = [
@@ -141,20 +143,26 @@ export default function OpsScanLog() {
     <Page
       title="Hub scan log"
       description="Every scan taken at this hub, in order, including the ones the server refused."
+      actions={
+        <Button type="button" variant="outline" size="sm" onClick={() => { setViewCleared((cleared) => !cleared); setOpenAwb(null); }} title="This only changes the current view; it does not delete Scan Log records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </Button>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card
           title="Scans"
-          description={`${rows.length} most recent${search ? ` matching ${search}` : ""}`}
+            description={`${visibleRows.length} most recent${search ? ` matching ${search}` : ""}`}
           bodyClassName="p-0"
         >
           <DataTable
             columns={columns}
-            rows={rows}
+            rows={visibleRows}
             rowKey={(row) => row.id}
             loading={log.isPending}
-            emptyTitle="No scans match these filters"
-            emptyDescription="Widen the filter, or clear the tracking number search. An empty log at a quiet hub is normal."
+            emptyTitle={viewCleared ? "Scan Log view cleared" : "No scans match these filters"}
+            emptyDescription={viewCleared ? "Records are preserved. Select Restore view to show them again." : "Widen the filter, or clear the tracking number search. An empty log at a quiet hub is normal."}
             onRowClick={(row) => (row.awb ? setOpenAwb(row.awb) : undefined)}
           />
         </Card>

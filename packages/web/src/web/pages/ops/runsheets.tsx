@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Ban, Plus, RotateCcw, Route, Search, Send, Trash2, Lock } from "lucide-react";
+import { Ban, Plus, RotateCcw, Route, Search, Send, Trash2, Lock, Eye } from "lucide-react";
 import { client } from "@/lib/api";
 import { amount, colomboToday, date, dateTime, humanise, money } from "@/lib/format";
 import { centsToRupees } from "@/lib/csv";
@@ -85,6 +85,7 @@ export default function OpsRunsheets() {
   const [page, setPage] = React.useState(1);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const [viewCleared, setViewCleared] = React.useState(false);
 
   const debounced = useDebounced(search.trim(), 250);
   React.useEffect(() => setPage(1), [statusFilter, runDate, debounced]);
@@ -177,6 +178,10 @@ export default function OpsRunsheets() {
             ]}
             fetchPage={(p) => client.delivery.runsheetPage({ ...filter, page: p, pageSize: 100 })}
           />
+          <Button type="button" variant="outline" size="sm" onClick={() => { setViewCleared((cleared) => !cleared); setOpenId(null); }} title="This only changes the current view; it does not delete Runsheet records.">
+            {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+            {viewCleared ? "Restore view" : "Clear view"}
+          </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus aria-hidden />
             New runsheet
@@ -199,12 +204,12 @@ export default function OpsRunsheets() {
 
       <DataTable
         columns={columns}
-        rows={list.data?.rows ?? []}
+        rows={viewCleared ? [] : list.data?.rows ?? []}
         rowKey={(r) => r.id}
         loading={list.isPending}
         error={list.isError ? "The runsheet register could not be loaded." : null}
-        emptyTitle="No runsheets match"
-        emptyDescription={
+        emptyTitle={viewCleared ? "Runsheet view cleared" : "No runsheets match"}
+        emptyDescription={viewCleared ? "Records are preserved. Select Restore view to show them again." :
           statusFilter === "live"
             ? "No run is open or out on the road for this branch. Open one with New runsheet, or switch the filter to All."
             : "Nothing matches these filters for this branch."

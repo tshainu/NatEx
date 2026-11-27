@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, Clock, RotateCcw, Smartphone } from "lucide-react";
+import { AlertTriangle, Clock, RotateCcw, Smartphone, Eye } from "lucide-react";
 import { Field, Textarea } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -151,6 +151,7 @@ export default function OpsSyncConflicts() {
   );
   const [policy, setPolicy] = React.useState<"" | ConflictPolicy>("");
   const [openId, setOpenId] = React.useState<string | null>(null);
+  const [viewCleared, setViewCleared] = React.useState(false);
 
   const states: ConflictState[] | undefined =
     stateFilter === "unresolved"
@@ -167,6 +168,7 @@ export default function OpsSyncConflicts() {
   const fleet = useSyncDevices();
 
   const rows = (queue.data as ConflictRow[] | undefined) ?? [];
+  const visibleRows = viewCleared ? [] : rows;
   const tally = counts.data as
     | { open: number; resolved: number; byPolicy: Record<string, number> }
     | undefined;
@@ -230,6 +232,12 @@ export default function OpsSyncConflicts() {
     <Page
       title="Sync conflicts"
       description="What the offline engine refused to decide on its own. Nothing here was dropped — every operation is still in the journal with its full payload."
+      actions={
+        <Button type="button" variant="outline" size="sm" onClick={() => { setViewCleared((cleared) => !cleared); setOpenId(null); }} title="This only changes the current view; it does not delete Sync Conflict records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </Button>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card
@@ -239,12 +247,12 @@ export default function OpsSyncConflicts() {
         >
           <DataTable
             columns={columns}
-            rows={rows}
+            rows={visibleRows}
             rowKey={(row) => row.id}
             loading={queue.isPending}
             error={queue.isError ? "The conflict queue could not be loaded." : null}
-            emptyTitle="No unresolved conflicts"
-            emptyDescription="Every device that has synced with this hub landed its operations cleanly. Switch the filter to All to read the ones already closed."
+            emptyTitle={viewCleared ? "Sync Conflicts view cleared" : "No unresolved conflicts"}
+            emptyDescription={viewCleared ? "Records are preserved. Select Restore view to show them again." : "Every device that has synced with this hub landed its operations cleanly. Switch the filter to All to read the ones already closed."}
             onRowClick={(row) => setOpenId(row.id)}
           />
         </Card>

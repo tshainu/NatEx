@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Eye, RotateCcw } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { Page } from "@/components/natex/page";
 import { NdrQueue, RtoQueue } from "@/components/natex/ndr-panels";
@@ -20,6 +21,7 @@ export default function OpsNdr() {
   const [tab, setTab] = React.useState<Tab>(() =>
     new URLSearchParams(window.location.search).get("tab") === "rto" ? "rto" : "ndr",
   );
+  const [viewCleared, setViewCleared] = React.useState(false);
   const ndrCounts = useNdrCounts();
   const rtoCounts = useRtoCounts();
 
@@ -47,6 +49,12 @@ export default function OpsNdr() {
     <Page
       title="NDR & returns"
       description="Every failed delivery waits here for the merchant's answer, oldest first, against its SLA clock. Answers that end in a return move to the returns tab."
+      actions={
+        <button type="button" className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] font-medium hover:bg-muted" onClick={() => setViewCleared((cleared) => !cleared)} title="This only changes the current view; it does not delete NDR or return records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </button>
+      }
     >
       <div
         role="tablist"
@@ -84,7 +92,9 @@ export default function OpsNdr() {
         ))}
       </div>
       <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-        {tab === "ndr" ? <NdrQueue role={role} /> : <RtoQueue role={role} />}
+        {viewCleared ? (
+          <div className="rounded-lg border border-border bg-card px-5 py-8 text-center text-[13px] text-muted-foreground">NDR & returns view cleared. Records are preserved; select Restore view to show them again.</div>
+        ) : tab === "ndr" ? <NdrQueue role={role} /> : <RtoQueue role={role} />}
       </div>
     </Page>
   );

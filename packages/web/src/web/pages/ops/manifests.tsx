@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, Eye, RotateCcw } from "lucide-react";
 import { orpc, apiMessage, apiDetails } from "@/lib/api";
 import { date, dateTime, colomboToday, amount, humanise } from "@/lib/format";
 import { Input, Field, Textarea } from "@/components/ui/input";
@@ -66,6 +66,7 @@ export default function OpsManifests() {
   const [creating, setCreating] = React.useState(false);
   const [answering, setAnswering] = React.useState<ManifestPrefill | null>(null);
   const [tab, setTab] = useTabParam("tab", ["manifests", "requests"] as const, "manifests");
+  const [viewCleared, setViewCleared] = React.useState(false);
   const pickupCounts = usePickupCounts();
 
   React.useEffect(() => setPage(1), [pickupDate, riderId]);
@@ -137,12 +138,13 @@ export default function OpsManifests() {
       title="Pickup manifests"
       description="One merchant, one rider, one date. Scanning records presence; custody only moves at handover, so a declared-but-unscanned parcel stays Booked and is reported as a shortfall."
       actions={
-        canWrite ? (
-          <Button onClick={() => setCreating(true)}>
-            <Plus aria-hidden />
-            New manifest
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={() => setViewCleared((cleared) => !cleared)} title="This only changes the current view; it does not delete Pickup Manifest records.">
+            {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+            {viewCleared ? "Restore view" : "Clear view"}
           </Button>
-        ) : null
+          {canWrite ? <Button onClick={() => setCreating(true)}><Plus aria-hidden />New manifest</Button> : null}
+        </>
       }
       bleed
     >
@@ -155,7 +157,9 @@ export default function OpsManifests() {
           { id: "requests", label: "Pickup requests", badge: pickupCounts.data?.requested },
         ]}
       />
-      {tab === "requests" ? (
+      {viewCleared ? (
+        <div className="rounded-lg border border-border bg-card px-5 py-8 text-center text-[13px] text-muted-foreground">Pickup Manifests view cleared. Records are preserved; select Restore view to show them again.</div>
+      ) : tab === "requests" ? (
         <PickupRequestsPanel
           canWrite={canWrite}
           onSchedule={(r) =>

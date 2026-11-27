@@ -6,6 +6,7 @@ import { Field, Input } from "@/components/ui/input";
 import { Card, ErrorNote, Page, SuccessNote } from "@/components/natex/page";
 import { HR_CONTROL_CLASS, todayInColombo } from "./shared";
 import { HrNavigation } from "./navigation";
+import { ExportableTable } from "@/components/natex/exportable-table";
 
 type Status = "not_recorded" | "present" | "absent" | "leave" | "off_duty";
 type Draft = { status: Status; regularHours: string; overtimeHours: string; note: string };
@@ -120,14 +121,14 @@ export default function HrAttendance() {
           <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => markAll("present")} disabled={!activeEmployees.length}>Mark all present · 8h</Button><Button type="button" variant="outline" onClick={() => markAll("absent")} disabled={!activeEmployees.length}>Mark all absent</Button></div>
         </div>
         <form onSubmit={saveAttendance}>
-          <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2">Department</th><th className="p-2">Status</th><th className="p-2 text-right">Regular hours</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead><tbody>
+          <div className="overflow-x-auto"><ExportableTable filename="natex-attendance.csv" className="w-full min-w-[850px] text-left text-[13px]"><thead><tr className="border-b text-[11px] uppercase text-muted-foreground"><th className="p-2">Employee</th><th className="p-2">Department</th><th className="p-2">Status</th><th className="p-2 text-right">Regular hours</th><th className="p-2 text-right">Overtime</th><th className="p-2">Note</th></tr></thead><tbody>
             {activeEmployees.map((employee) => {
               const draft = drafts[employee.id] ?? { status: "not_recorded", regularHours: "8", overtimeHours: "0", note: "" };
               const change = (patch: Partial<Draft>) => setDrafts((current) => ({ ...current, [employee.id]: { ...draft, ...patch } }));
               const disabled = draft.status !== "present";
               return <tr key={employee.id} className="border-b border-border/60"><td className="p-2"><span className="font-mono text-[11px]">{employee.employeeCode}</span><span className="ml-2 font-medium">{employee.fullName}</span></td><td className="p-2">{employee.department}</td><td className="p-2"><select aria-label={`Attendance status for ${employee.employeeCode}`} className={HR_CONTROL_CLASS} value={draft.status} onChange={(event) => setStatus(employee.id, event.target.value as Status)}>{Object.entries(LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td><td className="p-2"><Input aria-label={`Regular hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.regularHours} disabled={disabled} onChange={(event) => change({ regularHours: event.target.value })} /></td><td className="p-2"><Input aria-label={`Overtime hours for ${employee.employeeCode}`} className="w-24 text-right" type="number" min="0" max="24" step="0.25" value={draft.overtimeHours} disabled={disabled} onChange={(event) => change({ overtimeHours: event.target.value })} /></td><td className="p-2"><Input aria-label={`Attendance note for ${employee.employeeCode}`} maxLength={500} value={draft.note} onChange={(event) => change({ note: event.target.value })} /></td></tr>;
             })}
-          </tbody></table>{!employees.isPending && activeEmployees.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No active employees are in the register.</p> : null}</div>
+          </tbody></ExportableTable>{!employees.isPending && activeEmployees.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No active employees are in the register.</p> : null}</div>
           <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="submit" pending={save.isPending} disabled={recordedCount === 0}>Save attendance</Button><p className="text-[11px] text-muted-foreground">Saved hours also appear in Timesheets and feed the payroll calculation basis. Approved leave must still be recorded in Leave management.</p></div>
         </form>
       </Card>

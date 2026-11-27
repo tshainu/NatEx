@@ -1,8 +1,11 @@
+import * as React from "react";
+import { Eye, RotateCcw } from "lucide-react";
 import { ErrorNote, Page } from "@/components/natex/page";
 import { MetricTile } from "@/components/natex/metric-tile";
 import { money } from "@/lib/format";
 import { useReconciliation } from "@/queries/cod";
 import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
 import { LedgerTab } from "../finance/cod-ledger";
 
 /** Operations sees only entries attributed to its branch and Admin-assigned child branches. */
@@ -11,6 +14,7 @@ export default function OpsCodLedger() {
   const isOps = session?.user.role === "ops";
   const summary = useReconciliation();
   const data = summary.data;
+  const [viewCleared, setViewCleared] = React.useState(false);
 
   return (
     <Page
@@ -18,6 +22,12 @@ export default function OpsCodLedger() {
       description={isOps
         ? "Read-only view of COD activity for your assigned hub and branches explicitly assigned to that hub by Admin. Finance retains settlement and correction controls."
         : "Administrator read-only view of COD activity across the network. Use Finance → COD ledger for settlement and correction controls."}
+      actions={
+        <Button type="button" variant="outline" size="sm" onClick={() => setViewCleared((cleared) => !cleared)} title="This only changes the current view; it does not delete COD records.">
+          {viewCleared ? <Eye className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+          {viewCleared ? "Restore view" : "Clear view"}
+        </Button>
+      }
     >
       <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
         {isOps
@@ -32,7 +42,9 @@ export default function OpsCodLedger() {
         <MetricTile label="In branch safes" value={data ? money(data.inBranchSafeCents) : "—"} />
         <MetricTile label="Banked" value={data ? money(data.bankedCents) : "—"} />
       </div>
-      <LedgerTab branchScoped={isOps} readOnly />
+      {viewCleared ? (
+        <div className="rounded-lg border border-border bg-card px-5 py-8 text-center text-[13px] text-muted-foreground">COD Collections view cleared. Records are preserved; select Restore view to show them again.</div>
+      ) : <LedgerTab branchScoped={isOps} readOnly />}
     </Page>
   );
 }
