@@ -72,6 +72,19 @@ export default function RiderLayout() {
         tabBar={(props) => <AnimatedWaveTabBar {...props} />}
       >
         <Tabs.Screen
+          name="home"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "home" : "home-outline"}
+                size={focused ? 29 : 27}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="index"
           options={{
             title: "Pick-ups",
@@ -92,19 +105,6 @@ export default function RiderLayout() {
               <MaterialCommunityIcons
                 name="motorbike"
                 size={25}
-                color={focused ? colors.primary : colors.mutedForeground}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="home"
-          options={{
-            title: "Home",
-            tabBarIcon: ({ size, focused }) => (
-              <Ionicons
-                name={focused ? "home" : "home-outline"}
-                size={focused ? 29 : 27}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),

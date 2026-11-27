@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { Button } from "../../components/natex/button";
 import { Card, Empty, Panel } from "../../components/natex/card";
 import { AddressFields, EMPTY_ADDRESS, formatAddress, isCompleteAddress, type AddressParts } from "../../components/natex/address-fields";
+import { BarcodeScanner } from "../../components/natex/barcode-scanner";
 import { Input } from "../../components/natex/input";
 import { Screen, ScreenHeader } from "../../components/natex/screen";
 import { Body, Label, Small, Title } from "../../components/natex/text";
@@ -46,6 +47,7 @@ export default function OpsBookNative() {
   const [error, setError] = React.useState<string | null>(null);
   const [successAwb, setSuccessAwb] = React.useState<string | null>(null);
   const [merchantPicker, setMerchantPicker] = React.useState(false);
+  const [scanning, setScanning] = React.useState(false);
   const merchants = useQuery(orpc.merchants.options.queryOptions({}));
   const selectedMerchant = merchants.data?.find((item) => item.id === form.merchantId);
   const set = <K extends keyof Form>(key: K) => (value: Form[K]) => { setError(null); setForm((current) => ({ ...current, [key]: value })); };
@@ -72,6 +74,7 @@ export default function OpsBookNative() {
   const submit = () => {
     setError(null);
     if (!form.merchantId) return setError("Select a merchant.");
+    if (!/^NX\d{10}$/.test(form.awb.trim().toUpperCase())) return setError("Scan or enter a valid tracking number. Tracking number is mandatory.");
     if (!isCompleteAddress(form.originAddress)) return setError("Complete the pickup address with line 1, district and province.");
     if (!isCompleteAddress(form.destAddress)) return setError("Complete the delivery address with line 1, district and province.");
     if (!form.consigneeName.trim() || form.consigneeName.trim().length < 2) return setError("Enter the consignee name.");
@@ -85,13 +88,13 @@ export default function OpsBookNative() {
     <ScreenHeader title="Book a Parcel" subtitle="Native hub booking with the same fields and rules as NOS" />
     {error || create.isError ? <Panel style={{ borderColor: colors.statusWarn }}><Body color={colors.statusWarn}>{error ?? apiMessage(create.error, "The parcel could not be booked.")}</Body></Panel> : null}
     {successAwb ? <Card><Title>Shipment booked</Title><Body>{successAwb}</Body><Small>The parcel was saved successfully and is ready for the next hub operation.</Small><Button title="Back to Ops" variant="secondary" onPress={() => router.replace("/(transport)")} /></Card> : <>
-      <Card><Title>Merchant & booking</Title><Label>Merchant</Label><Pressable onPress={() => setMerchantPicker(true)} style={[styles.select, { borderColor: colors.border, backgroundColor: colors.surface }]}><Body>{selectedMerchant?.name ?? "Select merchant"}</Body></Pressable>{selectedMerchant ? <Small>Pickup address: {selectedMerchant.address || "Enter or update the pickup address below."}</Small> : null}<Label>Initial status</Label><View style={styles.row}><Choice label="Booked" selected={form.initialStatus === "Booked"} onPress={() => set("initialStatus")("Booked")} /><Choice label="At Origin Hub" selected={form.initialStatus === "AtOriginHub"} onPress={() => set("initialStatus")("AtOriginHub")} /></View><Input label="Tracking number (optional)" value={form.awb} onChangeText={set("awb")} code placeholder="NX1234567890" /></Card>
+      <Card><Title>Merchant & booking</Title><Label>Merchant</Label><Pressable onPress={() => setMerchantPicker(true)} style={[styles.select, { borderColor: colors.border, backgroundColor: colors.surface }]}><Body>{selectedMerchant?.name ?? "Select merchant"}</Body></Pressable>{selectedMerchant ? <Small>Pickup address: {selectedMerchant.address || "Enter or update the pickup address below."}</Small> : null}<Label>Initial status</Label><View style={styles.row}><Choice label="Booked" selected={form.initialStatus === "Booked"} onPress={() => set("initialStatus")("Booked")} /><Choice label="At Origin Hub" selected={form.initialStatus === "AtOriginHub"} onPress={() => set("initialStatus")("AtOriginHub")} /></View><Input label="Tracking number *" value={form.awb} onChangeText={(value) => set("awb")(value.trim().toUpperCase())} code placeholder="NX1234567890" hint="Required. Scan the barcode on the tracking label or enter it manually." /><Button title="Scan tracking number" variant="secondary" onPress={() => setScanning(true)} /></Card>
       <Card><Title>Pickup address</Title><AddressFields value={form.originAddress} onChange={set("originAddress")} /></Card>
       <Card><Title>Consignee</Title><Input label="Full name" value={form.consigneeName} onChangeText={set("consigneeName")} /><Input label="Phone number" value={form.consigneePhone} onChangeText={set("consigneePhone")} keyboardType="phone-pad" /><AddressFields value={form.destAddress} onChange={set("destAddress")} /><Input label="Destination latitude (optional)" value={form.destLat} onChangeText={set("destLat")} keyboardType="decimal-pad" /><Input label="Destination longitude (optional)" value={form.destLng} onChangeText={set("destLng")} keyboardType="decimal-pad" />{serviceability.data?.zone ? <Small>Service zone: {serviceability.data.zone.name}</Small> : null}</Card>
       <Card><Title>Parcel details</Title><Input label="Weight (kg)" value={form.weightKg} onChangeText={set("weightKg")} keyboardType="decimal-pad" /><View style={styles.row}><Input label="Length (cm)" value={form.lengthCm} onChangeText={set("lengthCm")} keyboardType="number-pad" /><Input label="Width (cm)" value={form.widthCm} onChangeText={set("widthCm")} keyboardType="number-pad" /><Input label="Height (cm)" value={form.heightCm} onChangeText={set("heightCm")} keyboardType="number-pad" /></View><Input label="Declared value (Rs.)" value={form.declaredValue} onChangeText={set("declaredValue")} keyboardType="decimal-pad" /></Card>
       <Card><Title>Payment on delivery</Title><Input label="COD to collect (Rs.)" value={form.codAmount} onChangeText={set("codAmount")} keyboardType="decimal-pad" /><Choice label="Included delivery charge" selected={form.codIncludesDeliveryCharge} onPress={() => set("codIncludesDeliveryCharge")(!form.codIncludesDeliveryCharge)} /></Card>
     </>}
-    <Modal visible={merchantPicker} transparent animationType="slide" onRequestClose={() => setMerchantPicker(false)}><Pressable style={styles.backdrop} onPress={() => setMerchantPicker(false)}><View style={[styles.sheet, { backgroundColor: colors.card }]}><Title>Select merchant</Title>{(merchants.data ?? []).map((merchant) => <Pressable key={merchant.id} onPress={() => setMerchant(merchant.id)} style={styles.merchantRow}><Body>{merchant.name}</Body><Small>{merchant.address || "Address not recorded"}</Small></Pressable>)}{merchants.isSuccess && merchants.data?.length === 0 ? <Empty title="No merchants available" detail="No merchant is visible in this hub scope." /> : null}</View></Pressable></Modal>
+    <Modal visible={merchantPicker} transparent animationType="slide" onRequestClose={() => setMerchantPicker(false)}><Pressable style={styles.backdrop} onPress={() => setMerchantPicker(false)}><View style={[styles.sheet, { backgroundColor: colors.card }]}><Title>Select merchant</Title>{(merchants.data ?? []).map((merchant) => <Pressable key={merchant.id} onPress={() => setMerchant(merchant.id)} style={styles.merchantRow}><Body>{merchant.name}</Body><Small>{merchant.address || "Address not recorded"}</Small></Pressable>)}{merchants.isSuccess && merchants.data?.length === 0 ? <Empty title="No merchants available" detail="No merchant is visible in this hub scope." /> : null}</View></Pressable></Modal><BarcodeScanner visible={scanning} onClose={() => setScanning(false)} onScanned={(value) => { setScanning(false); set("awb")(value.trim().toUpperCase()); }} />
   </Screen>;
 }
 

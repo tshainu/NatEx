@@ -413,7 +413,9 @@ export async function listBags(
   scope: Principal,
   filter: { status?: string[]; destHubId?: string; tripId?: string } = {},
 ) {
-  const branchIds = isGlobalScope(scope.role) ? undefined : await identity.operationsBranchScope(scope.branchId);
+  // The Bags workspace is a hub work queue. Non-global users must only see
+  // bags belonging to their assigned hub, not sibling operational branches.
+  const branchIds = isGlobalScope(scope.role) ? undefined : [scope.branchId];
   const filters = [bagScope(scope, branchIds)];
   if (filter.status?.length) filters.push(inArray(bag.status, filter.status));
   if (filter.destHubId) filters.push(eq(bag.destHubId, filter.destHubId));
