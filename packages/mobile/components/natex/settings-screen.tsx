@@ -32,6 +32,7 @@ import { flushRiderGps } from "../../lib/rider-gps";
 export function SettingsScreen({ note }: { note?: string }) {
   const { user, role, signOut } = useAuth();
   const colors = useColors();
+  const logoutClockOut = useMutation(orpc.hr.clockOut.mutationOptions());
 
   return (
     <Screen inTabs>
@@ -90,7 +91,13 @@ export function SettingsScreen({ note }: { note?: string }) {
         title="Sign out"
         variant="secondary"
         icon={<Ionicons name="log-out-outline" size={18} color={colors.foreground} />}
+        loading={logoutClockOut.isPending}
         onPress={async () => {
+          // Logging out ends an open rider shift so the next login starts with
+          // a fresh green Clock in action instead of inheriting a stale session.
+          if (role === "rider") {
+            try { await logoutClockOut.mutateAsync({}); } catch { /* already clocked out or offline */ }
+          }
           await signOut();
           router.replace("/login");
         }}
