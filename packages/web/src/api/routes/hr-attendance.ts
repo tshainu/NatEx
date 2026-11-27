@@ -13,8 +13,18 @@ const manualAttendance = z.object({ employeeId: z.string().min(1), workDate: iso
 const leaveInput = z.object({ employeeId: z.string().min(1), leaveTypeId: z.string().min(1), startsOn: isoDay, endsOn: isoDay, halfDays: z.number().int().min(1).max(62), reason: z.string().trim().min(3).max(500) });
 
 export const clockStatus = riderProc.input(z.object({ workDate: isoDay.optional() }).default({})).handler(({ input, context }) => attendance.clockStatus(context.principal, input.workDate));
-export const clockIn = riderProc.handler(({ context }) => mutate(context, {}, { route: "hr.clockIn", entity: "hr_timesheet", entityId: () => `${context.principal.userId}:${new Date().toISOString().slice(0, 10)}`, action: "hr.clocked_in" }, async () => { const row = await attendance.clockIn(context.principal); await gps.startDay(context.principal); return row; }));
-export const clockOut = riderProc.handler(({ context }) => mutate(context, {}, { route: "hr.clockOut", entity: "hr_timesheet", entityId: () => `${context.principal.userId}:${new Date().toISOString().slice(0, 10)}`, action: "hr.clocked_out" }, async () => { const row = await attendance.clockOut(context.principal); await gps.finishDay(context.principal); return row; }));
+export const clockIn = riderProc.handler(({ context }) => mutate(context, {}, { route: "hr.clockIn", entity: "hr_timesheet", entityId: () => `${context.principal.userId}:${new Date().toISOString().slice(0, 10)}`, action: "hr.clocked_in" }, async () => {
+  const row = await attendance.clockIn(context.principal);
+  // GPS is supplementary. It must never make a successful attendance action
+  // look failed or prevent a later clock-in session.
+  try { await gps.startDay(context.principal); } catch { /* route tracking can recover on the next sync */ }
+  return row;
+}));
+export const clockOut = riderProc.handler(({ context }) => mutate(context, {}, { route: "hr.clockOut", entity: "hr_timesheet", entityId: () => `${context.principal.userId}:${new Date().toISOString().slice(0, 10)}`, action: "hr.clocked_out" }, async () => {
+  const row = await attendance.clockOut(context.principal);
+  try { await gps.finishDay(context.principal); } catch { /* attendance remains authoritative */ }
+  return row;
+}));
 export const riderAttendanceSummary = riderProc.input(z.object({ year: z.number().int().min(2020).max(2100) })).handler(({ input, context }) => attendance.riderSummary(context.principal, input.year));
 export const riderLeaveBalances = riderProc.input(z.object({ year: z.number().int().min(2020).max(2100) })).handler(async ({ input, context }) => {
   const employee = await attendance.employeeForPrincipal(context.principal);
