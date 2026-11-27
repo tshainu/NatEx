@@ -194,7 +194,7 @@ export async function createMerchant(
   actor: Principal,
   executor: DbTransaction | typeof db = db,
 ): Promise<MerchantRow> {
-  if (actor.role !== "admin") errors.forbidden("Only an admin can create an active merchant.");
+  if (actor.role !== "admin" && actor.role !== "gom" && !isUltimateAdminRole(actor.role)) errors.forbidden("Only an admin can create an active merchant.");
   const branchId = input.branchId;
   await requireActiveBranch(branchId);
 

@@ -1,6 +1,6 @@
 import { db } from "../../database";
 import type { DbTransaction } from "../../database/transaction";
-import type { Principal } from "../../shared/auth";
+import { isUltimateAdminRole, type Principal } from "../../shared/auth";
 import { errors } from "../../shared/errors";
 import { writeAudit } from "../../shared/audit";
 import { enqueue } from "../../shared/outbox";
@@ -177,7 +177,7 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>): Promise<T> {
 
 /** Merchant creation, optional payout data, portal user, rate card, and conversion are committed together. */
 export async function onboardMerchant(input: OnboardMerchantInput, actor: Principal) {
-  if (actor.role !== "admin") errors.forbidden("Only an admin can onboard a merchant.");
+  if (actor.role !== "admin" && actor.role !== "gom" && !isUltimateAdminRole(actor.role)) errors.forbidden("Only an admin or General Operations Manager can onboard a merchant.");
   if (input.registrationRequestId) {
     return withRegistrationConversionLock(input.registrationRequestId, () =>
       withSqliteBusyRetry(() => db.transaction((tx) => createOnboardedMerchant(input, actor, tx))),
@@ -188,7 +188,7 @@ export async function onboardMerchant(input: OnboardMerchantInput, actor: Princi
 
 /** Convert an internal Operations request only after Admin's final modal save. */
 export async function approveStaffOnboardingRequest(input: StaffOnboardingApprovalInput, actor: Principal, requestIdForAudit?: string) {
-  if (actor.role !== "admin") errors.forbidden("Only an admin can approve an Operations onboarding request.");
+  if (actor.role !== "admin" && actor.role !== "gom" && !isUltimateAdminRole(actor.role)) errors.forbidden("Only an admin or General Operations Manager can approve an Operations onboarding request.");
   const { requestId, ...merchantDetails } = input;
   return withRegistrationConversionLock(`operations:${requestId}`, () =>
     withSqliteBusyRetry(() => db.transaction(async (tx) => {

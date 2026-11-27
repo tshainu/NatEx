@@ -254,7 +254,7 @@ export async function assignAwbBatch(
   assigneeId: string,
   actor: Principal,
 ) {
-  if (!isAdminRole(actor.role)) errors.forbidden("Only an admin can assign a tracking number batch.");
+  if (!isAdminRole(actor.role) && actor.role !== "gom") errors.forbidden("Only an admin or General Operations Manager can assign a tracking number batch.");
   await ensureSeriesNumbers();
   let assigneeName: string;
   if (assigneeType === "merchant") {
@@ -279,7 +279,7 @@ export async function assignAwbBatchToNewMerchant(
   actor: Principal,
   executor: DbTransaction,
 ) {
-  if (!isAdminRole(actor.role)) errors.forbidden("Only an admin can assign a tracking number batch.");
+  if (!isAdminRole(actor.role) && actor.role !== "gom") errors.forbidden("Only an admin or General Operations Manager can assign a tracking number batch.");
   if (merchantOwner.status !== "active") errors.conflict("A tracking number batch can only be assigned to an active merchant.");
   return assignAwbBatchInTransaction(batchId, "merchant", merchantOwner.id, merchantOwner.name, actor, executor);
 }
