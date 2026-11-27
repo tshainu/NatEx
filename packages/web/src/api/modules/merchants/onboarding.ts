@@ -6,7 +6,7 @@ import { writeAudit } from "../../shared/audit";
 import { enqueue } from "../../shared/outbox";
 import { seal } from "../../shared/secret-box";
 import { buildMerchantOnboardingSms } from "../../shared/sms-policy";
-import { createUser } from "../identity/service";
+import { createUser, getLinkableOfficialStaffAccount } from "../identity/service";
 import { setMerchantPayout } from "../cod/settlement";
 import { assignAwbBatchToNewMerchant } from "../parcels/awb-batches";
 import { assignRateCard } from "./rate-cards";
@@ -19,6 +19,7 @@ import {
 } from "./service";
 
 export interface OnboardMerchantInput extends CreateMerchantInput {
+  onboardedById?: string;
   rateCardId?: string | null;
   trackingBatchId?: string;
   payoutDetails?: {
@@ -45,6 +46,11 @@ async function createOnboardedMerchant(
   actor: Principal,
   executor: DbTransaction | typeof db,
 ) {
+  const selectedOnboarder = input.onboardedById
+    ? await getLinkableOfficialStaffAccount(input.onboardedById)
+    : { id: actor.userId, name: actor.name };
+  if (!selectedOnboarder) errors.badRequest("Choose an active official staff member as the onboarder.");
+  const resolvedOnboardedBy = selectedOnboarder!;
   const created = await createMerchant(
     {
       name: input.name,
@@ -123,6 +129,7 @@ async function createOnboardedMerchant(
 
   return {
     merchant: { ...created, rateCardId: rate?.after ?? null },
+    onboardedBy: { id: resolvedOnboardedBy.id, name: resolvedOnboardedBy.name },
     trackingAllocation: trackingAllocation
       ? {
           batchId: trackingAllocation.id,

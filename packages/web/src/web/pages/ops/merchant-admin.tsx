@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
 import { orpc, apiMessage } from "@/lib/api";
 import { humanise } from "@/lib/format";
 import { Input, Field } from "@/components/ui/input";
@@ -277,6 +278,93 @@ export function EditMerchantDialog({
 
 // ------------------------------------------------------------------- onboard
 
+type OfficialStaffOption = { id: string; name: string; role: string; branchId: string; status: string };
+
+function StaffPicker({
+  options,
+  value,
+  onChange,
+  loading,
+  error,
+}: {
+  options: OfficialStaffOption[];
+  value: string;
+  onChange: (id: string) => void;
+  loading: boolean;
+  error: string | null;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.id === value);
+  const matches = React.useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return options.filter((option) => !search || `${option.name} ${option.role}`.toLowerCase().includes(search));
+  }, [options, query]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3 text-left text-sm outline-none transition-colors focus-visible:border-brand focus-visible:ring-[3px] focus-visible:ring-brand/30"
+      >
+        <span className={selected ? "min-w-0 truncate" : "text-muted-foreground"}>
+          {selected ? `${selected.name} · ${humanise(selected.role)}` : loading ? "Loading staff…" : "Select staff member…"}
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      </button>
+      {open ? (
+        <div className="absolute z-40 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
+          <Input
+            autoFocus
+            type="search"
+            placeholder="Search staff by name or role"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search staff"
+            autoComplete="off"
+          />
+          {error ? <p className="px-2 py-2 text-xs text-status-bad" role="alert">{error}</p> : null}
+          {!loading && !error ? (
+            <div className="mt-1 max-h-48 overflow-y-auto" role="listbox" aria-label="Official staff">
+              {matches.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={option.id === value}
+                  className="flex w-full items-center justify-between rounded px-2 py-2 text-left text-[13px] hover:bg-muted"
+                  onClick={() => {
+                    onChange(option.id);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                >
+                  <span className="min-w-0 truncate font-medium">{option.name}</span>
+                  <span className="ml-2 shrink-0 text-[11px] text-muted-foreground">{humanise(option.role)}</span>
+                </button>
+              ))}
+              {matches.length === 0 ? <p className="px-2 py-2 text-xs text-muted-foreground">No staff match that search.</p> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function OnboardMerchantDialog({
   open,
   onOpenChange,
@@ -301,6 +389,16 @@ export function OnboardMerchantDialog({
     enabled: open,
     staleTime: 30_000,
   });
+  const staffOptions = useQuery({
+    ...orpc.identity.listOfficialStaffOptions.queryOptions(),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUser = useQuery({
+    ...orpc.identity.me.queryOptions(),
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+  });
   const blank = React.useMemo<MerchantForm>(() => ({
     ...(staffRequest
       ? staffOnboardingPrefill(staffRequest)
@@ -321,6 +419,7 @@ export function OnboardMerchantDialog({
   const [portalUsername, setPortalUsername] = React.useState("");
   const [portalPassword, setPortalPassword] = React.useState("");
   const [trackingBatchId, setTrackingBatchId] = React.useState("");
+  const [onboardedById, setOnboardedById] = React.useState("");
   const [payoutBeneficiary, setPayoutBeneficiary] = React.useState("");
   const [payoutBank, setPayoutBank] = React.useState("");
   const [otherBank, setOtherBank] = React.useState("");
@@ -335,6 +434,7 @@ export function OnboardMerchantDialog({
       setPortalPassword("");
       setPortalUsername("");
       setTrackingBatchId("");
+      setOnboardedById("");
       setPayoutBeneficiary("");
       setPayoutBank("");
       setOtherBank("");
@@ -357,6 +457,7 @@ export function OnboardMerchantDialog({
     setPortalUsername("");
     setPortalPassword("");
     setTrackingBatchId("");
+    setOnboardedById("");
     setPayoutBeneficiary("");
     setPayoutBank("");
     setOtherBank("");
@@ -364,6 +465,13 @@ export function OnboardMerchantDialog({
     setPayoutAccount("");
     setProblem(null);
   }, [open, blank, registrationRequest?.id, registrationRequest?.contactName, registrationRequest?.phone, staffRequest?.id, staffRequest?.contactName, staffRequest?.contactPhone]);
+
+  React.useEffect(() => {
+    if (!open || onboardedById || !currentUser.data?.userId) return;
+    if ((staffOptions.data ?? []).some((staff) => staff.id === currentUser.data.userId)) {
+      setOnboardedById(currentUser.data.userId);
+    }
+  }, [open, onboardedById, currentUser.data?.userId, staffOptions.data]);
 
   const finishOnboarding = (merchantId: string) => {
       void queryClient.invalidateQueries();
@@ -385,6 +493,7 @@ export function OnboardMerchantDialog({
       setPortalUsername("");
       setPortalPassword("");
       setTrackingBatchId("");
+      setOnboardedById("");
       setPayoutBeneficiary("");
       setPayoutBank("");
       setOtherBank("");
@@ -426,6 +535,7 @@ export function OnboardMerchantDialog({
     /^[0-9][0-9 -]{3,40}$/.test(payoutAccount.trim())
   );
   const saving = onboard.isPending || approve.isPending;
+  const staffError = staffOptions.error ? apiMessage(staffOptions.error, "Staff options are unavailable.") : null;
 
   return (
     <Dialog
@@ -442,7 +552,7 @@ export function OnboardMerchantDialog({
             Cancel
           </Button>
           <Button
-            disabled={!formValid(form) || !portalOk || !payoutOk || saving}
+            disabled={!formValid(form) || !portalOk || !payoutOk || !onboardedById || saving}
             pending={saving}
             onClick={() => {
               if (submitting.current) return;
@@ -462,6 +572,7 @@ export function OnboardMerchantDialog({
                 : undefined;
               const details = {
                 name: form.name.trim(),
+                onboardedById,
                 pickupRiderId: form.pickupRiderId || null,
                 vatNo: form.vatNo.trim() || null,
                 address: formatAddress(form.address),
@@ -523,6 +634,15 @@ export function OnboardMerchantDialog({
             </KeyValueGrid>
           </section>
         ) : null}
+        <Field label="Who onboarded this merchant" hint="Select the staff member who brought or enrolled this merchant. The selection is recorded in the onboarding audit.">
+          <StaffPicker
+            options={(staffOptions.data ?? []) as OfficialStaffOption[]}
+            value={onboardedById}
+            onChange={setOnboardedById}
+            loading={staffOptions.isLoading}
+            error={staffError}
+          />
+        </Field>
         <MerchantFields
           form={form}
           set={set}

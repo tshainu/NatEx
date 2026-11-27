@@ -118,6 +118,7 @@ export const onboard = adminProc
     z.object({
       name: z.string().trim().min(2).max(160),
       branchId: z.string().min(1),
+      onboardedById: z.string().min(1).optional(),
       pickupRiderId: z.string().min(1).nullish(),
       vatNo: z.string().trim().max(40).nullish(),
       address: z.string().trim().min(4),
@@ -169,6 +170,7 @@ export const onboard = adminProc
 
 const staffApprovalInputSchema = z.object({
   requestId: z.string().min(1).max(100),
+  onboardedById: z.string().min(1).optional(),
   name: z.string().trim().min(2).max(160),
   pickupRiderId: z.string().min(1).nullish(),
   vatNo: z.string().trim().max(40).nullish(),

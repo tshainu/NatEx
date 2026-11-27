@@ -181,6 +181,11 @@ export const listUsers = deskProc.handler(({ context }) =>
   identityService.listOfficialUsers(context.principal),
 );
 
+/** Active official staff options used for attribution fields in desk workflows. */
+export const listOfficialStaffOptions = deskProc.handler(() =>
+  identityService.listOfficialStaffOptions(),
+);
+
 export const listRiders = staffProc.handler(({ context }) =>
   identityService.listRiders(context.principal.branchId),
 );
@@ -313,6 +318,7 @@ export const identity = {
   listBranches,
   myBranch,
   listUsers,
+  listOfficialStaffOptions,
   listRiders,
   pickupRiderOptions,
   createUser,
