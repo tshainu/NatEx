@@ -116,7 +116,7 @@ export const TRANSITION_ROLES: Readonly<Record<ParcelStatus, readonly Role[]>> =
   Bagged: ["transport", "ops", "admin"],
   InTransit: ["transport", "ops", "admin"],
   AtDestHub: ["transport", "ops", "admin"],
-  OutForDelivery: ["ops", "transport", "admin"],
+  OutForDelivery: ["ops", "transport", "admin", "gom"],
   Delivered: ["rider", "ops", "admin"],
   DeliveryAttempted: ["rider", "ops", "admin"],
   OnHold: ["ops", "admin"],

@@ -143,7 +143,7 @@ const EXPECTED_ROLES: Record<ParcelStatus, Role[]> = {
   Bagged: ["transport", "ops", "admin"],
   InTransit: ["transport", "ops", "admin"],
   AtDestHub: ["transport", "ops", "admin"],
-  OutForDelivery: ["transport", "ops", "admin"],
+  OutForDelivery: ["transport", "ops", "admin", "gom"],
   Delivered: ["rider", "ops", "admin"],
   DeliveryAttempted: ["rider", "ops", "admin"],
   OnHold: ["ops", "admin"],
