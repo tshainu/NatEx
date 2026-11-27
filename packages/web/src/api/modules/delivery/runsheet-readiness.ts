@@ -4,6 +4,7 @@ export interface RunsheetReadinessInput {
   parcelStatus: string;
   parcelBranchId: string;
   runsheetBranchId: string;
+  localDelivery?: boolean;
   reattemptAllowed?: boolean;
   reattemptReason?: string;
 }
@@ -43,13 +44,17 @@ export function runsheetReadiness(input: RunsheetReadinessInput): RunsheetReadin
     };
   }
 
-  if (!(RUNSHEET_ELIGIBLE_STATUSES as readonly string[]).includes(input.parcelStatus)) {
+  const eligible = (RUNSHEET_ELIGIBLE_STATUSES as readonly string[]).includes(input.parcelStatus)
+    || (input.localDelivery && input.parcelStatus === "AtOriginHub");
+  if (!eligible) {
     const status = STATUS_LABEL[input.parcelStatus] ?? input.parcelStatus;
     const correction = input.parcelStatus === "OutForDelivery"
       ? "Check whether the parcel is already on another active runsheet; resolve that assignment before adding it again."
       : ["Delivered", "RTODelivered", "Lost", "Damaged", "Cancelled", "ReturnedToMerchant"].includes(input.parcelStatus)
         ? "Do not put this parcel on a delivery run. Ask Operations to resolve its current outcome if it is incorrect."
-        : "Complete the required pickup/transport steps and record receipt at the destination hub before adding this parcel to a delivery run.";
+        : input.localDelivery
+          ? "For a local delivery run, use a parcel at the selected hub with a destination address in the same district."
+          : "Complete the required pickup/transport steps and record receipt at the destination hub before adding this parcel to a delivery run.";
     return {
       ready: false,
       reason: `Parcel status is ${status}; it is not ready for a delivery runsheet.`,

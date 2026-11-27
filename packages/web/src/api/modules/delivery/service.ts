@@ -942,6 +942,7 @@ export async function addToRunsheet(
       parcelStatus: p.status,
       parcelBranchId: p.branchId,
       runsheetBranchId: sheet!.branchId,
+      localDelivery,
     });
     if (!basicReadiness.ready) {
       lines.push({ awb: p.awb, verdict: "rejected", reason: basicReadiness.reason, correction: basicReadiness.correction });
@@ -959,6 +960,7 @@ export async function addToRunsheet(
       parcelStatus: p.status,
       parcelBranchId: p.branchId,
       runsheetBranchId: sheet!.branchId,
+      localDelivery,
       reattemptAllowed: gate.ok,
       reattemptReason: gate.ok ? undefined : gate.reason,
     });
@@ -1339,6 +1341,7 @@ export async function reviewRunsheetDispatch(
     .where(and(eq(runsheetItem.runsheetId, sheet!.id), eq(runsheetItem.state, "pending")));
   const ready: RunsheetDispatchReviewResult["ready"] = [];
   const blocked: DispatchReviewStop[] = [];
+  const localDelivery = sheet!.routeMethod?.startsWith("local_delivery") ?? false;
 
   for (const item of pending) {
     const parcel = await getParcelByAwb(item.awb);
@@ -1356,6 +1359,7 @@ export async function reviewRunsheetDispatch(
       parcelStatus: parcel.status,
       parcelBranchId: parcel.branchId,
       runsheetBranchId: sheet!.branchId,
+      localDelivery,
     });
     if (!basic.ready) {
       blocked.push({ awb: item.awb, status: parcel.status, reason: basic.reason!, correction: basic.correction! });
@@ -1367,6 +1371,7 @@ export async function reviewRunsheetDispatch(
       parcelStatus: parcel.status,
       parcelBranchId: parcel.branchId,
       runsheetBranchId: sheet!.branchId,
+      localDelivery,
       reattemptAllowed: retryGate.ok,
       reattemptReason: retryGate.ok ? undefined : retryGate.reason,
     });
@@ -1482,6 +1487,7 @@ export async function dispatchRunsheet(
         parcelStatus: parcel.status,
         parcelBranchId: parcel.branchId,
         runsheetBranchId: sheet!.branchId,
+        localDelivery: sheet!.routeMethod?.startsWith("local_delivery") ?? false,
       });
       if (!basic.ready) {
         rejected.push({ awb: item.awb, status: parcel.status, reason: basic.reason!, correction: basic.correction! });
@@ -1492,6 +1498,7 @@ export async function dispatchRunsheet(
         parcelStatus: parcel.status,
         parcelBranchId: parcel.branchId,
         runsheetBranchId: sheet!.branchId,
+        localDelivery: sheet!.routeMethod?.startsWith("local_delivery") ?? false,
         reattemptAllowed: retryGate.ok,
         reattemptReason: retryGate.ok ? undefined : retryGate.reason,
       });
