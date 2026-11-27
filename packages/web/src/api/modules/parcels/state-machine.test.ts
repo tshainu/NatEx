@@ -139,7 +139,7 @@ const EXPECTED_TERMINAL: ParcelStatus[] = [
 const EXPECTED_ROLES: Record<ParcelStatus, Role[]> = {
   Booked: ["merchant", "ops", "transport", "admin", "gom"],
   PickedUp: ["rider", "ops", "admin"],
-  AtOriginHub: ["rider", "transport", "ops", "admin"],
+  AtOriginHub: ["rider", "transport", "ops", "admin", "gom"],
   Bagged: ["transport", "ops", "admin"],
   InTransit: ["transport", "ops", "admin"],
   AtDestHub: ["transport", "ops", "admin"],

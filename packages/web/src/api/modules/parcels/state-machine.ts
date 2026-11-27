@@ -112,7 +112,7 @@ export const TRANSITION_ROLES: Readonly<Record<ParcelStatus, readonly Role[]>> =
   // service still enforces merchant district and branch scoping.
   Booked: ["merchant", "ops", "transport", "admin", "gom"],
   PickedUp: ["rider", "ops", "admin"],
-  AtOriginHub: ["rider", "transport", "ops", "admin"],
+  AtOriginHub: ["rider", "transport", "ops", "admin", "gom"],
   Bagged: ["transport", "ops", "admin"],
   InTransit: ["transport", "ops", "admin"],
   AtDestHub: ["transport", "ops", "admin"],
