@@ -156,6 +156,31 @@ export const hrTimesheet = sqliteTable(
   ],
 );
 
+/** Durable clock-in/out intervals. hrTimesheet remains the daily aggregate used by payroll. */
+export const hrAttendanceSession = sqliteTable(
+  "hr_attendance_session",
+  {
+    id: text("id").primaryKey(),
+    employeeId: text("employee_id").notNull().references(() => hrEmployee.id),
+    workDate: text("work_date").notNull(),
+    clockInAt: integer("clock_in_at", { mode: "timestamp" }).notNull(),
+    clockOutAt: integer("clock_out_at", { mode: "timestamp" }),
+    regularMinutes: integer("regular_minutes").notNull().default(0),
+    overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+    approvalStatus: text("approval_status").notNull().default("pending"),
+    approvedBy: text("approved_by"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("hr_attendance_session_employee_date_idx").on(t.employeeId, t.workDate),
+    index("hr_attendance_session_open_idx").on(t.employeeId, t.clockOutAt),
+  ],
+);
+
 export const hrLeaveType = sqliteTable(
   "hr_leave_type",
   {

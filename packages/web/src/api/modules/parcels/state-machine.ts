@@ -107,7 +107,7 @@ export const TRANSITIONS: Readonly<Record<ParcelStatus, readonly ParcelStatus[]>
  * "Each transition requires a role — a merchant cannot mark Delivered." (§6)
  */
 export const TRANSITION_ROLES: Readonly<Record<ParcelStatus, readonly Role[]>> = {
-  Booked: ["merchant", "ops", "admin"],
+  Booked: ["merchant", "ops", "transport", "admin"],
   PickedUp: ["rider", "ops", "admin"],
   AtOriginHub: ["rider", "transport", "ops", "admin"],
   Bagged: ["transport", "ops", "admin"],

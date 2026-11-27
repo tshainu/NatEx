@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db } from "../../database";
-import { hrEmployee, hrLeaveRequest, hrTimesheet } from "../../database/schema/hr";
+import { hrAttendanceSession, hrEmployee, hrLeaveRequest, hrTimesheet } from "../../database/schema/hr";
 import { operationsBranchScope } from "../identity/service";
 import type { Principal } from "../../shared/auth";
 import { colomboToday } from "../../shared/time";
@@ -33,43 +33,52 @@ export async function employeeForPrincipal(principal: Principal) {
 export async function clockStatus(principal: Principal, workDate = colomboToday()) {
   const employee = await employeeForPrincipal(principal);
   const [row] = await db.select().from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employee.id), eq(hrTimesheet.workDate, workDate))).limit(1);
-  return { workDate, employeeId: employee.id, employeeCode: employee.employeeCode, row: row ?? null, regularStart: "08:30", regularEnd: "17:00", shortLeaveCutoff: "09:30", halfDayCutoff: "12:30" };
+  const sessions = await db.select().from(hrAttendanceSession).where(and(eq(hrAttendanceSession.employeeId, employee.id), eq(hrAttendanceSession.workDate, workDate))).orderBy(asc(hrAttendanceSession.clockInAt));
+  return { workDate, employeeId: employee.id, employeeCode: employee.employeeCode, row: row ?? null, sessions, openSession: sessions.find((session) => !session.clockOutAt) ?? null, sessionCount: sessions.length, regularMinutes: sessions.reduce((total, session) => total + session.regularMinutes, 0), overtimeMinutes: sessions.reduce((total, session) => total + session.overtimeMinutes, 0), regularStart: "08:30", regularEnd: "17:00", shortLeaveCutoff: "09:30", halfDayCutoff: "12:30" };
 }
 
 /** A rider's current field assignment is released only after clock-in. */
 export async function isClockedIn(principal: Principal, workDate = colomboToday()) {
   const status = await clockStatus(principal, workDate);
-  return Boolean(status.row?.clockInAt && !status.row.clockOutAt);
+  return Boolean(status.openSession);
+}
+
+async function refreshDailyAggregate(employeeId: string, workDate: string, actorId: string) {
+  const sessions = await db.select().from(hrAttendanceSession).where(and(eq(hrAttendanceSession.employeeId, employeeId), eq(hrAttendanceSession.workDate, workDate))).orderBy(asc(hrAttendanceSession.clockInAt));
+  const first = sessions[0];
+  if (!first) return null;
+  const last = sessions[sessions.length - 1];
+  const totals = sessions.reduce((sum, session) => ({ regularMinutes: sum.regularMinutes + session.regularMinutes, overtimeMinutes: sum.overtimeMinutes + session.overtimeMinutes }), { regularMinutes: 0, overtimeMinutes: 0 });
+  const [existing] = await db.select({ id: hrTimesheet.id }).from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employeeId), eq(hrTimesheet.workDate, workDate))).limit(1);
+  const values = { clockInAt: first.clockInAt, clockOutAt: sessions.some((session) => !session.clockOutAt) ? null : last.clockOutAt, regularMinutes: totals.regularMinutes, overtimeMinutes: totals.overtimeMinutes, approvalStatus: "pending", source: "rider", updatedBy: actorId, updatedAt: new Date() } as const;
+  if (existing) { const [row] = await db.update(hrTimesheet).set(values).where(eq(hrTimesheet.id, existing.id)).returning(); return row!; }
+  const [row] = await db.insert(hrTimesheet).values({ id: prefixedId("hts"), employeeId, workDate, createdBy: actorId, attendanceStatus: "present", overtimeEligible: false, note: null, ...values }).returning();
+  return row!;
 }
 
 export async function clockIn(principal: Principal) {
   const employee = await employeeForPrincipal(principal);
   const workDate = colomboToday();
   const now = new Date();
-  const [current] = await db.select().from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employee.id), eq(hrTimesheet.workDate, workDate))).limit(1);
-  if (current?.clockInAt && !current.clockOutAt) errors.conflict("You are already clocked in for today.");
-  if (current?.clockOutAt) errors.conflict("Today's attendance is already clocked out.");
+  const [open] = await db.select({ id: hrAttendanceSession.id }).from(hrAttendanceSession).where(and(eq(hrAttendanceSession.employeeId, employee.id), eq(hrAttendanceSession.workDate, workDate), isNull(hrAttendanceSession.clockOutAt))).limit(1);
+  if (open) errors.conflict("You are already clocked in. Clock out before starting another session.");
   const minute = localMinute(now);
   const attendanceStatus = minute <= START_MINUTE ? "present" : minute <= SHORT_LEAVE_CUTOFF ? "short_leave" : minute <= HALF_DAY_CUTOFF ? "half_day" : "absent";
-  const values = { clockInAt: now, attendanceStatus, approvalStatus: "pending", source: "rider", regularMinutes: 0, overtimeMinutes: 0, overtimeEligible: false, note: minute > START_MINUTE ? `Clocked in at ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}` : null, updatedBy: principal.userId, updatedAt: now } as const;
-  if (current) {
-    const [row] = await db.update(hrTimesheet).set(values).where(eq(hrTimesheet.id, current.id)).returning();
-    return row!;
-  }
-  const [row] = await db.insert(hrTimesheet).values({ id: prefixedId("hts"), employeeId: employee.id, workDate, createdBy: principal.userId, ...values }).returning();
-  return row!;
+  await db.insert(hrAttendanceSession).values({ id: prefixedId("has"), employeeId: employee.id, workDate, clockInAt: now, createdBy: principal.userId, updatedBy: principal.userId });
+  const [current] = await db.select({ id: hrTimesheet.id }).from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employee.id), eq(hrTimesheet.workDate, workDate))).limit(1);
+  if (current) { const [row] = await db.update(hrTimesheet).set({ attendanceStatus, note: minute > START_MINUTE ? `Clocked in at ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}` : null, approvalStatus: "pending", updatedBy: principal.userId, updatedAt: now }).where(eq(hrTimesheet.id, current.id)).returning(); return row!; }
+  return refreshDailyAggregate(employee.id, workDate, principal.userId);
 }
 
 export async function clockOut(principal: Principal) {
   const employee = await employeeForPrincipal(principal);
   const workDate = colomboToday();
-  const [current] = await db.select().from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employee.id), eq(hrTimesheet.workDate, workDate))).limit(1);
-  if (!current?.clockInAt) errors.conflict("Clock in before clocking out.");
-  if (current.clockOutAt) errors.conflict("You are already clocked out for today.");
+  const [current] = await db.select().from(hrAttendanceSession).where(and(eq(hrAttendanceSession.employeeId, employee.id), eq(hrAttendanceSession.workDate, workDate), isNull(hrAttendanceSession.clockOutAt))).orderBy(desc(hrAttendanceSession.clockInAt)).limit(1);
+  if (!current) errors.conflict("Clock in before clocking out.");
   const now = new Date();
-  const totals = attendanceMinutes(current.clockInAt!, now);
-  const [row] = await db.update(hrTimesheet).set({ clockOutAt: now, regularMinutes: totals.regularMinutes, overtimeMinutes: totals.overtimeMinutes, overtimeEligible: false, approvalStatus: "pending", updatedBy: principal.userId, updatedAt: now }).where(eq(hrTimesheet.id, current.id)).returning();
-  return row!;
+  const totals = attendanceMinutes(current!.clockInAt, now);
+  await db.update(hrAttendanceSession).set({ clockOutAt: now, regularMinutes: totals.regularMinutes, overtimeMinutes: totals.overtimeMinutes, approvalStatus: "pending", updatedBy: principal.userId, updatedAt: now }).where(eq(hrAttendanceSession.id, current!.id));
+  return refreshDailyAggregate(employee.id, workDate, principal.userId);
 }
 
 export async function listAttendance(input: { from: string; to: string; employeeId?: string; approvalStatus?: string; branchId?: string }, principal?: Principal) {
