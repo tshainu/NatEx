@@ -107,7 +107,10 @@ export const TRANSITIONS: Readonly<Record<ParcelStatus, readonly ParcelStatus[]>
  * "Each transition requires a role — a merchant cannot mark Delivered." (§6)
  */
 export const TRANSITION_ROLES: Readonly<Record<ParcelStatus, readonly Role[]>> = {
-  Booked: ["merchant", "ops", "transport", "admin"],
+  // Booking is also a hub-counter operation. Hub Managers and the General
+  // Operations Manager may create the parcel at their assigned hub; the
+  // service still enforces merchant district and branch scoping.
+  Booked: ["merchant", "ops", "transport", "admin", "gom"],
   PickedUp: ["rider", "ops", "admin"],
   AtOriginHub: ["rider", "transport", "ops", "admin"],
   Bagged: ["transport", "ops", "admin"],

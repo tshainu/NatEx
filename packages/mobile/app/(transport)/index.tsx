@@ -55,8 +55,12 @@ export default function TransportBagsScreen() {
   // The API scopes rows to this transport user's hub, so all open and sealed
   // outbound bags remain available for the next trip.
   const rows = bags.data ?? [];
-  const visibleOpenCount = rows.filter((row) => row.status === "open").length;
-  const visibleSealedCount = rows.filter((row) => row.status === "sealed").length;
+  const floorCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const visibleRows = active.key === "live"
+    ? rows.filter((row) => row.status !== "open" || new Date(row.createdAt).getTime() >= floorCutoff)
+    : rows;
+  const visibleOpenCount = visibleRows.filter((row) => row.status === "open").length;
+  const visibleSealedCount = visibleRows.filter((row) => row.status === "sealed").length;
 
   const footer = creating ? (
     <>
@@ -189,7 +193,7 @@ export default function TransportBagsScreen() {
         </Panel>
       ) : null}
 
-      {bags.isSuccess && rows.length === 0 ? (
+      {bags.isSuccess && visibleRows.length === 0 ? (
         <Empty
           title="No bags here"
           detail={
@@ -201,7 +205,7 @@ export default function TransportBagsScreen() {
       ) : null}
 
       <Section>
-        {rows.map((row) => (
+        {visibleRows.map((row) => (
           <Card
             key={row.id}
             accessibilityLabel={`Open bag ${row.sealNumber ?? row.code}`}
