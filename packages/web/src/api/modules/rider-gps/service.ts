@@ -42,7 +42,13 @@ async function dayFor(principal: Principal, workDate = colomboToday()) {
 
 export async function startDay(principal: Principal, workDate = colomboToday()) {
   const existing = await dayFor(principal, workDate);
-  if (existing?.clockOutAt) errors.conflict("GPS tracking for today has already ended.");
+  // Attendance can be clocked in/out more than once on the same day. Reopen
+  // the single daily GPS record so all segments remain in one combined route
+  // and distance total instead of making a later clock-in fail.
+  if (existing?.clockOutAt) {
+    const [reopened] = await db.update(riderGpsDay).set({ clockOutAt: null, syncState: "live", updatedAt: new Date() }).where(eq(riderGpsDay.id, existing.id)).returning();
+    return reopened!;
+  }
   if (existing) return existing;
   const [day] = await db.insert(riderGpsDay).values({ id: prefixedId("gps"), riderId: principal.userId, workDate, clockInAt: new Date(), syncState: "live" }).returning();
   return day!;

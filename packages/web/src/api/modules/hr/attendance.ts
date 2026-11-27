@@ -66,7 +66,7 @@ export async function clockIn(principal: Principal) {
   const attendanceStatus = minute <= START_MINUTE ? "present" : minute <= SHORT_LEAVE_CUTOFF ? "short_leave" : minute <= HALF_DAY_CUTOFF ? "half_day" : "absent";
   await db.insert(hrAttendanceSession).values({ id: prefixedId("has"), employeeId: employee.id, workDate, clockInAt: now, createdBy: principal.userId, updatedBy: principal.userId });
   const [current] = await db.select({ id: hrTimesheet.id }).from(hrTimesheet).where(and(eq(hrTimesheet.employeeId, employee.id), eq(hrTimesheet.workDate, workDate))).limit(1);
-  if (current) { const [row] = await db.update(hrTimesheet).set({ attendanceStatus, note: minute > START_MINUTE ? `Clocked in at ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}` : null, approvalStatus: "pending", updatedBy: principal.userId, updatedAt: now }).where(eq(hrTimesheet.id, current.id)).returning(); return row!; }
+  if (current) { await db.update(hrTimesheet).set({ attendanceStatus, note: minute > START_MINUTE ? `Clocked in at ${Math.floor(minute / 60)}:${String(minute % 60).padStart(2, "0")}` : null, clockOutAt: null, approvalStatus: "pending", updatedBy: principal.userId, updatedAt: now }).where(eq(hrTimesheet.id, current.id)); }
   return refreshDailyAggregate(employee.id, workDate, principal.userId);
 }
 

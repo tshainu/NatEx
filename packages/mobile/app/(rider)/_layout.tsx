@@ -32,7 +32,10 @@ function OutboxDriver() {
 function GpsDriver() {
   const { role } = useAuth();
   const status = useQuery({ ...orpc.hr.clockStatus.queryOptions({ input: {} }), enabled: role === "rider", refetchInterval: 30_000 });
-  const clockedIn = Boolean(status.data?.row?.clockInAt && !status.data?.row?.clockOutAt);
+  // The daily timesheet is an aggregate and may contain the previous closed
+  // session. The session list is authoritative when the rider clocks in/out
+  // repeatedly during the same day.
+  const clockedIn = Boolean(status.data?.openSession);
   const warned = useRef(false);
   useEffect(() => {
     if (!clockedIn) {
