@@ -105,6 +105,7 @@ export const runsheetCreate = transportProc
       riderId: z.string().min(1),
       runDate: runDate.optional(),
       hubId: z.string().min(1).optional(),
+      localDelivery: z.boolean().default(false),
     }),
   )
   .handler(({ input, context }) =>

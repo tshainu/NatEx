@@ -204,14 +204,14 @@ export default function TransportBagsScreen() {
         {rows.map((row) => (
           <Card
             key={row.id}
-            accessibilityLabel={`Open bag ${row.code}`}
+            accessibilityLabel={`Open bag ${row.sealNumber ?? row.code}`}
             onPress={() => router.push(`/(transport)/bag/${row.id}`)}
           >
             <View style={styles.cardTop}>
               <View style={styles.flex}>
-                <Title>{row.code}</Title>
+                <Title>{row.sealNumber ?? "Unsealed bag"}</Title>
                 <Small>
-                  {row.originHubName} → {row.destHubName}
+                  {row.originHubName} → {row.destHubName}{row.sealNumber ? ` · ${row.code}` : ""}
                 </Small>
               </View>
               <LifecyclePill status={row.status} />

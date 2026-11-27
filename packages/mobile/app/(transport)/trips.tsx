@@ -23,7 +23,7 @@ import { Body, Label, Mono, Small, Title } from "../../components/natex/text";
 import { Space } from "../../constants/theme";
 import { useColors } from "../../hooks/use-colors";
 
-const ACTIVE_TRIP_STATUSES = new Set(["planned", "loading", "departed", "arrived"]);
+const ACTIVE_TRIP_STATUSES = new Set(["planned", "loading", "departed"]);
 
 /**
  * The linehaul board: every trip from or to this hub.
@@ -94,11 +94,12 @@ export default function TransportTripsScreen() {
   });
 
   const destinations = (branches.data ?? []).filter((b) => b.id !== user?.branchId);
-  const trips = (board.data?.trips ?? []).filter((trip) => ACTIVE_TRIP_STATUSES.has(trip.status));
+  const allTrips = board.data?.trips ?? [];
+  const trips = allTrips.filter((trip) => ACTIVE_TRIP_STATUSES.has(trip.status));
   const activeCounts = {
     planned: trips.filter((trip) => trip.status === "planned" || trip.status === "loading").length,
     inFlight: trips.filter((trip) => trip.status === "departed").length,
-    arrived: trips.filter((trip) => trip.status === "arrived").length,
+    arrived: allTrips.filter((trip) => trip.status === "arrived").length,
   };
 
   const footer = creating ? (
@@ -136,11 +137,11 @@ export default function TransportTripsScreen() {
         <StatRow>
           <Stat label="Planned" value={activeCounts.planned} />
           <Stat
-            label="In flight"
+            label="In Vehicle"
             value={activeCounts.inFlight}
             color={activeCounts.inFlight > 0 ? colors.statusMoving : undefined}
           />
-          <Stat label="Arrived" value={activeCounts.arrived} />
+          <Pressable onPress={() => router.push("/(transport)/arrived")} accessibilityRole="button" accessibilityLabel={`Open ${activeCounts.arrived} arrived vehicles`}><Stat label="Arrived" value={activeCounts.arrived} /></Pressable>
         </StatRow>
       ) : null}
 
@@ -271,7 +272,7 @@ export default function TransportTripsScreen() {
       {board.isSuccess && trips.length === 0 ? (
         <Empty
           title="No trips"
-          detail="Only active trips connected to this hub are shown. Create a trip to move sealed bags."
+          detail="Only planned, loading, and departed vehicles are shown here. Tap Arrived to review completed arrivals."
         />
       ) : null}
 

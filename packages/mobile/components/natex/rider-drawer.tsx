@@ -34,7 +34,7 @@ export function RiderDrawerProvider({ children }: { children: React.ReactNode })
   const { user, role, roles, signOut, switchRole } = useAuth();
   const [visible, setVisible] = React.useState(false);
   const value = React.useMemo(() => ({ open: () => setVisible(true) }), []);
-  if (role !== "rider") return <>{children}</>;
+  if (role !== "rider" && role !== "transport") return <>{children}</>;
   // Hub Manager accounts currently carry both the Rider and Transport field
   // roles. Do not expose these operational actions to a rider-only account.
   const isHubManager = roles.includes("rider") && roles.includes("transport");

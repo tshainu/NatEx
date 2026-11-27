@@ -32,6 +32,7 @@ import {
 import { MAX_DELIVERY_ATTEMPTS, shouldAutoRto } from "../parcels/state-machine";
 import { getBranch, getUserById } from "../identity/service";
 import { isClockedIn } from "../hr/attendance";
+import { districtFromAddress } from "../../shared/address";
 import { getMerchant } from "../merchants/service";
 import {
   chargeByParcel,
@@ -824,6 +825,7 @@ export interface CreateRunsheetInput {
   runDate?: string;
   /** Defaults to the rider's own branch. */
   hubId?: string;
+  localDelivery?: boolean;
 }
 
 export async function createRunsheet(
@@ -867,6 +869,7 @@ export async function createRunsheet(
       hubId,
       runDate,
       status: "draft",
+      routeMethod: input.localDelivery ? "local_delivery" : null,
       createdByName: actor.name,
     })
     .returning());
@@ -926,6 +929,9 @@ export async function addToRunsheet(
   let codDelta = 0;
   let freightDelta = 0;
   let updatedRun = sheet!;
+  const localDelivery = sheet!.routeMethod?.startsWith("local_delivery") ?? false;
+  const localHub = localDelivery ? await getBranch(sheet!.hubId) : null;
+  const localDistrict = localHub?.address ? districtFromAddress(localHub.address) : null;
 
   for (const p of found) {
     if (alreadyOn.has(p.id)) {
@@ -940,6 +946,13 @@ export async function addToRunsheet(
     if (!basicReadiness.ready) {
       lines.push({ awb: p.awb, verdict: "rejected", reason: basicReadiness.reason, correction: basicReadiness.correction });
       continue;
+    }
+    if (localDelivery) {
+      const destinationDistrict = districtFromAddress(p.destAddress);
+      if (!localDistrict || !destinationDistrict || destinationDistrict !== localDistrict) {
+        lines.push({ awb: p.awb, verdict: "rejected", reason: "This local-delivery parcel is outside the runsheet hub district.", correction: `Only parcels with a destination address in ${localDistrict ?? "the selected hub district"} may be added to a local run.` });
+        continue;
+      }
     }
     const gate = await reattemptGate(p);
     const readiness = runsheetReadiness({
@@ -1032,7 +1045,7 @@ export async function addToRunsheet(
               plannedCount: sql`${runsheet.plannedCount} + 1`,
               codExpectedCents: sql`${runsheet.codExpectedCents} + ${before.codAmountCents}`,
               freightExpectedCents: sql`${runsheet.freightExpectedCents} + ${freightDueCents}`,
-              routeMethod: "manual_append",
+              routeMethod: localDelivery ? "local_delivery" : "manual_append",
               routeDistanceMetres: null,
               optimisedAt: null,
             })
@@ -1267,9 +1280,10 @@ export async function optimiseRunsheet(
     ordered.push({ seq, awb: item.awb, legMetres: null, located: false });
   }
 
-  const method = hub!.lat === null || hub!.lng === null
+  const optimisationMethod = hub!.lat === null || hub!.lng === null
     ? "nearest_neighbour_js_unknown_origin"
     : "nearest_neighbour_js";
+  const method = (sheet!.routeMethod?.startsWith("local_delivery") ? "local_delivery:" : "") + optimisationMethod;
   const [updated] = await db
     .update(runsheet)
     .set({

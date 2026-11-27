@@ -289,6 +289,7 @@ function CreateRunsheetDialog({
   const riders = useRiders();
   const [riderId, setRiderId] = React.useState("");
   const [runDate, setRunDate] = React.useState(colomboToday());
+  const [localDelivery, setLocalDelivery] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [openWarning, setOpenWarning] = React.useState(false);
   const openRuns = useRiderOpenRunsheets(riderId, runDate);
@@ -307,7 +308,7 @@ function CreateRunsheetDialog({
       setOpenWarning(true);
       return;
     }
-    create.mutate({ riderId, runDate });
+    create.mutate({ riderId, runDate, localDelivery });
   };
 
   return (
@@ -342,6 +343,10 @@ function CreateRunsheetDialog({
         <Field label="Run date">
           <Input type="date" value={runDate} onChange={(e) => setRunDate(e.target.value)} />
         </Field>
+        <label className="flex items-start gap-2 rounded-md border border-brand/30 bg-brand/5 px-3 py-2 text-[13px]">
+          <input type="checkbox" checked={localDelivery} onChange={(e) => setLocalDelivery(e.target.checked)} />
+          <span><strong>Local delivery</strong><span className="block text-[12px] text-muted-foreground">Only parcels whose destination address is in this hub district can be added. The normal same-district rate card remains authoritative.</span></span>
+        </label>
         {error ? <ErrorNote>{error}</ErrorNote> : null}
       </div>
     </Dialog>
@@ -358,7 +363,7 @@ function CreateRunsheetDialog({
             pending={create.isPending}
             onClick={() => {
               setOpenWarning(false);
-              create.mutate({ riderId, runDate });
+              create.mutate({ riderId, runDate, localDelivery });
             }}
           >
             Create another draft

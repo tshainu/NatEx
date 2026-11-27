@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { RoleGate } from "../../components/natex/role-gate";
+import { RiderDrawerProvider } from "../../components/natex/rider-drawer";
 import { AnimatedWaveTabBar } from "../../components/natex/animated-wave-tab-bar";
 import { useColors } from "../../hooks/use-colors";
 
@@ -17,7 +18,7 @@ export default function TransportLayout() {
 
   return (
     <RoleGate allow={["transport"]}>
-      <Tabs
+      <RiderDrawerProvider><Tabs
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
@@ -81,7 +82,7 @@ export default function TransportLayout() {
         <Tabs.Screen name="bag/[id]" options={{ href: null }} />
         <Tabs.Screen name="trip/[id]" options={{ href: null }} />
         <Tabs.Screen name="receive/[id]" options={{ href: null }} />
-      </Tabs>
+      </Tabs></RiderDrawerProvider>
     </RoleGate>
   );
 }
