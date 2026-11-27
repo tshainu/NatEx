@@ -82,6 +82,7 @@ export default function TransportLayout() {
         <Tabs.Screen name="bag/[id]" options={{ href: null }} />
         <Tabs.Screen name="trip/[id]" options={{ href: null }} />
         <Tabs.Screen name="receive/[id]" options={{ href: null }} />
+        <Tabs.Screen name="book" options={{ href: null }} />
       </Tabs></RiderDrawerProvider>
     </RoleGate>
   );
