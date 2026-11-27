@@ -141,7 +141,7 @@ export default function TransportTripsScreen() {
             value={activeCounts.inFlight}
             color={activeCounts.inFlight > 0 ? colors.statusMoving : undefined}
           />
-          <Pressable onPress={() => router.push("/(transport)/arrived")} accessibilityRole="button" accessibilityLabel={`Open ${activeCounts.arrived} arrived vehicles`}><Stat label="Arrived" value={activeCounts.arrived} /></Pressable>
+          <Pressable onPress={() => router.push("/(rider)/ops-arrived")} accessibilityRole="button" accessibilityLabel={`Open ${activeCounts.arrived} arrived vehicles`}><Stat label="Arrived" value={activeCounts.arrived} /></Pressable>
         </StatRow>
       ) : null}
 

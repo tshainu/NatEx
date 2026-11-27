@@ -17,7 +17,7 @@ export default function ArrivedTripsScreen() {
   const trips = (board.data?.trips ?? []).filter((trip) => trip.status === "arrived");
 
   return (
-    <Screen refreshing={board.isRefetching} onRefresh={() => void board.refetch()}>
+    <Screen inTabs refreshing={board.isRefetching} onRefresh={() => void board.refetch()}>
       <ScreenHeader title="Arrived" subtitle="Vehicles that have reached this hub" />
       {board.isError ? <Panel style={{ borderColor: colors.statusWarn }}><Body color={colors.statusWarn}>Could not load arrived vehicles.</Body></Panel> : null}
       {board.isSuccess && trips.length === 0 ? <Empty title="No arrived vehicles" detail="Arrived vehicles will appear here after they reach the hub." /> : null}

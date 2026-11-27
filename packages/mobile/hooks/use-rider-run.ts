@@ -62,8 +62,9 @@ function isNetwork(error: unknown): boolean {
 
 export const riderRunKey = ["rider", "run"] as const;
 
-export function useRiderRun() {
+export function useRiderRun(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: [...riderRunKey, getSession()?.user.id ?? null],
     networkMode: "always",
     retry: false,
@@ -88,8 +89,9 @@ export function useRiderRun() {
 }
 
 /** Reason codes, cached the same way — the failure screen must work offline. */
-export function useReasonCodes() {
+export function useReasonCodes(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["rider", "reasons", getSession()?.user.id ?? null],
     networkMode: "always",
     retry: false,

@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { orpc } from "../../lib/api";
 import { flushRiderGps, startRiderGps, stopRiderGps } from "../../lib/rider-gps";
 import { RiderDrawerProvider } from "../../components/natex/rider-drawer";
+import { useAuth } from "../../lib/auth";
 
 /**
  * §7 plumbing that must run on EVERY rider screen, not just the run list: a
@@ -19,15 +20,18 @@ import { RiderDrawerProvider } from "../../components/natex/rider-drawer";
  * role gate so it only ever runs for a signed-in rider.
  */
 function OutboxDriver() {
-  const runQuery = useRiderRun();
+  const { role } = useAuth();
+  const riderEnabled = role === "rider";
+  const runQuery = useRiderRun(riderEnabled);
   useOutboxDriver(runQuery.data?.run ?? null);
   // The failure screen's reason list must be on the phone BEFORE signal goes.
-  useReasonCodes();
+  useReasonCodes(riderEnabled);
   return null;
 }
 
 function GpsDriver() {
-  const status = useQuery({ ...orpc.hr.clockStatus.queryOptions({ input: {} }), refetchInterval: 30_000 });
+  const { role } = useAuth();
+  const status = useQuery({ ...orpc.hr.clockStatus.queryOptions({ input: {} }), enabled: role === "rider", refetchInterval: 30_000 });
   const clockedIn = Boolean(status.data?.row?.clockInAt && !status.data?.row?.clockOutAt);
   const warned = useRef(false);
   useEffect(() => {
@@ -59,11 +63,12 @@ function GpsDriver() {
 export default function RiderLayout() {
   const colors = useColors();
   return (
-    <RoleGate allow={["rider"]}>
+    <RoleGate allow={["rider", "transport"]}>
       <RiderDrawerProvider>
       <OutboxDriver />
       <GpsDriver />
       <Tabs
+        initialRouteName="home"
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: colors.primary,
@@ -71,19 +76,6 @@ export default function RiderLayout() {
         }}
         tabBar={(props) => <AnimatedWaveTabBar {...props} />}
       >
-        <Tabs.Screen
-          name="home"
-          options={{
-            title: "Home",
-            tabBarIcon: ({ size, focused }) => (
-              <Ionicons
-                name={focused ? "home" : "home-outline"}
-                size={focused ? 29 : 27}
-                color={focused ? colors.primary : colors.mutedForeground}
-              />
-            ),
-          }}
-        />
         <Tabs.Screen
           name="index"
           options={{
@@ -105,6 +97,19 @@ export default function RiderLayout() {
               <MaterialCommunityIcons
                 name="motorbike"
                 size={25}
+                color={focused ? colors.primary : colors.mutedForeground}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="home"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ size, focused }) => (
+              <Ionicons
+                name={focused ? "home" : "home-outline"}
+                size={focused ? 29 : 27}
                 color={focused ? colors.primary : colors.mutedForeground}
               />
             ),
@@ -147,6 +152,11 @@ export default function RiderLayout() {
         <Tabs.Screen name="enroll-merchant" options={{ href: null }} />
         <Tabs.Screen name="route" options={{ href: null }} />
         <Tabs.Screen name="transport" options={{ href: null }} />
+        <Tabs.Screen name="ops" options={{ href: null }} />
+        <Tabs.Screen name="ops-bags" options={{ href: null }} />
+        <Tabs.Screen name="ops-transport" options={{ href: null }} />
+        <Tabs.Screen name="ops-inbound" options={{ href: null }} />
+        <Tabs.Screen name="ops-arrived" options={{ href: null }} />
         <Tabs.Screen name="overtime" options={{ href: null }} />
         <Tabs.Screen name="leave" options={{ href: null }} />
       </Tabs>

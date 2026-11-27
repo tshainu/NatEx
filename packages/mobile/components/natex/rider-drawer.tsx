@@ -24,9 +24,7 @@ const MENU = [
 
 const HUB_MANAGER_MENU = [
   ["Book a parcel", "Native hub booking", "add-circle-outline", "/(transport)/book"],
-  ["Bags", "Create, scan, and seal bags", "bag-handle-outline", "/(transport)"],
-  ["Transport", "Load and depart vehicles", "bus-outline", "/(transport)/trips"],
-  ["Inbound", "Receive arrived bags", "download-outline", "/(transport)/inbound"],
+  ["Ops", "Bags, transport, and inbound", "business-outline", "/(rider)/ops"],
 ] as const;
 
 type RiderDrawerContextValue = { open: () => void };
@@ -58,7 +56,7 @@ function RiderDrawer({ visible, onClose, userName, branch, role, signOut, isHubM
   const openHubManagerRoute = async (href: (typeof HUB_MANAGER_MENU)[number][3]) => {
     onClose();
     if (role !== "transport") await switchRole("transport");
-    router.push(href);
+    router.push(href.replace("/(transport)/book", "/(transport)/book") as never);
   };
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={styles.modalRoot}><Pressable style={styles.scrim} onPress={onClose} /><View style={[styles.drawer, { backgroundColor: colors.background, paddingBottom: safeBottom + Space.page }]}><ScrollView contentContainerStyle={styles.drawerContent} showsVerticalScrollIndicator={false}><View style={styles.drawerHandle} /><View style={styles.profile}><View style={[styles.avatar, { backgroundColor: colors.primary }]}><Body color={colors.primaryForeground}>{userName.slice(0, 1).toUpperCase()}</Body></View><View style={styles.flex}><Title>{userName}</Title><Small>{branch}</Small></View><Pressable accessibilityLabel="Close rider menu" onPress={onClose}><Ionicons name="close" size={23} color={colors.mutedForeground} /></Pressable></View><View style={[styles.divider, { backgroundColor: colors.border }]} />{MENU.map(([label, detail, icon, href]) => <Pressable key={label} onPress={() => void openMenuRoute(href)} style={styles.item}><Ionicons name={icon} size={20} color={colors.primary} /><View style={styles.flex}><Body>{label}</Body><Small>{detail}</Small></View><Ionicons name="chevron-forward" size={17} color={colors.mutedForeground} /></Pressable>)}{isHubManager ? <><View style={[styles.sectionLabel, { borderColor: colors.border }]}><Small color={colors.primary}>OPS</Small></View>{HUB_MANAGER_MENU.map(([label, detail, icon, href]) => <Pressable key={label} onPress={() => void openHubManagerRoute(href)} style={styles.item}><Ionicons name={icon} size={20} color={colors.primary} /><View style={styles.flex}><Body>{label}</Body><Small>{detail}</Small></View><Ionicons name="chevron-forward" size={17} color={colors.mutedForeground} /></Pressable>)}</> : null}<View style={styles.footer}><View style={styles.footerRow}><Pressable onPress={async () => { onClose(); await signOut(); router.replace("/login"); }} style={styles.footerAction}><Ionicons name="log-out-outline" size={18} color={colors.statusWarn} /><Small color={colors.statusWarn}>Sign out</Small></Pressable><View style={styles.themeRow}><Pressable onPress={() => void setThemePreference("dark")} style={[styles.themeChoice, { backgroundColor: preference === "dark" ? colors.primary : colors.secondary }]}><Ionicons name="moon-outline" size={15} color={preference === "dark" ? colors.primaryForeground : colors.mutedForeground} /><Small color={preference === "dark" ? colors.primaryForeground : colors.foreground}>Dark</Small></Pressable><Pressable onPress={() => void setThemePreference("day")} style={[styles.themeChoice, { backgroundColor: preference === "day" ? colors.primary : colors.secondary }]}><Ionicons name="sunny-outline" size={15} color={preference === "day" ? colors.primaryForeground : colors.mutedForeground} /><Small color={preference === "day" ? colors.primaryForeground : colors.foreground}>Light</Small></Pressable></View></View></View></ScrollView></View></View></Modal>;
 }

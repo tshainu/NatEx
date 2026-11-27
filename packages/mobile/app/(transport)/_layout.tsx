@@ -66,15 +66,11 @@ export default function TransportLayout() {
           }}
         />
         <Tabs.Screen
-          name="settings"
+          name="arrived"
           options={{
-            title: "Settings",
+            title: "Arrived",
             tabBarIcon: ({ size, focused }) => (
-              <Ionicons
-                name={focused ? "settings" : "settings-outline"}
-                size={size}
-                color={focused ? colors.primary : colors.mutedForeground}
-              />
+              <Ionicons name={focused ? "checkmark-circle" : "checkmark-circle-outline"} size={size} color={focused ? colors.primary : colors.mutedForeground} />
             ),
           }}
         />
