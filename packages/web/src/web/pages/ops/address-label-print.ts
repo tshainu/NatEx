@@ -76,9 +76,9 @@ export function renderAddressLabel(data: AddressLabelData): string {
     .sender-phone { margin: 0.015in 0 0; font-size: 0.09in; font-weight: 600 }
     .right-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: 2.05in minmax(0, 1fr); overflow: hidden }
     .package-detail { min-width: 0; min-height: 0; overflow: hidden }
-    .package-title { height: 0.35in; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #222; font-size: 0.19in; font-weight: 700 }
-    .details { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.135in; line-height: 1 }
-    .details th, .details td { height: 0.275in; border-bottom: 1px solid #bbb; padding: 0.025in 0.06in; vertical-align: middle; overflow-wrap: anywhere; white-space: normal }
+    .package-title { height: 0.30in; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #222; font-size: 0.18in; font-weight: 700 }
+    .details { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.125in; line-height: 0.9 }
+    .details th, .details td { height: 0.24in; border-bottom: 1px solid #bbb; padding: 0.01in 0.05in; vertical-align: middle; overflow-wrap: anywhere; white-space: normal }
     .details th { width: 52%; text-align: left; font-weight: 400 }
     .details td { width: 48%; text-align: left; font-weight: 400; border-left: 1px solid #bbb }
     .tracking-area { min-width: 0; min-height: 0; position: relative; border-top: 0; display: flex; align-items: center; justify-content: center; overflow: hidden }
