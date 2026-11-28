@@ -59,4 +59,33 @@ describe("NatEx address label", () => {
     expect(html).toContain("24<br>Temple street<br>Nallur<br>Jaffna");
     expect(html).not.toContain("text-overflow: ellipsis");
   });
+
+  test("keeps a long sender address inside the reserved From row", () => {
+    const html = renderAddressLabel({
+      ...base,
+      senderName: "A Sender With A Longer Registered Business Name",
+      senderAddress: "No. 24, Temple street, Nallur, Jaffna, Northern Province, Sri Lanka",
+    });
+    expect(html).toContain("grid-template-rows: 1.88in 1fr");
+    expect(html).toContain(".from-block { border-top: 1px solid #222");
+    expect(html).toContain("font-size: 0.145in; line-height: 1.02");
+    expect(html).toContain("No. 24<br>Temple street<br>Nallur<br>Jaffna<br>Northern Province<br>Sri Lanka");
+  });
+
+  test("allows a wrapped delivery charge while retaining every package row", () => {
+    const html = renderAddressLabel({
+      ...base,
+      deliveryCharge: "Rs. 1,250.00 (weight-based)",
+      totalCollectCents: 170000,
+      advancedPaidCents: 50000,
+    });
+    expect(html).toContain("grid-template-rows: 2.05in 1fr");
+    expect(html).toContain("overflow-wrap: anywhere; white-space: normal");
+    expect(html).toContain(".details th { width: 52%");
+    expect(html).toContain(".details td { width: 48%");
+    expect(html).toContain("Delivery charge");
+    expect(html).toContain("Rs. 1,250.00 (weight-based)");
+    expect(html).toContain("Total collect");
+    expect(html).toContain("Advanced paid");
+  });
 });
