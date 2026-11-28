@@ -20,10 +20,12 @@ const base: AddressLabelData = {
 describe("NatEx address label", () => {
   test("prints zero paid delivery charge and keeps the sticker area", () => {
     const html = renderAddressLabel({ ...base, deliveryCharge: "0 (Paid)", totalCollectCents: 0, advancedPaidCents: 45000 });
-    expect(html).toContain("@page { size: 150mm 100mm");
+    expect(html).toContain("@page { size: 6in 3in");
+    expect(html).toContain("grid-template-columns: 0.92in 5.08in");
+    expect(html).toContain("transform: rotate(-90deg)");
     expect(html).toContain("/natex-label-logo.jpg");
     expect(html).toContain("0 (Paid)");
-    expect(html).toContain("Tracking label");
+    expect(html).toContain("Tracking Number");
     expect(html).toContain("NX1234567890");
   });
 
@@ -36,8 +38,8 @@ describe("NatEx address label", () => {
       totalCollectCents: 170000,
     });
     expect(html).toContain("Rs. 450.00");
-    expect(html).toContain("Rs. 1250.00");
-    expect(html).toContain("Rs. 1700.00");
+    expect(html).toContain("1,250/-");
+    expect(html).toContain("1,700/-");
     expect(html).toContain("<img src=\"/natex-label-logo.jpg\"");
   });
 
