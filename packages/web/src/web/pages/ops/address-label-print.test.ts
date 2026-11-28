@@ -36,7 +36,7 @@ describe("NatEx address label", () => {
     expect(html).toContain("Rs. 450.00");
     expect(html).toContain("Rs. 1250.00");
     expect(html).toContain("Rs. 1700.00");
-    expect(html).toContain("<img src=\"/natex-logo.png\"");
+    expect(html).toContain("<img src=\"/natex-label-logo.jpg\"");
   });
 
   test("escapes recipient and sender content", () => {

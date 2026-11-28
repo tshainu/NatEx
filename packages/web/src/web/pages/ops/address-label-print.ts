@@ -62,7 +62,7 @@ export function renderAddressLabel(data: AddressLabelData): string {
     .sticker { min-width: 30mm; text-align: right; font-size: 9px; font-weight: 700; color: #333 }
     @media screen { body { padding: 10px; background: #e5e7eb } .label { margin: 0 auto; box-shadow: 0 2px 12px #0002 } }
   </style></head><body><main class="label" aria-label="NatEx address label">
-    <header class="brand"><img src="/natex-logo.png" alt="NatEx"><div class="brand-copy">Address label<br><span class="tracking">${text(data.awb)}</span></div></header>
+    <header class="brand"><img src="/natex-label-logo.jpg" alt="NatEx"><div class="brand-copy">Address label<br><span class="tracking">${text(data.awb)}</span></div></header>
     <section class="address-box"><h2>To</h2><div class="name">${text(data.recipientName)}</div><div>${text(data.recipientAddress)}</div><div class="phone">Tel: ${text(data.recipientPhone)}</div></section>
     <section class="from-box"><h2>From</h2><div class="name">${text(data.senderName)}</div><div>${text(data.senderAddress)}</div>${data.senderPhone ? `<div>Tel: ${text(data.senderPhone)}</div>` : ""}</section>
     <table class="details"><tbody>
