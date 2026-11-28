@@ -181,8 +181,8 @@ export async function setMerchantPayout(input: {
   note?: string | null;
   actor?: Principal | null;
 }, executor: DbTransaction | typeof db = db): Promise<MerchantPayoutRow> {
-  if (input.actor?.role !== "admin" && input.actor?.role !== "finance") {
-    errors.forbidden("Only Admin or Finance can record merchant payout details.");
+  if (input.actor?.role !== "admin" && input.actor?.role !== "finance" && input.actor?.role !== "gom") {
+    errors.forbidden("Only Admin, Finance, or General Operations Manager can record merchant payout details.");
   }
   for (const [field, value] of Object.entries({
     beneficiaryName: input.beneficiaryName,
