@@ -20,6 +20,8 @@ const base: AddressLabelData = {
 describe("NatEx address label", () => {
   test("prints zero paid delivery charge and keeps the sticker area", () => {
     const html = renderAddressLabel({ ...base, deliveryCharge: "0 (Paid)", totalCollectCents: 0, advancedPaidCents: 45000 });
+    expect(html).toContain("@page { size: 150mm 100mm");
+    expect(html).toContain("/natex-label-logo.jpg");
     expect(html).toContain("0 (Paid)");
     expect(html).toContain("Tracking label");
     expect(html).toContain("NX1234567890");
