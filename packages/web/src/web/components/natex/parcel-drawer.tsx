@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Printer } from "lucide-react";
 import { orpc, client, apiMessage, apiDetails } from "@/lib/api";
 import {
   coords,
@@ -20,6 +21,8 @@ import { statusColour } from "@/lib/status";
 import { ulid } from "@/lib/ulid";
 import { AddressFields } from "./address-fields";
 import { EMPTY_ADDRESS, addressPartsFromLegacy, formatAddress, isCompleteAddress, type AddressParts } from "@/lib/address";
+import { renderAddressLabel } from "@/pages/ops/address-label-print";
+import { closeCounterReceiptWindow, openCounterReceiptWindow, printCounterReceiptWindow, type ReceiptPrintWindow } from "@/pages/ops/counter-print";
 
 interface EditForm {
   weightKg: string;
@@ -71,6 +74,11 @@ export function ParcelDrawer({
     ...orpc.parcels.get.queryOptions({ input: { awbOrId: awb ?? "" } }),
     enabled: Boolean(awb),
   });
+  const merchantOptions = useQuery({
+    ...orpc.merchants.options.queryOptions(),
+    enabled: Boolean(detail.data?.parcel.merchantId),
+    staleTime: 5 * 60_000,
+  });
 
   const transition = useMutation({
     mutationFn: (to: string) =>
@@ -106,6 +114,26 @@ export function ParcelDrawer({
   const parcel = detail.data?.parcel;
   const timeline = detail.data?.timeline ?? [];
   const commandable = detail.data?.commandable ?? [];
+  const merchant = merchantOptions.data?.find((item) => item.id === parcel?.merchantId);
+  const originDistrict = parcel ? addressPartsFromLegacy(parcel.originAddress).district : "";
+  const destinationDistrict = parcel ? addressPartsFromLegacy(parcel.destAddress).district : "";
+  const labelQuote = useQuery({
+    ...orpc.rateCards.quoteForMerchant.queryOptions({
+      input: {
+        merchantId: parcel?.merchantId ?? "_",
+        band: originDistrict && destinationDistrict && originDistrict === destinationDistrict ? "local" : "outstation",
+        weightGrams: parcel?.weightGrams ?? 1,
+        lengthCm: parcel?.lengthCm ?? null,
+        widthCm: parcel?.widthCm ?? null,
+        heightCm: parcel?.heightCm ?? null,
+        requested: [],
+      },
+    }),
+    enabled: Boolean(parcel?.merchantId && originDistrict && destinationDistrict),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const canReprintLabel = Boolean(parcel && ["Booked", "PickedUp", "AtOriginHub"].includes(parcel.status));
   const [editOpen, setEditOpen] = React.useState(false);
   const [editForm, setEditForm] = React.useState<EditForm>(EMPTY_EDIT);
 
@@ -170,6 +198,35 @@ export function ParcelDrawer({
     isCompleteAddress(editForm.destAddress),
   );
 
+  const reprintAddressLabel = () => {
+    if (!parcel || !canReprintLabel) return;
+    const deliveryChargeCents = parcel.deliveryChargeIncludedCents ?? labelQuote.data?.totalCents ?? null;
+    const codCents = parcel.codAmountCents ?? 0;
+    const popup = openCounterReceiptWindow((url, target, features) =>
+      window.open(url, target, features) as ReceiptPrintWindow | null,
+    );
+    const printed = printCounterReceiptWindow(
+      popup,
+      renderAddressLabel({
+        awb: parcel.awb,
+        recipientName: parcel.consigneeName,
+        recipientPhone: parcel.consigneePhone,
+        recipientAddress: parcel.destAddress,
+        senderName: merchant?.name ?? "NatEx merchant",
+        senderAddress: parcel.originAddress,
+        weightGrams: parcel.weightGrams,
+        codStatus: codCents > 0 ? "Yes" : "No — prepaid",
+        codAmountCents: codCents,
+        deliveryCharge: deliveryChargeCents === null ? "As per rate card" : money(deliveryChargeCents),
+        totalCollectCents: codCents + (deliveryChargeCents ?? 0),
+        advancedPaidCents: 0,
+        description: parcel.description,
+      }),
+      () => setFailure("The address label could not be loaded. The parcel was not changed; retry printing the label."),
+    );
+    if (!printed) closeCounterReceiptWindow(popup);
+  };
+
   return (
     <>
       <Drawer
@@ -189,6 +246,11 @@ export function ParcelDrawer({
         footer={
           detail.data ? (
             <div className="flex flex-wrap items-center gap-2">
+              {canReprintLabel ? (
+                <Button size="sm" variant="outline" onClick={reprintAddressLabel}>
+                  <Printer aria-hidden /> Reprint address label
+                </Button>
+              ) : null}
               <CommandBar
                 commandable={detail.data.commandable}
                 legalNext={detail.data.legalNext}
