@@ -49,20 +49,20 @@ function weightLabel(weightGrams: number): string {
   return `${Number.isInteger(kilograms) ? kilograms : kilograms.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")} kg`;
 }
 
-/** Print-ready 6 × 3 inch NatEx label matching the supplied reference layout. */
+/** Print-ready 6 × 2.76 inch NatEx label matching the supplied reference layout. */
 export function renderAddressLabel(data: AddressLabelData): string {
   const detailRow = (label: string, value: string, className = "") =>
     `<tr class="${className}"><th>${escapeHtml(label)}</th><td>${value}</td></tr>`;
   const advancedPaid = data.advancedPaidCents > 0 ? labelMoney(data.advancedPaidCents) : "-";
   return `<!doctype html><html><head><meta charset="utf-8"><title>NatEx address label ${escapeHtml(data.awb)}</title><style>
-    @page { size: 6in 3in; margin: 0 }
+    @page { size: 6in 2.76in; margin: 0 }
     * { box-sizing: border-box }
-    html, body { width: 6in; height: 3in; margin: 0; padding: 0; background: #fff; color: #252525; font-family: Arial, Helvetica, sans-serif }
+    html, body { width: 6in; height: 2.76in; margin: 0; padding: 0; background: #fff; color: #252525; font-family: Arial, Helvetica, sans-serif }
     body { overflow: hidden }
-    .label { width: 6in; height: 3in; display: grid; grid-template-columns: 0.92in 5.08in; background: #fff }
-    .logo-panel { width: 0.92in; height: 3in; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff }
+    .label { width: 6in; height: 2.76in; min-height: 0; display: grid; grid-template-columns: 0.92in 5.08in; background: #fff; overflow: hidden }
+    .logo-panel { width: 0.92in; height: 3in; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; transform: scaleY(0.92); transform-origin: top left }
     .logo-panel img { display: block; width: 2.72in; height: auto; max-width: none; flex: 0 0 auto; transform: rotate(-90deg); transform-origin: center center }
-    .document { width: 5.08in; height: 3in; min-height: 0; display: grid; grid-template-columns: 1.64fr 1fr; border: 1px solid #222; overflow: hidden }
+    .document { width: 5.08in; height: 3in; min-height: 0; display: grid; grid-template-columns: 1.64fr 1fr; border: 1px solid #222; overflow: hidden; transform: scaleY(0.92); transform-origin: top left }
     .left-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: 1.88in minmax(0, 1fr); border-right: 1px solid #222; overflow: hidden }
     .to-block, .from-block { min-width: 0; min-height: 0; padding: 0.13in 0.10in 0.08in 0.10in; overflow: hidden }
     .from-block { border-top: 1px solid #222; padding-top: 0.10in }

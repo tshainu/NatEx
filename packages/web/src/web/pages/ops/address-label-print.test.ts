@@ -20,7 +20,7 @@ const base: AddressLabelData = {
 describe("NatEx address label", () => {
   test("prints zero paid delivery charge and keeps the sticker area", () => {
     const html = renderAddressLabel({ ...base, deliveryCharge: "0 (Paid)", totalCollectCents: 0, advancedPaidCents: 45000 });
-    expect(html).toContain("@page { size: 6in 3in");
+    expect(html).toContain("@page { size: 6in 2.76in");
     expect(html).toContain("grid-template-columns: 0.92in 5.08in");
     expect(html).toContain("transform: rotate(-90deg)");
     expect(html).toContain("/natex-label-logo.jpg");
