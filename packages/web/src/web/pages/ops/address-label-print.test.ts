@@ -66,9 +66,11 @@ describe("NatEx address label", () => {
       senderName: "A Sender With A Longer Registered Business Name",
       senderAddress: "No. 24, Temple street, Nallur, Jaffna, Northern Province, Sri Lanka",
     });
-    expect(html).toContain("grid-template-rows: 1.88in 1fr");
+    expect(html).toContain("grid-template-rows: 1.88in minmax(0, 1fr)");
+    expect(html).toContain("min-height: 0; display: grid");
+    expect(html).toContain("overflow: hidden");
     expect(html).toContain(".from-block { border-top: 1px solid #222");
-    expect(html).toContain("font-size: 0.145in; line-height: 1.02");
+    expect(html).toContain("font-size: 0.11in; line-height: 0.92");
     expect(html).toContain("No. 24<br>Temple street<br>Nallur<br>Jaffna<br>Northern Province<br>Sri Lanka");
   });
 
@@ -79,7 +81,7 @@ describe("NatEx address label", () => {
       totalCollectCents: 170000,
       advancedPaidCents: 50000,
     });
-    expect(html).toContain("grid-template-rows: 2.05in 1fr");
+    expect(html).toContain("grid-template-rows: 2.05in minmax(0, 1fr)");
     expect(html).toContain("overflow-wrap: anywhere; white-space: normal");
     expect(html).toContain(".details th { width: 52%");
     expect(html).toContain(".details td { width: 48%");
