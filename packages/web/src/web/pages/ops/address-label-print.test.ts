@@ -48,4 +48,15 @@ describe("NatEx address label", () => {
     expect(html).toContain("&lt;script&gt;bad()&lt;/script&gt;");
     expect(html).not.toContain("<script>bad()</script>");
   });
+
+  test("keeps each comma-separated address detail visible on its own line", () => {
+    const html = renderAddressLabel({
+      ...base,
+      recipientAddress: "14A, 1st Cross street, Wellawatta, Colombo-06",
+      senderAddress: "24, Temple street, Nallur, Jaffna",
+    });
+    expect(html).toContain("14A<br>1st Cross street<br>Wellawatta<br>Colombo-06");
+    expect(html).toContain("24<br>Temple street<br>Nallur<br>Jaffna");
+    expect(html).not.toContain("text-overflow: ellipsis");
+  });
 });
