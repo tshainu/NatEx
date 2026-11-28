@@ -17,6 +17,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { FreightReceipt } from "@/components/natex/freight-receipt";
 import { renderFreightReceiptDocument } from "./freight-receipt-print";
 import { openCounterReceiptWindow, closeCounterReceiptWindow, printCounterReceiptWindow, type ReceiptPrintWindow } from "./counter-print";
+import { renderAddressLabel } from "./address-label-print";
 import { counterHistoryDateRange, type CounterHistoryDatePreset } from "./counter-history-date";
 
 interface FormState {
@@ -402,6 +403,36 @@ export default function RetailFreightCounter() {
     create.reset();
   };
   const canPrint = activeTab === "booking" && Boolean(booking);
+  const printAddressLabel = (value: Booking) => {
+    const paidAtCounter = Boolean(value.paidReceipt);
+    const deliveryChargeCents = value.freightCharge.amountCents;
+    const advancedPaidCents = value.paidReceipt?.amountCents ?? 0;
+    const popup = openCounterReceiptWindow((url, target, features) =>
+      window.open(url, target, features) as ReceiptPrintWindow | null,
+    );
+    const printed = printCounterReceiptWindow(
+      popup,
+      renderAddressLabel({
+        awb: value.parcel.awb,
+        recipientName: value.parcel.consigneeName,
+        recipientPhone: value.parcel.consigneePhone,
+        recipientAddress: value.parcel.destAddress,
+        senderName: value.freightCharge.senderName,
+        senderPhone: value.freightCharge.senderPhone,
+        senderAddress: value.freightCharge.senderAddress ?? value.parcel.originAddress,
+        weightGrams: value.parcel.weightGrams,
+        codStatus: "No — prepaid",
+        codAmountCents: 0,
+        deliveryCharge: paidAtCounter ? "0 (Paid)" : money(deliveryChargeCents),
+        totalCollectCents: paidAtCounter ? 0 : deliveryChargeCents,
+        advancedPaidCents,
+        description: value.parcel.description,
+      }),
+      () => setPrintNotice("The address label could not be loaded. Your booking is safe; retry printing the label."),
+    );
+    if (!printed) closeCounterReceiptWindow(popup);
+    setPrintNotice(printed ? "Address label opened for printing." : "The label popup was blocked. Allow popups, then retry.");
+  };
 
   return (
     <Page
@@ -445,6 +476,11 @@ export default function RetailFreightCounter() {
                   </KeyValueGrid>
                   <p className="mt-3 text-sm text-muted-foreground">The tracking number is on the receipt. No booking or tracking SMS is sent; POD messaging is limited to delivery confirmation.</p>
                   {printNotice ? <output className="mt-2 block text-sm text-muted-foreground">{printNotice}</output> : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => printAddressLabel(booking)}>
+                      <Printer aria-hidden /> Print address label
+                    </Button>
+                  </div>
                 </div>
               </div>
               <Button className="mt-4" size="sm" variant="outline" onClick={reset}><RotateCcw aria-hidden />Book another parcel</Button>

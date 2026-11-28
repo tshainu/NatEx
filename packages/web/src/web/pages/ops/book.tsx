@@ -11,6 +11,7 @@ import {
   type CounterBookingReceiptData,
   type ReceiptPrintWindow,
 } from "./counter-print";
+import { renderAddressLabel } from "./address-label-print";
 import { money, toE6, metres } from "@/lib/format";
 import { chargeableWeightGrams, DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS, kgToGrams, kilogramsLabel, rupeesToCents } from "@/lib/csv";
 import { Page, Card, ErrorNote, KeyValue, KeyValueGrid } from "@/components/natex/page";
@@ -87,6 +88,10 @@ function receiptDataForBooking(booking: Booking, branch: CounterBookingReceiptDa
   };
 }
 
+function deliveryChargeForParcel(booking: Booking, quotedCents?: number | null): number | null {
+  return booking.parcel.deliveryChargeIncludedCents ?? quotedCents ?? null;
+}
+
 export default function OpsBook() {
   const queryClient = useQueryClient();
   const [form, setForm] = React.useState<Form>(EMPTY);
@@ -111,6 +116,25 @@ export default function OpsBook() {
     refetchInterval: 30_000,
   });
   const maxWeightGrams = bookingLimits.data?.maxChargeableWeightGrams ?? DEFAULT_BOOKING_WEIGHT_LIMIT_GRAMS;
+  const selectedMerchant = bookableMerchants.find((merchant) => merchant.id === booked?.parcel.merchantId);
+  const merchantOriginDistrict = booked ? addressPartsFromLegacy(booked.parcel.originAddress).district : "";
+  const merchantDestinationDistrict = booked ? addressPartsFromLegacy(booked.parcel.destAddress).district : "";
+  const labelQuote = useQuery({
+    ...orpc.rateCards.quoteForMerchant.queryOptions({
+      input: {
+        merchantId: booked?.parcel.merchantId ?? "_",
+        band: merchantOriginDistrict && merchantDestinationDistrict && merchantOriginDistrict === merchantDestinationDistrict ? "local" : "outstation",
+        weightGrams: booked?.parcel.weightGrams ?? 1,
+        lengthCm: booked?.parcel.lengthCm ?? null,
+        widthCm: booked?.parcel.widthCm ?? null,
+        heightCm: booked?.parcel.heightCm ?? null,
+        requested: [],
+      },
+    }),
+    enabled: Boolean(booked?.parcel.merchantId && merchantOriginDistrict && merchantDestinationDistrict),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
   const [checkedSticker, setCheckedSticker] = React.useState({ merchantId: "", awb: "" });
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -273,6 +297,35 @@ export default function OpsBook() {
     setPrintNotice("Receipt opened for printing.");
   };
 
+  const printAddressLabel = (booking: Booking) => {
+    const deliveryChargeCents = deliveryChargeForParcel(booking, labelQuote.data?.totalCents);
+    const codCents = booking.parcel.codAmountCents ?? 0;
+    const popup = openCounterReceiptWindow((url, target, features) =>
+      window.open(url, target, features) as ReceiptPrintWindow | null,
+    );
+    const printed = printCounterReceiptWindow(
+      popup,
+      renderAddressLabel({
+        awb: booking.parcel.awb,
+        recipientName: booking.parcel.consigneeName,
+        recipientPhone: booking.parcel.consigneePhone,
+        recipientAddress: booking.parcel.destAddress,
+        senderName: selectedMerchant?.name ?? "NatEx merchant",
+        senderAddress: booking.parcel.originAddress,
+        weightGrams: booking.parcel.weightGrams,
+        codStatus: codCents > 0 ? "Yes" : "No — prepaid",
+        codAmountCents: codCents,
+        deliveryCharge: deliveryChargeCents === null ? "As per rate card" : money(deliveryChargeCents),
+        totalCollectCents: codCents + (deliveryChargeCents ?? 0),
+        advancedPaidCents: 0,
+        description: booking.parcel.description,
+      }),
+      () => setPrintNotice("The address label could not be loaded. Your booking is safe; retry printing the label."),
+    );
+    if (!printed) closeCounterReceiptWindow(popup);
+    setPrintNotice(printed ? "Address label opened for printing." : "The label popup was blocked. Allow popups, then retry.");
+  };
+
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!valid || create.isPending || submissionInFlight.current) return;
@@ -311,6 +364,9 @@ export default function OpsBook() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => printBooking(booked)}>
                   <Printer aria-hidden /> Print / open receipt
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => printAddressLabel(booked)}>
+                  <Printer aria-hidden /> Print address label
                 </Button>
                 <Button
                   variant="ghost"
